@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy
+      - run: pytest -q
+
+  player:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: player
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+
+  hygiene:
+    # Enforces "never commit data, media or weights": no tracked file may exceed 5 MB.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject large tracked files
+        run: |
+          big=$(git ls-files -z | xargs -0 -I{} find {} -maxdepth 0 -type f -size +5M)
+          if [ -n "$big" ]; then
+            echo "Large files are not allowed in Git (use LFS/DVC pointers):"
+            echo "$big"
+            exit 1
+          fi

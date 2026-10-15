@@ -1,0 +1,16 @@
+{
+  "name": "@worldreel/player",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "WorldReel web player (TypeScript, WebGPU with fallback). Plays .wreel only.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "5.6.3",
+    "vitest": "2.1.8"
+  }
+}

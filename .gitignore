@@ -1,0 +1,57 @@
+# --- Data, media and weights: NEVER commit (see CLAUDE.md) ---
+data/
+outputs/
+runs/
+checkpoints/
+weights/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.onnx
+*.gguf
+*.npz
+*.npy
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.wav
+*.flac
+*.mp3
+*.exr
+*.png
+*.jpg
+*.jpeg
+*.ply
+*.splat
+*.wreel
+*.wedit
+!spec/**/*.png
+!docs/**/*.png
+
+# Local machine reports
+*.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Node
+node_modules/
+player/dist/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
