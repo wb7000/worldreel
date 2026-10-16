@@ -1,6 +1,3 @@
-"""Stage `frames`: Decode video into frames and audio; detect scene cuts.
-
-Phase 0 skeleton: no implementation yet.
-"""
+"""Stage `frames`: Decode video into frames and audio; detect scene cuts."""
 
 STAGE_NAME = "frames"

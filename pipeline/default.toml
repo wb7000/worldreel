@@ -1,0 +1,22 @@
+# Default pipeline configuration. Copy and pass --config to change it; never edit code to
+# switch implementations or machines.
+
+seed = 0
+max_workers = 4
+
+[impl]
+frames = "real"        # needs ffmpeg + ffprobe; use "mock" without them
+camera = "mock"        # real depth/pose model: Phase 3 (cloud GPU)
+reconstruct = "mock"   # real reconstruction: Phase 3 (cloud GPU)
+actors = "mock"
+fill = "mock"
+audio = "mock"
+package = "real"
+export = "mock"
+
+[stage.frames]
+fps = 5.0
+max_width = 640
+proxy_width = 64
+scene_threshold = 0.3
+max_seconds = 600.0

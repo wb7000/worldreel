@@ -1,5 +1,9 @@
 # --- Data, media and weights: NEVER commit (see CLAUDE.md) ---
-data/
+# Everything under data/ is ignored except the small text records (docs/DATA.md).
+data/*
+!data/manifest.csv
+!data/removals.csv
+!data/versions/
 outputs/
 runs/
 checkpoints/
@@ -55,3 +59,6 @@ player/dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local machine config
+worldreel.local.toml

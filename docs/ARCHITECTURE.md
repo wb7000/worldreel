@@ -22,19 +22,50 @@ Status: Phase 0 skeleton. Sections are filled in as each phase lands.
  generate (later): .wscript ─▶ scene generation ─▶ package
 ```
 
-## Stage contract (to be specified in Phase 1/2)
-Each stage declares:
-- `name`, `version`
-- input and output manifests (paths in the work directory layout)
-- cache key = hash(stage name, stage version, config, input content hashes)
-- status: `pending | running | done | failed`
-- a real implementation and a **mock** implementation (CPU-only, tiny synthetic data)
+## Stage contract (Phase 2, `pipeline/stage.py`)
+Each stage class declares `name`, `version`, `impl` (`mock` or `real`) and `depends_on`
+(other stage names, or `source` for the raw file), and implements `run(ctx)`. The context gives
+the item (id, hash, licence, rights), finished input folders, an empty output folder, the stage's
+config and the seed. File names shared between stages are constants in `pipeline/io.py`.
 
-Stages only talk through files. The job runner executes them in dependency order, in parallel where
-independent, and resumes after a crash by skipping stages whose cache key is already `done`.
+| Stage | Depends on | Mock (CPU, tiny) | Real |
+|---|---|---|---|
+| frames | source | synthetic 64×48 frames | ffmpeg: PNG frames, proxy.npy, audio.wav, scene cuts |
+| camera | frames | static camera over a flat floor | Phase 3 |
+| reconstruct | frames, camera | back-projects frame 0 | Phase 3 |
+| actors | frames, camera | finds nothing | Phase 3 |
+| fill | reconstruct, camera | grey "guessed" floor behind the camera | Phase 4 |
+| audio | frames | empty audio section | Phase 5 |
+| package | frames … audio | — (the real one is cheap) | signed `.wreel` |
+| export | package | records what would be exported | Phase 6 |
+| generate | source (script) | returns the canned sample scene | Phase 8 |
+
+`ingest` (`stages/ingest/store.py`) runs before the pipeline; `safety` is the hook below.
+
+## Job runner (`pipeline/runner.py`)
+- Runs stages in dependency order, independent ones in parallel (thread pool, `max_workers`).
+- **Cache key** = SHA-256 of (stage, version, impl, stage config, seed, source hash, the
+  *content* hashes of every input stage's output). A finished stage is reused when the key
+  matches and its files are unchanged; a re-run that produces identical bytes therefore does
+  not invalidate anything downstream.
+- **Atomic, resumable:** a stage writes into `.<stage>.tmp-*` and is moved into place only on
+  success; leftovers from a crash are deleted on the next run.
+- **Failure isolation:** a failing stage records `failed` with the error; its dependents are
+  marked `failed (blocked)`; independent stages still finish.
+- **Safety hook:** required. Every stage's inputs and outputs go through it, and every
+  decision is logged to `safety.jsonl`. Phase 2 uses a logging pass-through.
 
 ## Work-directory layout
-TBD in Phase 2 (`docs/DATA.md` covers the `data/` drop-folder layout).
+```
+data/processed/<item id>/
+  <stage>/              finished outputs + _stage.json (status, cache key, config, inputs,
+                        output hashes, timings)
+  .<stage>.tmp-*        in-progress output
+  safety.jsonl          safety-hook decisions
+```
+Configuration: `pipeline/default.toml` (implementation per stage, per-stage options, seed,
+workers). External programs are located by `tools/toolpaths.py` (env var →
+`worldreel.local.toml` → PATH → known locations).
 
 ## Formats (Phase 1)
 Specs in `/spec`, JSON Schemas in `/spec/schemas`, Python libraries in `/formats`:

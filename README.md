@@ -7,8 +7,9 @@ A normal MP4 stores pixels from one fixed camera. A **`.wreel`** stores the *sce
 actors, motion, lighting, sound events) and the WorldReel player renders whatever view you choose:
 director's cut, first or third person as any character, free camera, overhead, interactive.
 
-> **Status:** Phase 1 (formats + player skeleton). Specs, read/write libraries and a web player
-> that plays a hand-made synthetic scene. Nothing reconstructs real video yet.
+> **Status:** Phase 2 (data pipeline). Drop-folder ingest, dataset versions, a cached and
+> resumable stage pipeline (mock reconstruction for now) and a Blender scene generator with
+> exact ground truth. Real reconstruction starts in Phase 3.
 > See `docs/ROADMAP.md` for the phase plan and `DECISIONS.md` for every decision so far.
 
 ## File types
@@ -37,6 +38,9 @@ python -m venv .venv
 pip install -e ".[dev]"
 pytest && ruff check . && mypy
 python -m tools.hwcheck       # record this machine's hardware
+cp worldreel.example.toml worldreel.local.toml   # paths to ffmpeg / Blender
+python -m tools.data ingest   # after dropping a video + .info.json into data/inbox
+python -m tools.data process
 python -m tools.make_sample_wreel     # writes player/public/samples/courtyard.wreel
 cd player && npm ci && npm test
 npm run dev                           # open http://localhost:5173

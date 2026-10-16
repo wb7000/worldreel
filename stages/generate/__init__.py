@@ -1,6 +1,3 @@
-"""Stage `generate`: Script-to-scene generation with a world model (later phase).
-
-Phase 0 skeleton: no implementation yet.
-"""
+"""Stage `generate`: Script-to-scene generation with a world model (later phase)."""
 
 STAGE_NAME = "generate"

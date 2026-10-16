@@ -6,9 +6,9 @@ verification before the next. Full acceptance criteria are in `docs/MASTER_PROMP
 | Phase | Name | Status |
 |---|---|---|
 | 0 | Foundation: repo, CLAUDE.md, structure, DECISIONS, hardware, MODELS skeleton, CI | **done** |
-| 1 | Format specs + libraries (`.wreel`, `.wedit`, `.wscript`) and player skeleton | **done (branch `phase-1-formats`)** |
-| 2 | Data pipeline (ingest, manifest, dataset versions) + Blender synthetic generator | next |
-| 3 | Reconstruction v1 (static, then dynamic) | |
+| 1 | Format specs + libraries (`.wreel`, `.wedit`, `.wscript`) and player skeleton | **done** |
+| 2 | Data pipeline (ingest, manifest, dataset versions) + Blender synthetic generator | **done (branch `phase-2-data`)** |
+| 3 | Reconstruction v1 (static, then dynamic) | next (needs cloud GPU partway) |
 | 4 | POV + honest unseen-region filling | |
 | 5 | Audio (stems, sound events, mixing, positional, mood) | |
 | 6 | `.wedit` export + flat MP4 | |
@@ -17,10 +17,18 @@ verification before the next. Full acceptance criteria are in `docs/MASTER_PROMP
 | 9 | Interaction, branching, round-trip edits, safety hardening | |
 | 10 | 1-hour film attempt + public benchmark | |
 
-## Proposed Phase 2 agent batch
-`pipeline-agent` (stage framework, job runner, cache, mocks) and `data-agent` (ingest CLI,
-manifest, dataset versions, Blender generator) in parallel worktrees: they touch different
-folders (`/pipeline` + `/stages` vs `/tools` + `docs/DATA.md`).
+## Phase 3 plan (draft)
+1. CPU-runnable baselines first: classical structure-from-motion / depth on the synthetic scenes,
+   scored against `gt.json` with eval metrics (depth error, pose error).
+2. Pick open models for depth/pose and reconstruction (licences into `docs/MODELS.md`), run them
+   on Kaggle through config files; the laptop keeps the mocks.
+3. Real `camera`, `reconstruct`, `actors` stages behind the existing interfaces; packaging of
+   tracked actors (people get synthetic-replacement identity policy).
+
+## Deferred from Phase 2 (see DECISIONS D-2.x)
+- Process-level parallelism across items; file locking for concurrent `tools.data` runs.
+- Image inputs are ingested but the video pipeline skips them.
+- Ground-truth `.wreel` export from Blender scenes (exact geometry for the player and eval).
 
 ## Deferred from Phase 1 (see DECISIONS D-1.8 to D-1.12)
 - Measure player frame rate and load time in a real window and on a mid-range phone.

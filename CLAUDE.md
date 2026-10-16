@@ -61,6 +61,9 @@ cd player && npm ci && npm test && npm run build
 npm run dev                                 # http://localhost:5173
 ```
 Hardware report: `python -m tools.hwcheck` (writes `hardware.local.json`, git-ignored).
+External programs: copy `worldreel.example.toml` to `worldreel.local.toml` (git-ignored).
+Data workflow: `python -m tools.data --help`; synthetic scenes: `python -m tools.synth --help`
+(see `docs/DATA.md`). Tests needing ffmpeg or Blender skip themselves when the tool is absent.
 
 ## Multi-agent workflow
 - One agent per git worktree/branch; at most 2–3 at once; review and merge before the next batch.

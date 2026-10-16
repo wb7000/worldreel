@@ -1,0 +1,7 @@
+# Copy to worldreel.local.toml (git-ignored) and adjust for this machine.
+# Environment variables WORLDREEL_FFMPEG / WORLDREEL_FFPROBE / WORLDREEL_BLENDER override these.
+
+[tools]
+ffmpeg = 'D:\ffmpeg\bin\ffmpeg.exe'
+ffprobe = 'D:\ffmpeg\bin\ffprobe.exe'
+blender = 'C:\Program Files\Blender Foundation\Blender 3.6\blender.exe'

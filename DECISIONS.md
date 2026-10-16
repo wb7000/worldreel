@@ -171,3 +171,78 @@ ffmpeg 9.0.2 (gyan.dev "essentials" Windows build) at `D:\ffmpeg\bin`, on the us
 pillar backs, a guessed floor behind the wall, two walking people with synthetic identities, a
 director camera, six POV presets, footstep events and a mood curve. Output goes to
 `player/public/samples/courtyard.wreel` (git-ignored); CI regenerates it.
+
+---
+
+## Phase 2: Data pipeline and synthetic generator (2026-10-16/17)
+
+### D-2.1 One agent again
+The pipeline framework and the data tools ended up sharing the `Item` type, the processing
+command and the end-to-end acceptance test, so they were built in order on branch
+`phase-2-data` rather than by two parallel agents.
+
+### D-2.2 External tools via `tools/toolpaths.py`
+ffmpeg, ffprobe and Blender are found via `WORLDREEL_<TOOL>` env var, then
+`worldreel.local.toml` (git-ignored; template `worldreel.example.toml`), then PATH, then known
+install folders. Reason: PATH changes do not reach already-running programs, and Blender is not
+on PATH on this machine.
+
+### D-2.3 Stage framework
+- Stage = class with `name`, `version`, `impl`, `depends_on`, `run(ctx)`; outputs only through
+  files (names in `pipeline/io.py`).
+- Cache key includes the *content hash* of every input stage's output, so a re-run with
+  identical output does not invalidate dependents (tested).
+- Atomic temp folders; leftovers from crashes are deleted on the next run.
+- Status values are the brief's four (`pending/running/done/failed`); a stage that cannot run
+  because an upstream stage failed is `failed` with error `blocked: upstream X failed` instead
+  of a fifth status.
+- Parallelism is a thread pool inside one item. Stages that need real CPU parallelism can start
+  subprocesses (ffmpeg already does). Process pools and multi-item scheduling are deferred.
+- The runner refuses to start without a safety hook. Phase 2 hook: logging pass-through
+  (`stages/safety/hook.py`), every decision in `processed/<id>/safety.jsonl`.
+- Pipeline configuration is TOML (`pipeline/default.toml`): implementation per stage,
+  per-stage options, seed, workers.
+
+### D-2.4 Mocks
+Every pipeline stage has a CPU mock (table in `docs/ARCHITECTURE.md`). The mocks are
+deliberately simple and say so in their output (`"mock": true`): mock camera = static camera
+over a flat floor, mock actors = nothing found, mock fill = grey `guessed` floor behind the
+camera. **Their output is not a reconstruction**; the player shows it only to prove the plumbing.
+`package` has no mock: the real one is cheap and deterministic.
+
+### D-2.5 Blender depth semantics (measured)
+Probe: a flat wall exactly 5 m in front of the camera, 160×120. Depth pass is constant across
+the image: Cycles 5.0000, EEVEE 4.9961 (0.08 % low). So Blender 3.6.23's depth pass is
+**planar** (along the camera axis), not distance along the ray. "No surface" pixels are 65504 in
+EEVEE (float16 maximum) and huge in Cycles; anything at or beyond the far clip (200 m) is stored
+as 0. The first version used a 1e5 threshold and the self-check caught it (13 % of points below
+the floor).
+
+### D-2.6 Blender ↔ WorldReel coordinates
+World: (x, y, z)_Blender → (x, z, -y)_WorldReel (-90° about X). Cameras use the same local
+convention in both, so only the world change applies. Generated actors face Blender local +Y and
+get an extra +90° local-X rotation so they face WorldReel local -Z. Tests check both against
+explicit vectors, and `tools/synth.py check` verifies on every render that actors face their
+direction of motion (measured mean cosine 1.000 on seed 1).
+
+### D-2.7 Ground-truth self-check (`tools/synth.py check`)
+Back-projects depth through the ground-truth camera. Requires: < 0.1 % of points below the floor;
+ground points from frame 1 reprojected into the last frame match its depth (median relative
+error < 5 %; measured 0.25 % on seed 1, EEVEE, 320×240, 24 frames); actors face their motion.
+A render takes about 10 s on this laptop (EEVEE, 320×240, 24 frames, measured once).
+
+### D-2.8 Data rules beyond the brief
+- File id = `f` + the first 12 hex digits of SHA-256 (collision risk negligible at our scale;
+  the full hash is stored).
+- No-Derivatives licences are held in `needs_info`: reconstruction makes a derivative work.
+- Duplicates and unreadable files go to `data/rejected/` with a `.reason.txt` (never deleted
+  silently).
+- Excluded files stay in `raw/` so older frozen versions still reproduce.
+- `manifest.csv`, `removals.csv` and `versions/` may be committed (brief §2: manifests and
+  dataset-version lists are committed); everything else under `data/` is ignored. The manifest
+  holds the `source` and `notes` text the owner writes, so do not put private details there.
+- `tools.data` assumes one process at a time (no file locking yet).
+
+### D-2.9 CI
+The Linux Python job installs ffmpeg so the real `frames` stage and the acceptance test run in
+CI; on Windows CI they skip. Blender tests skip in CI (Blender is not installed there).

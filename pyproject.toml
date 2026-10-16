@@ -32,3 +32,5 @@ select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF"]
 python_version = "3.12"
 strict = true
 files = ["formats", "pipeline", "stages", "tools", "eval", "training", "tests"]
+# Runs inside Blender against the untyped bpy API; covered by the Blender integration test.
+exclude = ['tools/blender/gen_scene\.py']

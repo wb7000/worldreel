@@ -68,7 +68,7 @@ def test_required_files_exist(path: str) -> None:
 
 def test_gitignore_blocks_data_media_and_weights() -> None:
     lines = set((ROOT / ".gitignore").read_text(encoding="utf-8").splitlines())
-    for pattern in ("data/", "*.safetensors", "*.ckpt", "*.pt", "*.mp4", "*.wav", "*.wreel"):
+    for pattern in ("data/*", "*.safetensors", "*.ckpt", "*.pt", "*.mp4", "*.wav", "*.wreel"):
         assert pattern in lines, pattern
 
 
