@@ -34,6 +34,9 @@ class SfmConfig:
     match_window: int = 3  # match each frame against this many previous registered frames
     init_min_parallax_frac: float = 0.03  # of image width, median feature displacement
     init_max_frame: int = 25
+    init_anywhere: bool = True  # if frame 0 cannot start, search pairs across the video
+    init_search_stride: int = 2
+    init_search_span: int = 12
     init_min_inliers: int = 80
     ransac_px: float = 1.0
     pnp_ransac_px: float = 2.0
@@ -181,53 +184,74 @@ def run_sfm(images: list[npt.NDArray[np.uint8]], k: F64, cfg: SfmConfig | None =
             match_cache[(i, j)] = _match(frames[i], frames[j], cfg.ratio)
         return match_cache[(i, j)]
 
-    # ---- initialisation: among frames 2..init_max_frame, take the pair with frame 0 that has
-    # the widest baseline (median feature displacement) while still having enough essential-
-    # matrix inliers. A short initial baseline leaves the first structure poorly conditioned and
-    # bundle adjustment then settles in a sheared local minimum (DECISIONS D-3a.4).
-    init = None
-    best_parallax = 0.0
-    for j in range(2, min(n, cfg.init_max_frame + 1)):
-        m = matches(0, j)
-        if len(m) < cfg.init_min_inliers:
-            continue
-        p0, pj = frames[0].kps[m[:, 0]], frames[j].kps[m[:, 1]]
-        parallax = float(np.median(np.linalg.norm(p0 - pj, axis=1)))
-        if parallax < cfg.init_min_parallax_frac * width or parallax <= best_parallax:
-            continue
-        e, mask = cv2.findEssentialMat(
-            p0, pj, k, method=cv2.RANSAC, prob=0.999, threshold=cfg.ransac_px
-        )
-        if e is None or e.shape != (3, 3):
-            continue
-        inl, r, t, mask2 = cv2.recoverPose(e, p0, pj, k, mask=mask)
-        if inl < cfg.init_min_inliers:
-            continue
-        init = (j, m[mask2.ravel() > 0], r, t.ravel())
-        best_parallax = parallax
+    # ---- initialisation. Prefer frame 0 with the frame 2..init_max_frame that gives the widest
+    # baseline (median feature displacement) while still having enough essential-matrix inliers:
+    # a short initial baseline leaves the first structure poorly conditioned and bundle
+    # adjustment then settles in a sheared local minimum (DECISIONS D-3a.4). Real handheld video
+    # often starts with an untrackable shot, so if frame 0 cannot start, the same search runs
+    # from other start frames across the video (DECISIONS D-3a.10).
+    def search(
+        starts: list[int], span: int
+    ) -> tuple[int, int, npt.NDArray[np.int64], F64, F64] | None:
+        best = None
+        best_parallax = 0.0
+        for i0 in starts:
+            for j in range(i0 + 2, min(n, i0 + span + 1)):
+                m = matches(i0, j)
+                if len(m) < cfg.init_min_inliers:
+                    continue
+                pa, pb = frames[i0].kps[m[:, 0]], frames[j].kps[m[:, 1]]
+                parallax = float(np.median(np.linalg.norm(pa - pb, axis=1)))
+                if parallax < cfg.init_min_parallax_frac * width or parallax <= best_parallax:
+                    continue
+                e, mask = cv2.findEssentialMat(
+                    pa, pb, k, method=cv2.RANSAC, prob=0.999, threshold=cfg.ransac_px
+                )
+                if e is None or e.shape != (3, 3):
+                    continue
+                inl, r, t, mask2 = cv2.recoverPose(e, pa, pb, k, mask=mask)
+                if inl < cfg.init_min_inliers:
+                    continue
+                best = (
+                    i0,
+                    j,
+                    m[mask2.ravel() > 0],
+                    np.asarray(r, np.float64),
+                    np.asarray(t, np.float64).ravel(),
+                )
+                best_parallax = parallax
+        return best
+
+    init = search([0], cfg.init_max_frame)
+    if init is None and cfg.init_anywhere:
+        init = search(list(range(0, n - 2, cfg.init_search_stride)), cfg.init_search_span)
     if init is None:
-        raise SfmError("could not initialise: not enough parallax or matches in the first frames")
-    j0, m0, r_init, t_init = init
-    rot[0], trans[0] = np.eye(3), np.zeros(3)
-    rot[j0], trans[j0] = np.asarray(r_init, np.float64), np.asarray(t_init, np.float64)
+        raise SfmError("could not initialise: no frame pair with enough matches and parallax")
+    i0, j0, m0, r_init, t_init = init
+    rot[i0], trans[i0] = np.eye(3), np.zeros(3)
+    rot[j0], trans[j0] = r_init, t_init
     x, ok = _triangulate(
         k,
-        *_pose(rot, trans, 0),
+        *_pose(rot, trans, i0),
         *_pose(rot, trans, j0),
-        frames[0].kps[m0[:, 0]],
+        frames[i0].kps[m0[:, 0]],
         frames[j0].kps[m0[:, 1]],
         cfg,
     )
     for (a, b), xi, good in zip(m0, x, ok, strict=True):
         if good:
-            pid = world.add(xi, frames[0].colors[a])
-            frames[0].point_of[int(a)] = pid
+            pid = world.add(xi, frames[i0].colors[a])
+            frames[i0].point_of[int(a)] = pid
             frames[j0].point_of[int(b)] = pid
     if len(world.points) < 50:
         raise SfmError(f"initial triangulation produced only {len(world.points)} points")
 
-    # ---- incremental registration: frames between the init pair, then the rest in order
-    order = [i for i in range(1, j0)] + [i for i in range(j0 + 1, n)]
+    # ---- incremental registration: frames between the init pair, then outward in both
+    # directions, alternating, so each new frame is next to already-registered ones.
+    forward, backward = list(range(j0 + 1, n)), list(range(i0 - 1, -1, -1))
+    order = list(range(i0 + 1, j0))
+    for a in range(max(len(forward), len(backward))):
+        order += forward[a : a + 1] + backward[a : a + 1]
     newly_registered = 0
     for i in order:
         registered = [f for f in range(n) if rot[f] is not None]
@@ -299,7 +323,9 @@ def run_sfm(images: list[npt.NDArray[np.uint8]], k: F64, cfg: SfmConfig | None =
         if cfg.bundle_adjust and cfg.ba_every and newly_registered % cfg.ba_every == 0:
             pts_now = np.array(world.points)
             obs_now = np.array(_collect_obs(frames, rot), np.float64)
-            _bundle_adjust(rot, trans, k, pts_now, obs_now, cfg, max_nfev=cfg.ba_periodic_nfev)
+            _bundle_adjust(
+                rot, trans, k, pts_now, obs_now, cfg, max_nfev=cfg.ba_periodic_nfev, ref=i0
+            )
             world.points = list(pts_now)
 
     world.obs = _collect_obs(frames, rot)
@@ -309,10 +335,12 @@ def run_sfm(images: list[npt.NDArray[np.uint8]], k: F64, cfg: SfmConfig | None =
     stats: dict[str, float] = {
         "registered": float(sum(r is not None for r in rot)),
         "frames": float(n),
+        "init_first_frame": float(i0),
+        "init_second_frame": float(j0),
     }
     stats["reproj_rmse_before_ba"] = _reproj_rmse(rot, trans, k, points, obs)
     if cfg.bundle_adjust:
-        _bundle_adjust(rot, trans, k, points, obs, cfg)
+        _bundle_adjust(rot, trans, k, points, obs, cfg, ref=i0)
     stats["reproj_rmse_after_ba"] = _reproj_rmse(rot, trans, k, points, obs)
     keep_pts, keep_obs = _filter(rot, trans, k, points, obs, cfg.max_reproj_px * 2)
     remap = -np.ones(len(points), np.int64)
@@ -376,6 +404,7 @@ def _bundle_adjust(
     obs: F64,
     cfg: SfmConfig,
     max_nfev: int | None = None,
+    ref: int = 0,
 ) -> None:
     """Refine all registered cameras (except the first) and all points in place.
 
@@ -383,10 +412,10 @@ def _bundle_adjust(
     residual also pins the distance from the first camera to the farthest camera, removing the
     free scale direction; without it the solver drifts along that flat direction and settles
     in a slightly sheared solution (measured: ~3 degree orientation bias, DECISIONS D-3a.4)."""
-    cams = [f for f in range(len(rot)) if rot[f] is not None and f != 0]
+    cams = [f for f in range(len(rot)) if rot[f] is not None and f != ref]
     cam_index = {f: i for i, f in enumerate(cams)}
     n_c, n_p = len(cams), len(points)
-    use = np.array([int(f) in cam_index or int(f) == 0 for f in obs[:, 0]])
+    use = np.array([int(f) in cam_index or int(f) == ref for f in obs[:, 0]])
     o = obs[use]
     x0 = np.concatenate(
         [
@@ -410,8 +439,8 @@ def _bundle_adjust(
         res = np.empty((len(o), 2))
         for f in np.unique(fi):
             sel = fi == f
-            if f == 0:
-                r, t = _pose(rot, trans, 0)
+            if f == ref:
+                r, t = _pose(rot, trans, ref)
             else:
                 c = cam_params[cam_index[f]]
                 r, t = _rodrigues(c[:3]), c[3:]

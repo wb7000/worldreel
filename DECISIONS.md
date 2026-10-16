@@ -352,3 +352,29 @@ matching. **A real (non-synthetic) video** has not been processed yet: needs a c
 owner (Phase 3 acceptance: "a short real video becomes a free-camera .wreel"). A synthetic MP4
 through the full video path (ffmpeg → SfM with assumed intrinsics → plane sweep → package)
 works and opens in the player with a free camera.
+
+### D-3a.10 First real video (owner's phone, 2026-10-17)
+- A first submitted clip was an edited third-party video (cuts, captions, stock footage) whose
+  info note claimed own recording. It was not processed (stopped on inspection) and is waiting
+  for the owner's decision (remove, or correct its source). Lesson: ingest trusts the sidecar,
+  so the agent looks at new media before processing it.
+- The second clip is the owner's own phone recording of their room: 23 s, 480x854 portrait,
+  hand-held, fast panning (100–260 px median feature motion in 0.5 s), plain walls, motion blur.
+  The agent created its info file on the owner's behalf (source "my own recording").
+- With frame 0 as the only possible start, SfM could not start (door + mirror, rotation only).
+  Changes, both standard for real footage and neutral on the benchmark (frame 0 is still tried
+  first; all 137 tests incl. the seed-12 benchmark unchanged):
+  1. if frame 0 cannot start, search initial pairs across the whole video (stride 2, span 12);
+  2. register outward from the initial pair in both directions; bundle adjustment fixes the
+     gauge at the initial frame; the package's camera path uses tracked frames only.
+- Config `data/real_video.toml` (local): 8 fps, assumed 60° FOV, 1.5 m median depth,
+  `min_registered_fraction = 0.2`.
+- **Result:** 62 of 183 frames tracked (frames 12–73, ≈ 1.5–9 s, the textured corner: bed,
+  books, laptop table), reprojection RMSE 0.75 px, 12,113 sparse / 244,752 fused points, about
+  2 minutes on the laptop. Rendered from tracked cameras the reconstruction covers 3–49 % of each
+  frame (PSNR 15–19 dB on covered pixels; no ground truth, so no accuracy number). Plain walls
+  and the fast second half are missing. The `.wreel` validates, is signed, labelled
+  AI-reconstructed, and plays with director, free and overhead cameras.
+- Phase 3 acceptance "a short real video becomes a free-camera .wreel": **met for the trackable
+  part of the clip**. Better results need slower camera motion with sideways movement, or the
+  learned components of Phase 3b.

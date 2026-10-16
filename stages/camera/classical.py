@@ -7,8 +7,9 @@ Outputs (in WorldReel conventions, spec/wreel.md §2):
     observations.npy   (K, 4) float32: frame index, point index, u, v (frame pixels)
 
 Limits (recorded in camera.json): monocular SfM has no absolute scale and no gravity. The world
-is the first camera's frame (its up is world +Y) and the scale is set so the median depth of the
-sparse points seen from the first camera equals `median_depth_m` (an assumption, default 5 m).
+is the initial camera's frame (its up is world +Y) and the scale is set so the median depth
+of the sparse points seen from the first registered camera equals `median_depth_m` (an
+assumption, default 5 m).
 """
 
 from __future__ import annotations
@@ -124,7 +125,8 @@ class ClassicalCameraStage:
             raise StageError(f"only {sum(registered)} of {n} frames could be registered")
 
         # Scale: median depth of the sparse points in the first camera.
-        r0, t0 = rotations[0], translations[0]
+        first = registered.index(True)
+        r0, t0 = rotations[first], translations[first]
         depth0 = (res.points @ r0.T + t0)[:, 2]
         median = float(np.median(depth0[depth0 > 0])) if np.any(depth0 > 0) else 1.0
         scale = float(cfg["median_depth_m"]) / median
@@ -155,7 +157,7 @@ class ClassicalCameraStage:
                 "fps": fps,
                 "scale_m_per_unit": scale,
                 "scale_source": (
-                    f"assumed median depth {cfg['median_depth_m']} m in the first frame"
+                    f"assumed median depth {cfg['median_depth_m']} m in the first registered frame"
                 ),
                 "up_source": "first camera's up direction (no gravity estimate)",
                 "poses": poses,

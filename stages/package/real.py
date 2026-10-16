@@ -157,6 +157,9 @@ class PackageStage:
                             "fov_deg": round(fov_y, 3),
                         }
                         for p in cam["poses"]
+                        # Frames the camera stage could not track carry a copied pose; leave
+                        # them out so the path only contains real estimates.
+                        if p.get("registered", True)
                     ],
                 }
             ],
