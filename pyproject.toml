@@ -8,13 +8,13 @@ version = "0.0.1"
 description = "Reverse-engineer any video into a world you can step into."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["numpy>=2.0", "jsonschema>=4.23", "cryptography>=43"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11", "types-jsonschema"]
 
 [tool.setuptools.packages.find]
-include = ["pipeline*", "stages*", "tools*", "eval*", "training*"]
+include = ["formats*", "pipeline*", "stages*", "tools*", "eval*", "training*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -31,4 +31,4 @@ select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["pipeline", "stages", "tools", "eval", "training", "tests"]
+files = ["formats", "pipeline", "stages", "tools", "eval", "training", "tests"]

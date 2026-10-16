@@ -1,9 +1,10 @@
-/**
- * WorldReel player entry point. Phase 0 skeleton: only the viewer-menu vocabulary exists.
- * Rendering, .wreel loading and POV switching arrive in Phase 1.
- */
+/** Public surface of the WorldReel player library (the app entry is main.ts). */
 
-export const PLAYER_VERSION = "0.0.1";
+export const PLAYER_VERSION = "0.1.0";
+
+export { openWreel, verifySignature, WreelError } from "./wreel/reader";
+export type { OpenedWreel, SignatureStatus } from "./wreel/reader";
+export type { Manifest, PovMode, PovPreset } from "./wreel/types";
 
 /** The viewer menu from the brief ("How would you like to see this?"). */
 export const VIEW_MODES = [
@@ -21,7 +22,7 @@ export function isViewMode(value: string): value is ViewMode {
   return (VIEW_MODES as readonly string[]).includes(value);
 }
 
-/** True when the current environment exposes WebGPU; the player falls back otherwise. */
+/** True when the current environment exposes WebGPU; the player falls back to WebGL2 otherwise. */
 export function hasWebGPU(nav: unknown = globalThis.navigator): boolean {
   return typeof nav === "object" && nav !== null && "gpu" in nav;
 }

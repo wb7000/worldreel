@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/wb7000/worldreel/spec/schemas/wedit-manifest-1.schema.json",
+  "title": "WorldReel .wedit manifest, format version 1.x",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "format_version", "level", "provenance", "source_wreel", "video", "stems",
+    "render_layers", "timeline", "changes", "files"
+  ],
+  "properties": {
+    "format": { "const": "wedit" },
+    "format_version": { "type": "string", "pattern": "^1\\.[0-9]+$" },
+    "level": { "enum": ["flat", "round-trip"] },
+    "provenance": { "$ref": "wreel-manifest-1.schema.json#/$defs/provenance" },
+    "source_wreel": {
+      "type": "object", "additionalProperties": false, "required": ["sha256"],
+      "properties": {
+        "sha256": { "$ref": "wreel-manifest-1.schema.json#/$defs/sha256" },
+        "title": { "type": "string" }
+      }
+    },
+    "camera_path": { "$ref": "wreel-manifest-1.schema.json#/$defs/id" },
+    "video": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "fps", "width", "height", "duration"],
+      "properties": {
+        "path": { "$ref": "wreel-manifest-1.schema.json#/$defs/path" },
+        "fps": { "type": "number", "exclusiveMinimum": 0 },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "duration": { "type": "number", "minimum": 0 },
+        "codec": { "type": "string" }
+      }
+    },
+    "stems": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "layer", "path", "sample_rate", "channels", "license"],
+        "properties": {
+          "id": { "$ref": "wreel-manifest-1.schema.json#/$defs/id" },
+          "layer": {
+            "enum": ["dialogue", "foley", "ambience", "effects", "music", "description"]
+          },
+          "character_id": { "$ref": "wreel-manifest-1.schema.json#/$defs/id" },
+          "path": { "$ref": "wreel-manifest-1.schema.json#/$defs/path" },
+          "sample_rate": { "type": "integer", "minimum": 1 },
+          "channels": { "type": "integer", "minimum": 1 },
+          "license": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "render_layers": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "kind", "path"],
+        "properties": {
+          "id": { "$ref": "wreel-manifest-1.schema.json#/$defs/id" },
+          "kind": { "enum": ["depth", "mask", "normals", "albedo", "confidence"] },
+          "path": { "type": "string", "pattern": "^[A-Za-z0-9._/-]{1,255}/$" },
+          "pattern": { "type": "string" },
+          "encoding": { "type": "string" }
+        }
+      }
+    },
+    "timeline": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["format", "path"],
+        "properties": {
+          "format": { "enum": ["otio", "edl", "fcpxml"] },
+          "path": { "$ref": "wreel-manifest-1.schema.json#/$defs/path" }
+        }
+      }
+    },
+    "script": {
+      "type": "object", "additionalProperties": false, "required": ["path"],
+      "properties": { "path": { "$ref": "wreel-manifest-1.schema.json#/$defs/path" } }
+    },
+    "characters": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["id", "name"],
+        "properties": {
+          "id": { "$ref": "wreel-manifest-1.schema.json#/$defs/id" },
+          "name": { "type": "string" }
+        }
+      }
+    },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["id", "target", "op"],
+        "properties": {
+          "id": { "$ref": "wreel-manifest-1.schema.json#/$defs/id" },
+          "target": { "type": "string", "pattern": "^[a-z_]+(\\.[a-z_]+)?:[A-Za-z0-9_-]+$" },
+          "op": { "type": "string", "minLength": 1 },
+          "unit": { "type": "string" }
+        }
+      }
+    },
+    "files": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(^|/)\\.\\.(/|$))[A-Za-z0-9._/-]{1,255}$",
+        "not": { "enum": ["wedit.json", "signature.json"] }
+      },
+      "additionalProperties": { "$ref": "wreel-manifest-1.schema.json#/$defs/file_entry" }
+    },
+    "extensions": { "type": "object" }
+  }
+}

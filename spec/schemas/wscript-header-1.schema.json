@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/wb7000/worldreel/spec/schemas/wscript-header-1.schema.json",
+  "title": "WorldReel .wscript header, format version 1.x",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "format_version", "title", "language", "dictionary", "scenes"],
+  "properties": {
+    "format": { "const": "wscript" },
+    "format_version": { "type": "string", "pattern": "^1\\.[0-9]+$" },
+    "title": { "type": "string" },
+    "language": { "type": "string", "minLength": 2 },
+    "dictionary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["characters", "locations", "props", "text"],
+      "properties": {
+        "characters": {
+          "$ref": "#/$defs/entries",
+          "propertyNames": { "pattern": "^C[A-Za-z0-9_]{1,31}$" }
+        },
+        "locations": {
+          "$ref": "#/$defs/entries",
+          "propertyNames": { "pattern": "^L[A-Za-z0-9_]{1,31}$" }
+        },
+        "props": {
+          "$ref": "#/$defs/entries",
+          "propertyNames": { "pattern": "^P[A-Za-z0-9_]{1,31}$" }
+        },
+        "text": {
+          "type": "object",
+          "propertyNames": { "pattern": "^T[A-Za-z0-9_]{1,31}$" },
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "scenes": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "path", "sha256", "title", "summary", "tension", "continuity"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^S[A-Za-z0-9_]{1,31}$" },
+          "path": { "type": "string", "pattern": "^scenes/S[A-Za-z0-9_]{1,31}\\.wsl$" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "title": { "type": "string" },
+          "summary": { "type": "string" },
+          "location": { "$ref": "#/$defs/location_id" },
+          "time_of_day": { "type": "string" },
+          "tension": { "type": "number", "minimum": 0, "maximum": 10 },
+          "continuity": {
+            "type": "object", "additionalProperties": false,
+            "properties": {
+              "characters": {
+                "type": "object",
+                "propertyNames": { "pattern": "^C[A-Za-z0-9_]{1,31}$" },
+                "additionalProperties": {
+                  "type": "object", "additionalProperties": false,
+                  "properties": {
+                    "location": { "$ref": "#/$defs/location_id" },
+                    "wearing": { "type": "array", "items": { "$ref": "#/$defs/prop_id" } },
+                    "holding": { "type": "array", "items": { "$ref": "#/$defs/prop_id" } },
+                    "state": { "type": "string" }
+                  }
+                }
+              },
+              "lighting": { "type": "string" },
+              "weather": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "extensions": { "type": "object" }
+  },
+  "$defs": {
+    "location_id": { "type": "string", "pattern": "^L[A-Za-z0-9_]{1,31}$" },
+    "prop_id": { "type": "string", "pattern": "^P[A-Za-z0-9_]{1,31}$" },
+    "entries": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object", "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "voice": { "type": "string" },
+          "identity_seed": { "type": "integer" }
+        }
+      }
+    }
+  }
+}

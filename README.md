@@ -7,7 +7,8 @@ A normal MP4 stores pixels from one fixed camera. A **`.wreel`** stores the *sce
 actors, motion, lighting, sound events) and the WorldReel player renders whatever view you choose:
 director's cut, first or third person as any character, free camera, overhead, interactive.
 
-> **Status:** Phase 0 (foundation). Nothing generates or reconstructs anything yet.
+> **Status:** Phase 1 (formats + player skeleton). Specs, read/write libraries and a web player
+> that plays a hand-made synthetic scene. Nothing reconstructs real video yet.
 > See `docs/ROADMAP.md` for the phase plan and `DECISIONS.md` for every decision so far.
 
 ## File types
@@ -22,11 +23,11 @@ Specs: `/spec` (written before code, versioned, open).
 
 ## Repository layout
 ```
-spec/       format specs        pipeline/  stage framework, job runner, cache
-stages/     one package/stage   player/    web player (TypeScript, WebGPU)
-tools/      CLIs, generators    training/  configs + logs (no weights)
-eval/       metrics, benchmarks docs/      architecture, models, data, roadmap
-tests/      Python tests
+spec/       format specs + JSON schemas    formats/   read/write libraries + validators
+pipeline/   stage framework, job runner    stages/    one package per stage
+player/     web player (TypeScript)        tools/     CLIs, generators
+training/   configs + logs (no weights)    eval/      metrics, benchmarks
+docs/       architecture, models, data     tests/     Python tests
 ```
 
 ## Quick start
@@ -36,7 +37,9 @@ python -m venv .venv
 pip install -e ".[dev]"
 pytest && ruff check . && mypy
 python -m tools.hwcheck       # record this machine's hardware
-cd player && npm install && npm test && npm run typecheck
+python -m tools.make_sample_wreel     # writes player/public/samples/courtyard.wreel
+cd player && npm ci && npm test
+npm run dev                           # open http://localhost:5173
 ```
 
 ## Principles

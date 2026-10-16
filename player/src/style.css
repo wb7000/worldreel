@@ -1,0 +1,304 @@
+:root {
+  --bg: #0d0f14;
+  --panel: rgba(16, 19, 26, 0.82);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --text: #e8eaf0;
+  --muted: #9aa3b5;
+  --accent: #f2b84b;
+  --ai: #ff8a5c;
+  --ok: #6fd39a;
+  --bad: #ff6b6b;
+  --observed: #8e8a80;
+  --inferred: #b49cc9;
+  --guessed: linear-gradient(180deg, #dbb8fa, #8f6bd1);
+  --radius: 10px;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+}
+
+#view {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+
+#view:active {
+  cursor: grabbing;
+}
+
+.bar {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  backdrop-filter: blur(8px);
+  padding: 8px 12px;
+}
+
+.top {
+  top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.title {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.title strong {
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
+#scene-title {
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.provenance {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.badge.ai {
+  background: var(--ai);
+  color: #1a0d07;
+}
+
+.badge.sig {
+  border: 1px solid currentColor;
+}
+
+.badge.sig.valid {
+  color: var(--ok);
+}
+
+.badge.sig.invalid,
+.badge.sig.missing {
+  color: var(--bad);
+}
+
+.badge.sig.unsupported {
+  color: var(--muted);
+}
+
+.notice {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.open {
+  margin-left: auto;
+  cursor: pointer;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+.open:hover {
+  border-color: var(--accent);
+}
+
+.stats {
+  position: fixed;
+  right: 12px;
+  top: 76px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font: 12px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color: var(--muted);
+  white-space: pre;
+}
+
+.bottom {
+  bottom: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.menu-q {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chips button,
+.transport button {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.chips button:hover {
+  border-color: var(--accent);
+}
+
+.chips button[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1b1405;
+  font-weight: 600;
+}
+
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.transport button {
+  width: 40px;
+  padding: 5px 0;
+}
+
+#scrub {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.clock {
+  font: 12px ui-monospace, Consolas, monospace;
+  color: var(--muted);
+  min-width: 96px;
+  text-align: right;
+}
+
+.honesty {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.legend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sw {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: -2px;
+}
+
+.sw.observed {
+  background: var(--observed);
+}
+
+.sw.inferred {
+  background: var(--inferred);
+}
+
+.sw.guessed {
+  background: var(--guessed);
+}
+
+.fog select {
+  margin-left: 6px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.message {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.message[hidden],
+.provenance[hidden] {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .bar {
+    left: 8px;
+    right: 8px;
+  }
+  .stats {
+    display: none;
+  }
+  .notice {
+    display: none;
+  }
+  .title {
+    flex: 1;
+  }
+  /* The AI label gets its own full-width row so it is never clipped. */
+  .provenance {
+    order: 3;
+    flex-basis: 100%;
+  }
+}

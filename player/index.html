@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>WorldReel Player</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="view" aria-label="3D scene view"></canvas>
+
+    <header class="bar top">
+      <div class="title">
+        <strong>WorldReel</strong>
+        <span id="scene-title">No scene loaded</span>
+      </div>
+      <div id="provenance" class="provenance" role="note" aria-live="polite" hidden>
+        <span id="ai-label" class="badge ai"></span>
+        <span id="notice" class="notice"></span>
+        <span id="sig" class="badge sig"></span>
+      </div>
+      <label class="open">
+        Open .wreel
+        <input id="file-input" type="file" accept=".wreel" hidden />
+      </label>
+    </header>
+
+    <aside id="stats" class="stats" aria-label="Status"></aside>
+
+    <section class="bar bottom" aria-label="Playback and view">
+      <div class="menu">
+        <span class="menu-q">How would you like to see this?</span>
+        <div id="presets" class="chips" role="group" aria-label="View modes"></div>
+      </div>
+      <div class="transport">
+        <button id="play" type="button" aria-label="Pause">❚❚</button>
+        <input id="scrub" type="range" min="0" max="1" step="0.01" value="0" aria-label="Time" />
+        <span id="clock" class="clock">0.0 / 0.0 s</span>
+      </div>
+      <div class="honesty">
+        <div class="legend" aria-label="Confidence legend">
+          <span><i class="sw observed"></i>observed</span>
+          <span><i class="sw inferred"></i>inferred</span>
+          <span><i class="sw guessed"></i>guessed / generated</span>
+        </div>
+        <label class="fog">
+          Uncertainty fog
+          <select id="fog">
+            <option value="1">strong</option>
+            <option value="0.5">soft</option>
+          </select>
+        </label>
+      </div>
+      <p id="hint" class="hint"></p>
+    </section>
+
+    <div id="message" class="message" hidden></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

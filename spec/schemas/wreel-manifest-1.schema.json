@@ -1,0 +1,420 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/wb7000/worldreel/spec/schemas/wreel-manifest-1.schema.json",
+  "title": "WorldReel .wreel manifest, format version 1.x",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "format_version", "title", "duration", "provenance", "generation", "scene",
+    "actors", "cameras", "pov_presets", "regions", "audio", "interaction", "files"
+  ],
+  "properties": {
+    "format": { "const": "wreel" },
+    "format_version": { "type": "string", "pattern": "^1\\.[0-9]+$" },
+    "title": { "type": "string", "maxLength": 500 },
+    "duration": { "type": "number", "minimum": 0 },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "generation": { "$ref": "#/$defs/generation" },
+    "scene": { "$ref": "#/$defs/scene" },
+    "actors": { "type": "array", "items": { "$ref": "#/$defs/actor" } },
+    "cameras": { "type": "array", "items": { "$ref": "#/$defs/camera" } },
+    "pov_presets": { "type": "array", "items": { "$ref": "#/$defs/pov" } },
+    "regions": { "type": "array", "items": { "$ref": "#/$defs/region" } },
+    "audio": { "$ref": "#/$defs/audio" },
+    "interaction": { "$ref": "#/$defs/interaction" },
+    "files": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/path" },
+      "additionalProperties": { "$ref": "#/$defs/file_entry" }
+    },
+    "extensions": { "type": "object" }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$" },
+    "path": {
+      "type": "string",
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(^|/)\\.\\.(/|$))[A-Za-z0-9._/-]{1,255}$",
+      "not": { "enum": ["manifest.json", "signature.json"] }
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "vec3": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+    "quat": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
+    "rgb": {
+      "type": "array", "items": { "type": "number", "minimum": 0, "maximum": 1 },
+      "minItems": 3, "maxItems": 3
+    },
+    "aabb": {
+      "type": "object", "additionalProperties": false, "required": ["min", "max"],
+      "properties": { "min": { "$ref": "#/$defs/vec3" }, "max": { "$ref": "#/$defs/vec3" } }
+    },
+    "file_entry": {
+      "type": "object", "additionalProperties": false, "required": ["sha256", "bytes", "media_type"],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "media_type": { "type": "string", "minLength": 1 }
+      }
+    },
+    "provenance_class": {
+      "enum": ["observed", "inferred", "guessed", "retrieved", "generated"]
+    },
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "ai_label", "notice", "tool", "tool_version", "created_at", "source", "identity_policy",
+        "rights"
+      ],
+      "properties": {
+        "ai_label": {
+          "enum": [
+            "AI-reconstructed", "AI-generated", "AI-reconstructed-and-edited",
+            "AI-generated-and-edited"
+          ]
+        },
+        "notice": { "type": "string", "minLength": 1 },
+        "tool": { "type": "string", "minLength": 1 },
+        "tool_version": { "type": "string", "minLength": 1 },
+        "created_at": { "type": "string", "format": "date-time" },
+        "source": {
+          "type": "object", "additionalProperties": false, "required": ["kind"],
+          "properties": {
+            "kind": { "enum": ["video", "script", "synthetic", "mixed"] },
+            "sha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "identity_policy": { "enum": ["synthetic-replacement", "synthetic-only", "none"] },
+        "rights": {
+          "type": "object", "additionalProperties": false,
+          "required": ["upload_rights", "takedown"],
+          "properties": {
+            "upload_rights": {
+              "enum": ["unknown", "owner", "licensed", "public-domain", "synthetic"]
+            },
+            "license": { "type": "string" },
+            "takedown": {
+              "type": "object", "additionalProperties": false, "required": ["status"],
+              "properties": {
+                "status": { "enum": ["none", "requested", "removed"] },
+                "contact": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "generation": {
+      "type": "object", "additionalProperties": false, "required": ["seeds", "stages", "models"],
+      "properties": {
+        "seeds": { "type": "object", "additionalProperties": { "type": "integer" } },
+        "stages": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["name", "version"],
+            "properties": {
+              "name": { "type": "string" },
+              "version": { "type": "string" },
+              "config_sha256": { "$ref": "#/$defs/sha256" }
+            }
+          }
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["name", "version", "license"],
+            "properties": {
+              "name": { "type": "string" },
+              "version": { "type": "string" },
+              "license": { "type": "string" }
+            }
+          }
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["role", "sha256"],
+            "properties": {
+              "role": { "type": "string" },
+              "sha256": { "$ref": "#/$defs/sha256" }
+            }
+          }
+        }
+      }
+    },
+    "layer": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind", "point_size", "lods"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "points" },
+        "point_size": { "type": "number", "exclusiveMinimum": 0 },
+        "lods": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["level", "path", "count"],
+            "properties": {
+              "level": { "type": "integer", "minimum": 0 },
+              "path": { "$ref": "#/$defs/path" },
+              "count": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "scene": {
+      "type": "object", "additionalProperties": false,
+      "required": ["bounds", "background", "lighting", "layers"],
+      "properties": {
+        "bounds": { "$ref": "#/$defs/aabb" },
+        "background": { "$ref": "#/$defs/rgb" },
+        "lighting": {
+          "type": "object", "additionalProperties": false, "required": ["ambient", "lights"],
+          "properties": {
+            "ambient": {
+              "type": "object", "additionalProperties": false, "required": ["color", "intensity"],
+              "properties": {
+                "color": { "$ref": "#/$defs/rgb" },
+                "intensity": { "type": "number", "minimum": 0 }
+              }
+            },
+            "lights": {
+              "type": "array",
+              "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["id", "type", "color", "intensity"],
+                "properties": {
+                  "id": { "$ref": "#/$defs/id" },
+                  "type": { "enum": ["directional", "point"] },
+                  "color": { "$ref": "#/$defs/rgb" },
+                  "intensity": { "type": "number", "minimum": 0 },
+                  "direction": { "$ref": "#/$defs/vec3" },
+                  "position": { "$ref": "#/$defs/vec3" }
+                },
+                "allOf": [
+                  {
+                    "if": { "properties": { "type": { "const": "directional" } } },
+                    "then": { "required": ["direction"] }
+                  },
+                  {
+                    "if": { "properties": { "type": { "const": "point" } } },
+                    "then": { "required": ["position"] }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "layers": { "type": "array", "items": { "$ref": "#/$defs/layer" } }
+      }
+    },
+    "actor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "type", "label", "geometry", "track"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "enum": ["person", "animal", "vehicle", "object"] },
+        "label": { "type": "string" },
+        "character_id": { "$ref": "#/$defs/id" },
+        "identity": {
+          "type": "object", "additionalProperties": false, "required": ["policy"],
+          "properties": {
+            "policy": { "enum": ["synthetic-replacement", "synthetic"] },
+            "identity_seed": { "type": "integer" }
+          }
+        },
+        "geometry": { "$ref": "#/$defs/layer" },
+        "eye_height": { "type": "number", "minimum": 0 },
+        "track": {
+          "type": "object", "additionalProperties": false, "required": ["path"],
+          "properties": { "path": { "$ref": "#/$defs/path" } }
+        }
+      },
+      "if": { "properties": { "type": { "const": "person" } } },
+      "then": { "required": ["identity"] }
+    },
+    "camera": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "kind", "keyframes"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string" },
+        "kind": { "enum": ["director", "alternative"] },
+        "keyframes": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["t", "position", "rotation", "fov_deg"],
+            "properties": {
+              "t": { "type": "number", "minimum": 0 },
+              "position": { "$ref": "#/$defs/vec3" },
+              "rotation": { "$ref": "#/$defs/quat" },
+              "fov_deg": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 180 }
+            }
+          }
+        }
+      }
+    },
+    "pov": {
+      "type": "object", "additionalProperties": false, "required": ["id", "name", "mode"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string" },
+        "mode": {
+          "enum": [
+            "directors-cut", "first-person", "third-person", "overhead", "free", "interactive"
+          ]
+        },
+        "camera_id": { "$ref": "#/$defs/id" },
+        "actor_id": { "$ref": "#/$defs/id" },
+        "offset": { "$ref": "#/$defs/vec3" },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "fov_deg": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 180 },
+        "comfort": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "directors-cut" } } },
+          "then": { "required": ["camera_id"] }
+        },
+        {
+          "if": { "properties": { "mode": { "enum": ["first-person", "third-person"] } } },
+          "then": { "required": ["actor_id"] }
+        },
+        {
+          "if": { "properties": { "mode": { "const": "third-person" } } },
+          "then": { "required": ["offset"] }
+        }
+      ]
+    },
+    "region": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "bounds", "class", "confidence", "sources"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "bounds": { "$ref": "#/$defs/aabb" },
+        "class": { "$ref": "#/$defs/provenance_class" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["kind"],
+            "properties": {
+              "kind": { "enum": ["video", "retrieval", "model", "user"] },
+              "url": { "type": "string" },
+              "license": { "type": "string" },
+              "verified": { "enum": ["geometric", "none"] },
+              "model": { "type": "string" },
+              "version": { "type": "string" }
+            },
+            "if": { "properties": { "kind": { "const": "retrieval" } } },
+            "then": { "required": ["url", "license", "verified"] }
+          }
+        }
+      },
+      "if": { "properties": { "class": { "const": "retrieved" } } },
+      "then": { "properties": { "sources": { "minItems": 1 } } }
+    },
+    "attributes": {
+      "type": "object",
+      "additionalProperties": { "type": ["string", "number", "boolean"] }
+    },
+    "audio_event": {
+      "type": "object", "additionalProperties": false, "required": ["t", "type"],
+      "properties": {
+        "t": { "type": "number", "minimum": 0 },
+        "type": { "type": "string", "minLength": 1 },
+        "actor_id": { "$ref": "#/$defs/id" },
+        "position": { "$ref": "#/$defs/vec3" },
+        "attributes": { "$ref": "#/$defs/attributes" }
+      }
+    },
+    "audio": {
+      "type": "object", "additionalProperties": false, "required": ["tracks", "events", "mood"],
+      "properties": {
+        "tracks": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["id", "layer", "path", "media_type", "start", "license"],
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "layer": {
+                "enum": ["dialogue", "foley", "ambience", "effects", "music", "description"]
+              },
+              "character_id": { "$ref": "#/$defs/id" },
+              "actor_id": { "$ref": "#/$defs/id" },
+              "path": { "$ref": "#/$defs/path" },
+              "media_type": { "type": "string" },
+              "start": { "type": "number", "minimum": 0 },
+              "license": { "type": "string", "minLength": 1 },
+              "positional": { "type": "boolean" }
+            }
+          }
+        },
+        "events": { "type": "array", "items": { "$ref": "#/$defs/audio_event" } },
+        "mood": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["t", "tension"],
+            "properties": {
+              "t": { "type": "number", "minimum": 0 },
+              "tension": { "type": "number", "minimum": 0, "maximum": 10 }
+            }
+          }
+        },
+        "mix": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "ducking": { "type": "boolean" },
+            "loudness_target_lufs": { "type": "number" }
+          }
+        },
+        "subtitles": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["lang", "path"],
+            "properties": {
+              "lang": { "type": "string" },
+              "path": { "$ref": "#/$defs/path" }
+            }
+          }
+        }
+      }
+    },
+    "interaction": {
+      "type": "object", "additionalProperties": false, "required": ["rules"],
+      "properties": {
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["id", "trigger", "action"],
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "trigger": {
+                "type": "object", "additionalProperties": false, "required": ["type"],
+                "properties": {
+                  "type": { "enum": ["time", "proximity", "view_mode", "select"] },
+                  "t": { "type": "number", "minimum": 0 },
+                  "actor_id": { "$ref": "#/$defs/id" },
+                  "radius": { "type": "number", "exclusiveMinimum": 0 },
+                  "mode": { "type": "string" }
+                }
+              },
+              "action": {
+                "type": "object", "additionalProperties": false, "required": ["type"],
+                "properties": {
+                  "type": { "enum": ["switch_pov", "set_tension", "play_event", "branch"] },
+                  "preset_id": { "$ref": "#/$defs/id" },
+                  "value": { "type": "number", "minimum": 0, "maximum": 10 },
+                  "event": { "$ref": "#/$defs/audio_event" },
+                  "branch_id": { "$ref": "#/$defs/id" }
+                }
+              }
+            }
+          }
+        },
+        "branches": { "type": "array" }
+      }
+    }
+  }
+}

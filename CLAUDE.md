@@ -55,7 +55,10 @@ pip install -e ".[dev]"
 pytest
 ruff check .
 mypy
-cd player && npm install && npm test && npm run typecheck
+python -m tools.make_sample_wreel          # sample for the player + cross-language test
+python -m formats validate player/public/samples/courtyard.wreel
+cd player && npm ci && npm test && npm run build
+npm run dev                                 # http://localhost:5173
 ```
 Hardware report: `python -m tools.hwcheck` (writes `hardware.local.json`, git-ignored).
 

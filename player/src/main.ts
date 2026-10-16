@@ -1,0 +1,301 @@
+/** WorldReel player entry point: load a .wreel, render it, and drive the viewer menu. */
+
+import { CameraDirector, type FreeInput } from "./cameras";
+import { perspective, poseMatrix, viewMatrix, type Vec3 } from "./math";
+import { createRenderer, type DrawItem, type Renderer } from "./render/renderer";
+import { createRuleEngine, moodTension, type RuleEngine } from "./rules";
+import { openWreel, WreelError, type OpenedWreel, type SignatureStatus } from "./wreel/reader";
+import { sampleTrack } from "./wreel/track";
+import type { PovPreset } from "./wreel/types";
+
+const FOG_TOP: Vec3 = [0.86, 0.72, 0.98];
+const FOG_BOTTOM: Vec3 = [0.56, 0.42, 0.82];
+const DEFAULT_SAMPLE = "samples/courtyard.wreel";
+
+const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const canvas = $<HTMLCanvasElement>("view");
+const message = $<HTMLDivElement>("message");
+
+const SIGNATURE_TEXT: Record<SignatureStatus, string> = {
+  valid: "signature valid",
+  invalid: "signature INVALID",
+  missing: "unsigned",
+  unsupported: "signature not checked (browser lacks Ed25519)",
+};
+
+const MODE_HINTS: Record<PovPreset["mode"], string> = {
+  "directors-cut": "Playing the original camera path.",
+  free: "Drag to look · WASD / arrows to move · Q/E down/up · Shift = faster · wheel = forward.",
+  interactive: "Free camera with the scene's interaction rules active.",
+  "third-person": "Following the actor from behind.",
+  "first-person": "Through the actor's eyes (comfort mode: smoothed turning, narrower view).",
+  overhead: "Top-down view of the whole scene.",
+};
+
+interface Player {
+  wreel: OpenedWreel;
+  director: CameraDirector;
+  rules: RuleEngine;
+  time: number;
+  playing: boolean;
+  tension: number;
+  fogStrength: number;
+}
+
+const input: FreeInput = { dragX: 0, dragY: 0, wheel: 0, keys: new Set() };
+let renderer: Renderer | null = null;
+let player: Player | null = null;
+let frameCount = 0;
+let fps = 0;
+let fpsClock = performance.now();
+
+function showMessage(text: string | null): void {
+  message.hidden = text === null;
+  message.textContent = text ?? "";
+}
+
+function setupInput(): void {
+  let dragging = false;
+  let lastX = 0;
+  let lastY = 0;
+  canvas.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    input.dragX += e.clientX - lastX;
+    input.dragY += e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+  });
+  const end = () => (dragging = false);
+  canvas.addEventListener("pointerup", end);
+  canvas.addEventListener("pointercancel", end);
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    input.wheel -= e.deltaY;
+  }, { passive: false });
+  window.addEventListener("keydown", (e) => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+    if (e.code === "Space") {
+      e.preventDefault();
+      togglePlay();
+      return;
+    }
+    input.keys.add(e.code);
+  });
+  window.addEventListener("keyup", (e) => input.keys.delete(e.code));
+  window.addEventListener("blur", () => input.keys.clear());
+}
+
+function togglePlay(): void {
+  if (!player) return;
+  player.playing = !player.playing;
+  const btn = $<HTMLButtonElement>("play");
+  btn.textContent = player.playing ? "❚❚" : "▶";
+  btn.setAttribute("aria-label", player.playing ? "Pause" : "Play");
+}
+
+function selectPreset(preset: PovPreset): void {
+  if (!player) return;
+  player.director.setPreset(preset);
+  for (const btn of $<HTMLDivElement>("presets").querySelectorAll("button")) {
+    btn.setAttribute("aria-pressed", String(btn.dataset.id === preset.id));
+  }
+  $<HTMLParagraphElement>("hint").textContent = MODE_HINTS[preset.mode];
+}
+
+function buildMenu(wreel: OpenedWreel): void {
+  const box = $<HTMLDivElement>("presets");
+  box.replaceChildren();
+  for (const preset of wreel.manifest.pov_presets) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = preset.name;
+    btn.dataset.id = preset.id;
+    btn.addEventListener("click", () => selectPreset(preset));
+    box.append(btn);
+  }
+}
+
+function showProvenance(wreel: OpenedWreel): void {
+  const p = wreel.manifest.provenance;
+  $("provenance").hidden = false;
+  $("ai-label").textContent = p.ai_label;
+  $("notice").textContent = p.notice;
+  const sig = $("sig");
+  sig.textContent = SIGNATURE_TEXT[wreel.signature];
+  sig.className = `badge sig ${wreel.signature}`;
+  $("scene-title").textContent = wreel.manifest.title;
+}
+
+async function load(data: Uint8Array): Promise<void> {
+  showMessage("Opening…");
+  const wreel = await openWreel(data);
+  if (!renderer) renderer = await createRenderer(canvas, preferredRenderer());
+  for (const [id, d] of wreel.layers) renderer.setPoints(`layer:${id}`, d.chunk);
+  for (const [id, d] of wreel.actorGeometry) renderer.setPoints(`actor:${id}`, d.chunk);
+
+  const presets = wreel.manifest.pov_presets;
+  const initial =
+    presets.find((p) => p.mode === "directors-cut") ?? presets[0] ?? { id: "free", name: "Free camera", mode: "free" as const };
+  player = {
+    wreel,
+    director: new CameraDirector(wreel.manifest, wreel.tracks, initial),
+    rules: createRuleEngine(wreel.manifest.interaction.rules),
+    time: 0,
+    playing: true,
+    tension: moodTension(wreel.manifest, 0),
+    fogStrength: Number($<HTMLSelectElement>("fog").value),
+  };
+  $<HTMLInputElement>("scrub").max = String(wreel.manifest.duration);
+  buildMenu(wreel);
+  showProvenance(wreel);
+  selectPreset(initial);
+  for (const w of wreel.warnings) console.warn(w);
+  showMessage(null);
+
+  // Coarse LOD is on screen; now stream in the fine LOD (spec §6.1 progressive loading).
+  setTimeout(() => {
+    void wreel.refine().then((n) => {
+      if (!renderer || player?.wreel !== wreel || n === 0) return;
+      for (const [id, d] of wreel.layers) renderer.setPoints(`layer:${id}`, d.chunk);
+      for (const [id, d] of wreel.actorGeometry) renderer.setPoints(`actor:${id}`, d.chunk);
+    });
+  }, 300);
+}
+
+function preferredRenderer(): "auto" | "webgl2" | "webgpu" {
+  const r = new URLSearchParams(location.search).get("renderer");
+  return r === "webgl2" || r === "webgpu" ? r : "auto";
+}
+
+function resize(): void {
+  if (!renderer) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = Math.round(canvas.clientWidth * dpr);
+  const h = Math.round(canvas.clientHeight * dpr);
+  if (w !== canvas.width || h !== canvas.height) renderer.resize(w, h);
+}
+
+let last = performance.now();
+function frame(now: number): void {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  requestAnimationFrame(frame);
+  if (!renderer || !player) return;
+  resize();
+
+  const { wreel, director } = player;
+  const duration = wreel.manifest.duration;
+  const prev = player.time;
+  if (player.playing) {
+    player.time += dt;
+    if (player.time > duration) player.time = 0;
+  }
+  if (director.preset.mode === "interactive") {
+    for (const effect of player.rules.step(prev, player.time)) {
+      if (effect.type === "set_tension") player.tension = effect.value;
+      else {
+        const target = wreel.manifest.pov_presets.find((p) => p.id === effect.presetId);
+        if (target) selectPreset(target);
+      }
+    }
+  } else {
+    player.tension = moodTension(wreel.manifest, player.time);
+  }
+
+  const cam = director.update(player.time, dt, input);
+  input.dragX = input.dragY = input.wheel = 0;
+
+  const aspect = canvas.width / Math.max(1, canvas.height);
+  const proj = perspective(cam.fov, aspect, 0.05, 200, renderer.zeroToOneDepth);
+  const items: DrawItem[] = [];
+  const identity = poseMatrix([0, 0, 0], [0, 0, 0, 1]);
+  for (const [id, d] of wreel.layers) items.push({ id: `layer:${id}`, model: identity, pointSize: d.layer.point_size });
+  for (const actor of wreel.manifest.actors) {
+    if (actor.id === cam.hiddenActor) continue;
+    const track = wreel.tracks.get(actor.id);
+    if (!track) continue;
+    const pose = sampleTrack(track, player.time);
+    items.push({ id: `actor:${actor.id}`, model: poseMatrix(pose.position, pose.rotation), pointSize: actor.geometry.point_size });
+  }
+  renderer.render(
+    {
+      view: viewMatrix(cam.eye, cam.rotation),
+      proj,
+      background: wreel.manifest.scene.background,
+      fogTop: FOG_TOP,
+      fogBottom: FOG_BOTTOM,
+      fogStrength: player.fogStrength,
+    },
+    items,
+  );
+
+  const scrub = $<HTMLInputElement>("scrub");
+  if (document.activeElement !== scrub) scrub.value = String(player.time);
+  $("clock").textContent = `${player.time.toFixed(1)} / ${duration.toFixed(1)} s`;
+
+  frameCount++;
+  if (now - fpsClock > 500) {
+    fps = (frameCount * 1000) / (now - fpsClock);
+    frameCount = 0;
+    fpsClock = now;
+    const layers = [...wreel.layers.values(), ...wreel.actorGeometry.values()];
+    const points = layers.reduce((n, d) => n + d.chunk.count, 0);
+    const level = Math.min(...layers.map((d) => d.level));
+    $("stats").textContent = [
+      `renderer  ${renderer.kind}`,
+      `fps       ${fps.toFixed(0)}`,
+      `points    ${points.toLocaleString()}`,
+      `LOD       ${level}${level === 0 ? " (coarse)" : ""}`,
+      `tension   ${"▮".repeat(Math.round(player.tension))}${"▯".repeat(10 - Math.round(player.tension))}`,
+    ].join("\n");
+  }
+}
+
+async function loadFromUrl(url: string): Promise<void> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new WreelError(
+      `Could not load ${url} (${res.status}). Generate the sample with:\n` +
+        "python -m tools.make_sample_wreel\n(from the repository root), or open a .wreel file.",
+    );
+  }
+  await load(new Uint8Array(await res.arrayBuffer()));
+}
+
+function reportError(err: unknown): void {
+  console.error(err);
+  showMessage(err instanceof Error ? err.message : String(err));
+}
+
+function main(): void {
+  setupInput();
+  window.addEventListener("resize", resize);
+  $<HTMLButtonElement>("play").addEventListener("click", togglePlay);
+  $<HTMLInputElement>("scrub").addEventListener("input", (e) => {
+    if (player) player.time = Number((e.target as HTMLInputElement).value);
+  });
+  $<HTMLSelectElement>("fog").addEventListener("change", (e) => {
+    if (player) player.fogStrength = Number((e.target as HTMLSelectElement).value);
+  });
+  $<HTMLInputElement>("file-input").addEventListener("change", (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (file) void file.arrayBuffer().then((b) => load(new Uint8Array(b))).catch(reportError);
+  });
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const file = e.dataTransfer?.files[0];
+    if (file) void file.arrayBuffer().then((b) => load(new Uint8Array(b))).catch(reportError);
+  });
+  requestAnimationFrame(frame);
+  const url = new URLSearchParams(location.search).get("file") ?? DEFAULT_SAMPLE;
+  loadFromUrl(url).catch(reportError);
+}
+
+main();
