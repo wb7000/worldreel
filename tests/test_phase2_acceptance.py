@@ -37,7 +37,11 @@ def test_drop_ingest_process_freeze_verify(
     assert len(rows) == 2 and ",active," in rows[1]
     file_id = rows[1].split(",")[0]
 
-    assert data_cli([*cli, "process"]) == 0  # default config: real frames, mock reconstruction
+    # Phase 2 acceptance is about the data path: real frames, mock everything else (the ffmpeg
+    # test pattern has no camera motion, so real SfM would rightly refuse it).
+    config = tmp_path / "frames_only.toml"
+    config.write_text('[impl]\nframes = "real"\npackage = "real"\n[stage.frames]\nfps = 5.0\n')
+    assert data_cli([*cli, "process", "--config", str(config)]) == 0
     processed = root / "processed" / file_id
     assert len(list((processed / "frames" / "frames").glob("*.png"))) == 10
     world = read_wreel(processed / "package" / "world.wreel")
@@ -55,7 +59,7 @@ def test_drop_ingest_process_freeze_verify(
     }
 
     capsys.readouterr()
-    assert data_cli([*cli, "process"]) == 0
+    assert data_cli([*cli, "process", "--config", str(config)]) == 0
     assert capsys.readouterr().out.count("cached") == 8  # resumable: nothing recomputed
 
     assert data_cli([*cli, "freeze", "v1"]) == 0

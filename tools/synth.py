@@ -43,6 +43,8 @@ def render(
     samples: int,
     actors: int,
     boxes: int,
+    eval_views: int = 0,
+    texture: float = 2.0,
     timeout: float = 3600,
 ) -> Path:
     blender = require_tool("blender")
@@ -75,6 +77,10 @@ def render(
         str(actors),
         "--boxes",
         str(boxes),
+        "--eval-views",
+        str(eval_views),
+        "--texture",
+        str(texture),
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
     if "WORLDREEL_GEN_OK" not in proc.stdout:
@@ -158,11 +164,13 @@ def check(scene_dir: Path, *, ground_tol: float = 0.05, reproj_tol: float = 0.05
     if below > 0.001:
         report.errors.append(f"{below:.1%} of back-projected points lie below the ground plane")
 
-    if len(frames) > 1 and not gt.get("probe"):
-        # Use ground points only: actors move between frames, the ground does not.
-        ground = pts0[np.abs(pts0[:, 1]) < ground_tol]
-        d1 = np.load(scene_dir / last["depth"])
-        uv, z = project(ground, k, last["camera"]["position"], last["camera"]["rotation"])
+    # Ground points only: actors move between frames, the ground does not.
+    ground = pts0[np.abs(pts0[:, 1]) < ground_tol]
+    targets = [] if gt.get("probe") or len(frames) < 2 else [("last frame", last)]
+    targets += [(f"eval view {v['id']}", v) for v in gt.get("eval_views", [])]
+    for label, target in targets:
+        d1 = np.load(scene_dir / target["depth"])
+        uv, z = project(ground, k, target["camera"]["position"], target["camera"]["rotation"])
         h, w = d1.shape
         ui, vi = np.round(uv[:, 0]).astype(int), np.round(uv[:, 1]).astype(int)
         inside = (z > 0) & (ui >= 0) & (ui < w) & (vi >= 0) & (vi < h)
@@ -171,13 +179,14 @@ def check(scene_dir: Path, *, ground_tol: float = 0.05, reproj_tol: float = 0.05
         rel = np.abs(observed[visible] - z[inside][visible]) / z[inside][visible]
         # Occlusion by boxes/actors makes some points disagree; the median must still be tight.
         median = float(np.median(rel)) if rel.size else math.inf
-        report.stats["reprojection_median_rel_error"] = median
-        report.stats["reprojection_points"] = float(rel.size)
+        key = "reprojection" if label == "last frame" else f"reprojection_{target['id']}"
+        report.stats[f"{key}_median_rel_error"] = median
+        report.stats[f"{key}_points"] = float(rel.size)
         if rel.size < 100:
-            report.errors.append(f"only {rel.size} ground points reproject into the last frame")
+            report.errors.append(f"only {rel.size} ground points reproject into the {label}")
         elif median > reproj_tol:
             report.errors.append(
-                f"cross-frame reprojection median error {median:.1%} > {reproj_tol:.0%}"
+                f"{label}: reprojection median error {median:.1%} > {reproj_tol:.0%}"
             )
 
     for actor in gt.get("actors", []):
@@ -271,6 +280,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--samples", type=int, default=16)
     r.add_argument("--actors", type=int, default=2)
     r.add_argument("--boxes", type=int, default=5)
+    r.add_argument("--eval-views", type=int, default=0)
+    r.add_argument("--texture", type=float, default=2.0)
     c = sub.add_parser("check")
     c.add_argument("scene", type=Path)
     i = sub.add_parser("to-inbox")
@@ -291,6 +302,8 @@ def main(argv: list[str] | None = None) -> int:
             samples=args.samples,
             actors=args.actors,
             boxes=args.boxes,
+            eval_views=args.eval_views,
+            texture=args.texture,
         )
         report = check(out)
         print(f"rendered {out}")

@@ -21,21 +21,24 @@ from typing import Any
 from pipeline.stage import Stage
 from stages.actors.mock import MockActorsStage
 from stages.audio.mock import MockAudioStage
+from stages.camera.classical import ClassicalCameraStage
 from stages.camera.mock import MockCameraStage
 from stages.export.mock import MockExportStage
 from stages.fill.mock import MockFillStage
+from stages.frames.images import ImageSequenceFramesStage
 from stages.frames.mock import MockFramesStage
 from stages.frames.real import FramesStage
 from stages.generate.mock import MockGenerateStage
 from stages.package.real import PackageStage
 from stages.reconstruct.mock import MockReconstructStage
+from stages.reconstruct.planesweep import PlaneSweepReconstructStage
 
 DEFAULT_CONFIG = Path(__file__).with_name("default.toml")
 
 IMPLEMENTATIONS: dict[str, dict[str, type]] = {
-    "frames": {"mock": MockFramesStage, "real": FramesStage},
-    "camera": {"mock": MockCameraStage},
-    "reconstruct": {"mock": MockReconstructStage},
+    "frames": {"mock": MockFramesStage, "real": FramesStage, "images": ImageSequenceFramesStage},
+    "camera": {"mock": MockCameraStage, "real": ClassicalCameraStage},
+    "reconstruct": {"mock": MockReconstructStage, "real": PlaneSweepReconstructStage},
     "actors": {"mock": MockActorsStage},
     "fill": {"mock": MockFillStage},
     "audio": {"mock": MockAudioStage},

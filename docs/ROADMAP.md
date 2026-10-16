@@ -7,8 +7,8 @@ verification before the next. Full acceptance criteria are in `docs/MASTER_PROMP
 |---|---|---|
 | 0 | Foundation: repo, CLAUDE.md, structure, DECISIONS, hardware, MODELS skeleton, CI | **done** |
 | 1 | Format specs + libraries (`.wreel`, `.wedit`, `.wscript`) and player skeleton | **done** |
-| 2 | Data pipeline (ingest, manifest, dataset versions) + Blender synthetic generator | **done (branch `phase-2-data`)** |
-| 3 | Reconstruction v1 (static, then dynamic) | next (needs cloud GPU partway) |
+| 2 | Data pipeline (ingest, manifest, dataset versions) + Blender synthetic generator | **done** |
+| 3 | Reconstruction v1 (static, then dynamic) | **3a done** (classical, CPU, branch `phase-3a-reconstruction`); 3b next (GPU); real-video test needs a clip |
 | 4 | POV + honest unseen-region filling | |
 | 5 | Audio (stems, sound events, mixing, positional, mood) | |
 | 6 | `.wedit` export + flat MP4 | |
@@ -17,13 +17,18 @@ verification before the next. Full acceptance criteria are in `docs/MASTER_PROMP
 | 9 | Interaction, branching, round-trip edits, safety hardening | |
 | 10 | 1-hour film attempt + public benchmark | |
 
-## Phase 3 plan (draft)
-1. CPU-runnable baselines first: classical structure-from-motion / depth on the synthetic scenes,
-   scored against `gt.json` with eval metrics (depth error, pose error).
-2. Pick open models for depth/pose and reconstruction (licences into `docs/MODELS.md`), run them
-   on Kaggle through config files; the laptop keeps the mocks.
-3. Real `camera`, `reconstruct`, `actors` stages behind the existing interfaces; packaging of
-   tracked actors (people get synthetic-replacement identity policy).
+## Phase 3b plan (draft, needs cloud GPU)
+1. Pick open models (licences verified into `docs/MODELS.md`) for: learned features / depth,
+   Gaussian-splatting training, person/object segmentation and tracking.
+2. Kaggle notebook runner driven by the same TOML configs; checkpoints every ≤ 30 min.
+3. Splat layer kind in `.wreel` (spec bump to 1.1) and a splat renderer in the player.
+4. Moving actors: per-actor geometry and tracks; people get the synthetic-replacement policy.
+5. Benchmark with actors (`--actors 2`); fix seed 13's novel-view failure.
+6. Real-video acceptance on an owner-provided clip.
+
+## Deferred from Phase 3a (see DECISIONS D-3a.9)
+- LPIPS metric; gravity and metric scale; loop closure; faster matching (approximate NN).
+- Seed-13-style views poorly covered by the camera path.
 
 ## Deferred from Phase 2 (see DECISIONS D-2.x)
 - Process-level parallelism across items; file locking for concurrent `tools.data` runs.

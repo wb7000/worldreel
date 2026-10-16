@@ -30,10 +30,10 @@ config and the seed. File names shared between stages are constants in `pipeline
 
 | Stage | Depends on | Mock (CPU, tiny) | Real |
 |---|---|---|---|
-| frames | source | synthetic 64×48 frames | ffmpeg: PNG frames, proxy.npy, audio.wav, scene cuts |
-| camera | frames | static camera over a flat floor | Phase 3 |
-| reconstruct | frames, camera | back-projects frame 0 | Phase 3 |
-| actors | frames, camera | finds nothing | Phase 3 |
+| frames | source | synthetic 64×48 frames | ffmpeg: PNG frames, proxy.npy, audio.wav, scene cuts; `images`: a folder of frames |
+| camera | frames | static camera over a flat floor | classical SfM (SIFT, PnP, bundle adjustment), CPU |
+| reconstruct | frames, camera | back-projects frame 0 | plane-sweep multi-view stereo + voxel fusion, CPU |
+| actors | frames, camera | finds nothing | Phase 3b |
 | fill | reconstruct, camera | grey "guessed" floor behind the camera | Phase 4 |
 | audio | frames | empty audio section | Phase 5 |
 | package | frames … audio | — (the real one is cheap) | signed `.wreel` |
@@ -54,6 +54,20 @@ config and the seed. File names shared between stages are constants in `pipeline
   marked `failed (blocked)`; independent stages still finish.
 - **Safety hook:** required. Every stage's inputs and outputs go through it, and every
   decision is logged to `safety.jsonl`. Phase 2 uses a logging pass-through.
+
+## Evaluation (`/eval`, Phase 3a)
+| Module | Measures |
+|---|---|
+| `geometry.py` | Sim(3) alignment (Umeyama, on positions + camera axes), ATE, orientation error, RPE |
+| `depth.py` | AbsRel, RMSE, δ<1.25, completeness |
+| `image.py` | PSNR, SSIM (LPIPS not yet: needs a network) |
+| `render.py` | reference z-buffered point renderer for novel views |
+| `localize.py` | locate a test image in a reconstruction (SIFT + PnP) |
+| `benchmark.py` | runs the real pipeline on a Blender scene and checks `thresholds.toml` |
+
+`python -m eval.benchmark data/synthetic/<scene> [--calibrated]`; scenes come from
+`python -m tools.synth render --seed N --actors 0 --eval-views 4 --width 480 --height 360
+--frames 30`. Results and how thresholds were chosen: DECISIONS D-3a.6 / D-3a.7.
 
 ## Work-directory layout
 ```

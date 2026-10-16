@@ -59,15 +59,44 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--actors", type=int, default=2)
     p.add_argument("--boxes", type=int, default=5)
     p.add_argument("--probe", action="store_true", help="depth-semantics probe scene (one plane)")
+    p.add_argument("--eval-views", type=int, default=0, help="extra novel-view test cameras")
+    p.add_argument("--texture", type=float, default=2.0, help="procedural texture scale, 0 = flat")
     return p.parse_args(argv)
 
 
-def material(name: str, rgb: tuple[float, float, float]) -> bpy.types.Material:
+def material(
+    name: str, rgb: tuple[float, float, float], *, texture_scale: float = 0.0
+) -> bpy.types.Material:
+    """Principled material. With `texture_scale` > 0 the base colour is modulated by procedural
+    noise in object space, so surfaces carry texture like real ones (feature matching and
+    stereo need it; flat colours give almost no features)."""
     mat = bpy.data.materials.new(name)
     mat.use_nodes = True
-    bsdf = mat.node_tree.nodes["Principled BSDF"]
-    bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
+    nodes, links = mat.node_tree.nodes, mat.node_tree.links
+    bsdf = nodes["Principled BSDF"]
     bsdf.inputs["Roughness"].default_value = 0.8
+    if texture_scale <= 0:
+        bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
+        return mat
+    coords = nodes.new("ShaderNodeTexCoord")
+    noise = nodes.new("ShaderNodeTexNoise")
+    noise.inputs["Scale"].default_value = texture_scale
+    noise.inputs["Detail"].default_value = 6.0
+    ramp = nodes.new("ShaderNodeValToRGB")
+    # Hard-edged blotches in three tones: sharp boundaries give corner features like real
+    # surfaces (paint, stains, tiles) do; a smooth gradient gives almost none.
+    ramp.color_ramp.interpolation = "CONSTANT"
+    dark = tuple(0.35 * c for c in rgb)
+    mid = tuple(min(1.0, 0.8 * c + 0.05) for c in rgb)
+    light = tuple(min(1.0, 1.35 * c + 0.1) for c in rgb)
+    ramp.color_ramp.elements[0].color = (*dark, 1.0)
+    ramp.color_ramp.elements[1].position = 0.55
+    ramp.color_ramp.elements[1].color = (*light, 1.0)
+    extra = ramp.color_ramp.elements.new(0.45)
+    extra.color = (*mid, 1.0)
+    links.new(coords.outputs["Object"], noise.inputs["Vector"])
+    links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
+    links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
     return mat
 
 
@@ -158,12 +187,24 @@ def build_scene(
         cam.keyframe_insert("rotation_euler", frame=1)
         return actors, cam, []
 
-    add_mesh("plane", "ground", material("ground", (0.42, 0.40, 0.36)), size=30, location=(0, 0, 0))
+    add_mesh(
+        "plane",
+        "ground",
+        material("ground", (0.42, 0.40, 0.36), texture_scale=args.texture * 2),
+        size=30,
+        location=(0, 0, 0),
+    )
     for i in range(args.boxes):
         size = (rng.uniform(0.6, 2.0), rng.uniform(0.6, 2.0), rng.uniform(0.8, 3.0))
         loc = (rng.uniform(-7, 7), rng.uniform(-7, 7), size[2] / 2)
         color = (rng.uniform(0.2, 0.9), rng.uniform(0.2, 0.9), rng.uniform(0.2, 0.9))
-        box = add_mesh("cube", f"box_{i}", material(f"box_{i}", color), size=1.0, location=loc)
+        box = add_mesh(
+            "cube",
+            f"box_{i}",
+            material(f"box_{i}", color, texture_scale=args.texture * 2),
+            size=1.0,
+            location=loc,
+        )
         box.scale = size
 
     sun_data = bpy.data.lights.new("Sun", type="SUN")
@@ -189,7 +230,7 @@ def build_scene(
         body = add_mesh(
             "cylinder",
             f"actor_{a}_body",
-            material(f"shirt_{a}", shirt),
+            material(f"shirt_{a}", shirt, texture_scale=args.texture * 4),
             radius=0.22,
             depth=1.45,
             location=(0, 0, 0.725),
@@ -232,28 +273,92 @@ def build_scene(
     return actors, cam, lights
 
 
+def exr_to_depth(exr: Path, width: int, height: int, k: dict[str, float]) -> np.ndarray:
+    img = bpy.data.images.load(str(exr))
+    buf = np.empty(width * height * img.channels, dtype=np.float32)
+    img.pixels.foreach_get(buf)
+    z = buf.reshape(height, width, img.channels)[::-1, :, 0].astype(np.float64)
+    bpy.data.images.remove(img)
+    if DEPTH_IS_RADIAL:
+        v, u = np.mgrid[0:height, 0:width].astype(np.float64)
+        z = z / np.sqrt(1 + ((u - k["cx"]) / k["fx"]) ** 2 + ((v - k["cy"]) / k["fy"]) ** 2)
+    z[z >= SKY_DEPTH] = 0.0
+    return z.astype(np.float32)
+
+
 def convert_depth(out: Path, args: argparse.Namespace, k: dict[str, float]) -> list[str]:
     exr_dir = out / "depth_exr"
     depth_dir = out / "depth"
     depth_dir.mkdir(exist_ok=True)
     names = []
-    v, u = np.mgrid[0 : args.height, 0 : args.width].astype(np.float64)
-    ray_scale = np.sqrt(1 + ((u - k["cx"]) / k["fx"]) ** 2 + ((v - k["cy"]) / k["fy"]) ** 2)
     for exr in sorted(exr_dir.glob("*.exr")):
-        img = bpy.data.images.load(str(exr))
-        buf = np.empty(args.width * args.height * img.channels, dtype=np.float32)
-        img.pixels.foreach_get(buf)
-        z = buf.reshape(args.height, args.width, img.channels)[::-1, :, 0].astype(np.float64)
-        bpy.data.images.remove(img)
-        if DEPTH_IS_RADIAL:
-            z = z / ray_scale
-        z[z >= SKY_DEPTH] = 0.0
         name = f"{int(exr.stem):04d}.npy"
-        np.save(depth_dir / name, z.astype(np.float32))
+        np.save(depth_dir / name, exr_to_depth(exr, args.width, args.height, k))
         names.append(name)
         exr.unlink()
     exr_dir.rmdir()
     return names
+
+
+def render_eval_views(
+    scene: bpy.types.Scene,
+    cam: bpy.types.Object,
+    args: argparse.Namespace,
+    out: Path,
+    k: dict[str, float],
+) -> list[dict[str, object]]:
+    """Novel-view test cameras at frame 1: the first camera rotated 10-25 degrees around the
+    scene centre and raised or lowered by up to 1.5 m. Same intrinsics as the main camera."""
+    rng = random.Random(args.seed + 1000)
+    depth_out = next(n for n in scene.node_tree.nodes if n.bl_idname == "CompositorNodeOutputFile")
+    scene.frame_set(1)
+    target = Vector((0, 0, 0.8))
+    base = cam.matrix_world.translation.copy()
+    (out / "eval" / "depth").mkdir(parents=True, exist_ok=True)
+    views: list[dict[str, object]] = []
+    for i in range(args.eval_views):
+        ang = rng.choice([-1, 1]) * math.radians(rng.uniform(10, 25))
+        rel = base - target
+        rotated = Vector(
+            (
+                rel.x * math.cos(ang) - rel.y * math.sin(ang),
+                rel.x * math.sin(ang) + rel.y * math.cos(ang),
+                rel.z,
+            )
+        )
+        eval_cam = bpy.data.objects.new(f"EvalCamera{i}", cam.data)
+        scene.collection.objects.link(eval_cam)
+        eval_cam.location = target + rotated + Vector((0, 0, rng.uniform(-1.0, 1.5)))
+        look_at(eval_cam, target)
+        scene.camera = eval_cam
+        exr_dir = out / "eval_exr" / f"{i:02d}"
+        depth_out.base_path = str(exr_dir)
+        scene.render.filepath = str(out / "eval" / "rgb" / f"{i:02d}.png")
+        bpy.ops.render.render(write_still=True)
+        exr = next(exr_dir.glob("*.exr"))
+        np.save(
+            out / "eval" / "depth" / f"{i:02d}.npy", exr_to_depth(exr, args.width, args.height, k)
+        )
+        exr.unlink()
+        exr_dir.rmdir()
+        bpy.context.view_layer.update()
+        q = eval_cam.matrix_world.to_quaternion()
+        views.append(
+            {
+                "id": f"eval{i:02d}",
+                "t": 0.0,
+                "rgb": f"eval/rgb/{i:02d}.png",
+                "depth": f"eval/depth/{i:02d}.npy",
+                "camera": {
+                    "position": list(vec_zup_to_yup(tuple(eval_cam.matrix_world.translation))),
+                    "rotation": list(quat_zup_to_yup((q.w, q.x, q.y, q.z))),
+                },
+            }
+        )
+    if (out / "eval_exr").exists():
+        (out / "eval_exr").rmdir()
+    scene.camera = cam
+    return views
 
 
 def main() -> None:
@@ -300,6 +405,8 @@ def main() -> None:
             tr["positions"].append(list(vec_zup_to_yup(tuple(obj.matrix_world.translation))))
             tr["rotations"].append(list(actor_quat_zup_to_yup((aq.w, aq.x, aq.y, aq.z))))
 
+    eval_views = render_eval_views(scene, cam, args, out, k) if args.eval_views else []
+
     gt = {
         "generator": "tools/blender/gen_scene.py",
         "generator_version": GENERATOR_VERSION,
@@ -314,6 +421,7 @@ def main() -> None:
         "depth": "planar metres along camera -Z, float32 .npy, 0 = no surface (sky)",
         "intrinsics": k,
         "frames": frames,
+        "eval_views": eval_views,
         "depth_files": depth_files,
         "actors": [
             {**{k2: v for k2, v in a.items() if k2 != "object"}, "track": tracks[a["id"]]}
@@ -321,6 +429,7 @@ def main() -> None:
         ],
         "lights": lights,
         "background": [0.55, 0.68, 0.85],
+        "texture": args.texture,
     }
     (out / "gt.json").write_text(json.dumps(gt, indent=2), encoding="utf-8")
     print(f"WORLDREEL_GEN_OK {out}")

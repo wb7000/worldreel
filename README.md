@@ -7,9 +7,9 @@ A normal MP4 stores pixels from one fixed camera. A **`.wreel`** stores the *sce
 actors, motion, lighting, sound events) and the WorldReel player renders whatever view you choose:
 director's cut, first or third person as any character, free camera, overhead, interactive.
 
-> **Status:** Phase 2 (data pipeline). Drop-folder ingest, dataset versions, a cached and
-> resumable stage pipeline (mock reconstruction for now) and a Blender scene generator with
-> exact ground truth. Real reconstruction starts in Phase 3.
+> **Status:** Phase 3a. A classical CPU reconstruction (structure-from-motion + multi-view
+> stereo) turns a video into a free-camera `.wreel` of the static scene, benchmarked against
+> Blender ground truth. Learned models, splats and moving people come in Phase 3b (GPU).
 > See `docs/ROADMAP.md` for the phase plan and `DECISIONS.md` for every decision so far.
 
 ## File types

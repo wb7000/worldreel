@@ -10,6 +10,6 @@ Rules:
 
 | Stage | Model | Version / checkpoint | License | Source URL | VRAM / CPU notes | Verified on | Status |
 |---|---|---|---|---|---|---|---|
-| — | *(none yet)* | | | | | | |
+| — | *(none yet: Phase 3a uses classical algorithms only, see DECISIONS D-3a.1)* | | | | | | |
 
 Status values: `candidate`, `in-use`, `rejected` (say why in `DECISIONS.md`).

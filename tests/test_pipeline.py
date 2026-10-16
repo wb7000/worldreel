@@ -208,9 +208,10 @@ def test_safety_hook_can_block(tmp_path: Path) -> None:
 def test_default_config_loads_and_selects_real_frames() -> None:
     cfg = PipelineConfig.load()
     assert cfg.impl["frames"] == "real"
-    assert cfg.stage["frames"]["fps"] == 5.0
+    assert cfg.stage["frames"]["fps"] == 6.0
+    assert cfg.impl["camera"] == "real" and cfg.impl["reconstruct"] == "real"
     with pytest.raises(ValueError, match="no 'real' implementation"):
-        build_stages(("camera",), {"camera": "real"})
+        build_stages(("actors",), {"actors": "real"})
 
 
 # --------------------------------------------------------------------------- real frames stage

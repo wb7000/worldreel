@@ -30,6 +30,16 @@ AUDIO_JSON = "audio.json"
 WORLD_WREEL = "world.wreel"
 
 
+def read_rgb(path: Path) -> npt.NDArray[np.uint8]:
+    """Read an image file as an RGB uint8 array; raises if it cannot be read."""
+    import cv2  # local: only image stages need OpenCV
+
+    bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if bgr is None:
+        raise FileNotFoundError(f"cannot read image {path}")
+    return np.asarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), dtype=np.uint8)
+
+
 def write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

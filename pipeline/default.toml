@@ -6,8 +6,8 @@ max_workers = 4
 
 [impl]
 frames = "real"        # needs ffmpeg + ffprobe; use "mock" without them
-camera = "mock"        # real depth/pose model: Phase 3 (cloud GPU)
-reconstruct = "mock"   # real reconstruction: Phase 3 (cloud GPU)
+camera = "real"        # classical SfM on CPU (Phase 3a); learned models: Phase 3b
+reconstruct = "real"   # plane-sweep stereo on CPU (Phase 3a); splats: Phase 3b
 actors = "mock"
 fill = "mock"
 audio = "mock"
@@ -15,8 +15,15 @@ package = "real"
 export = "mock"
 
 [stage.frames]
-fps = 5.0
+fps = 6.0
 max_width = 640
 proxy_width = 64
 scene_threshold = 0.3
 max_seconds = 600.0
+
+[stage.camera]
+hfov_deg = 60.0        # assumed when the video has no calibration
+median_depth_m = 5.0   # sets the unknown monocular scale
+
+[stage.reconstruct]
+stereo_width = 240

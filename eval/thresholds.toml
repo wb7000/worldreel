@@ -1,0 +1,25 @@
+# Pass/fail thresholds for the reconstruction benchmark (brief §12, §15 Phase 3).
+#
+# Phase 3a = classical CPU baseline on static synthetic scenes. Thresholds are targets for a
+# usable baseline; do not loosen them to make a run pass. If a run fails, record it in
+# DECISIONS.md and keep the threshold. DECISIONS D-3a.6 records which numbers had already been
+# seen when each threshold was written, and why the first novel-view thresholds were replaced.
+
+[static]
+# Camera trajectory, after Sim(3) alignment to ground truth (eval/geometry.py)
+ate_rel_max = 0.02          # RMSE position error / trajectory length
+rot_mean_deg_max = 2.0      # mean absolute orientation error, joint position+orientation alignment
+rpe_rot_deg_max = 0.5       # mean frame-to-frame rotation error
+
+# Dense depth on reference frames, at stereo resolution, scaled by the alignment scale
+depth_abs_rel_max = 0.10
+depth_delta1_min = 0.90
+depth_completeness_min = 0.30  # fraction of ground-truth pixels with an estimate
+
+# Held-out novel views (eval cameras never used for reconstruction), non-sky pixels only.
+# Compared with an ORACLE: ground-truth geometry from the same reference frames, at the same
+# density, rendered by the same point renderer. This measures the reconstruction, not the
+# renderer (the point renderer alone tops out near 19 dB / SSIM 0.35 on this texture).
+novel_psnr_gap_max = 2.0    # oracle PSNR - reconstruction PSNR, dB
+novel_ssim_ratio_min = 0.70 # reconstruction SSIM / oracle SSIM
+novel_coverage_min = 0.60   # fraction of non-sky pixels covered

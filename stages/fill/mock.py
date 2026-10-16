@@ -24,11 +24,20 @@ class MockFillStage:
 
     def run(self, ctx: StageContext) -> None:
         cam = read_json(ctx.inputs["camera"] / CAMERA_JSON)
-        x0, _, z0 = cam["poses"][0]["position"]
-        gx, gz = np.meshgrid(np.linspace(-6, 6, 25), np.linspace(0.5, 6, 12))
-        pts = np.stack([gx.ravel() + x0, np.zeros(gx.size), gz.ravel() + z0], axis=1).astype(
-            np.float32
-        )
+        pose = cam["poses"][0]
+        x0, _, z0 = pose["position"]
+        # Floor height: lowest reconstructed surfaces (2nd percentile), 0 if there are none.
+        seen = PointCloud.unpack((ctx.inputs["reconstruct"] / POINTS_PTS).read_bytes())
+        floor_y = float(np.percentile(seen.positions[:, 1], 2)) if len(seen) else 0.0
+        # Behind the first camera, measured along its heading on the ground plane.
+        qx, qy, qz, qw = pose["rotation"]
+        fwd = np.array([-(2 * (qx * qz + qy * qw)), 0.0, -(1 - 2 * (qx * qx + qy * qy))])
+        fwd = fwd / (np.linalg.norm(fwd) or 1.0)
+        right = np.array([-fwd[2], 0.0, fwd[0]])
+        a, b = np.meshgrid(np.linspace(-6, 6, 25), np.linspace(0.5, 6, 12))
+        pts = (
+            np.array([x0, floor_y, z0]) + a.ravel()[:, None] * right - b.ravel()[:, None] * fwd
+        ).astype(np.float32)
         n = len(pts)
         cloud = PointCloud(
             pts,
@@ -44,8 +53,8 @@ class MockFillStage:
                     {
                         "id": "behind_camera",
                         "bounds": {
-                            "min": [float(pts[:, 0].min()), 0.0, float(pts[:, 2].min())],
-                            "max": [float(pts[:, 0].max()), 0.0, float(pts[:, 2].max())],
+                            "min": [float(v) for v in pts.min(axis=0)],
+                            "max": [float(v) for v in pts.max(axis=0)],
                         },
                         "class": "guessed",
                         "confidence": CONFIDENCE,

@@ -246,3 +246,109 @@ A render takes about 10 s on this laptop (EEVEE, 320×240, 24 frames, measured o
 ### D-2.9 CI
 The Linux Python job installs ffmpeg so the real `frames` stage and the acceptance test run in
 CI; on Windows CI they skip. Blender tests skip in CI (Blender is not installed there).
+
+---
+
+## Phase 3a: Classical reconstruction baseline, CPU (2026-10-17)
+
+Phase 3 is split. **3a** (this entry) runs on the laptop CPU: evaluation metrics, a classical
+structure-from-motion + multi-view-stereo baseline, a benchmark on synthetic ground truth.
+**3b** (cloud GPU) adds learned depth/pose, Gaussian splatting and moving actors. The brief's
+Phase 3 acceptance is not complete until 3b and a real-video test are done (see end of entry).
+
+### D-3a.1 Libraries
+`opencv-python-headless` 5.0.0 (Apache-2.0) for SIFT, essential matrix, PnP, triangulation,
+warping; `scipy` 1.18 (BSD-3) for bundle adjustment. No pretrained model weights are used in 3a,
+so `docs/MODELS.md` is still empty. OpenCV 5.0 is newer than the agent's reference knowledge;
+every API used was checked to exist and exercised by tests before relying on it.
+
+### D-3a.2 Methods (all established, none invented)
+- Camera: incremental SfM (SIFT, mutual ratio-test matching, 5-point essential matrix with
+  RANSAC, EPnP + LM refinement, triangulation with angle/reprojection checks, global bundle
+  adjustment with Huber loss). `stages/camera/sfm.py`, wrapped by `stages/camera/classical.py`.
+- Reconstruct: plane-sweep stereo (ZNCC, best-2-of-N source aggregation, parabola sub-plane
+  refinement, texture and geometric-consistency filters) and voxel fusion.
+  `stages/reconstruct/planesweep.py`.
+- Monocular scale and gravity are unknown: world = first camera's frame; scale set so the median
+  sparse depth in frame 1 is 5 m (configurable, recorded in camera.json).
+- Without calibration, a 60° horizontal field of view is assumed (configurable).
+
+### D-3a.3 Synthetic scenes needed texture
+Flat-coloured Blender materials gave ~34 SIFT features per frame and SfM could not start. Real
+surfaces have texture, so the generator now adds procedural hard-edged noise (`--texture`,
+default 2.0). Soft cloudy noise gave ~100 features; hard-edged blotches give ~2,300 at 480x360.
+
+### D-3a.4 The orientation bias and its fix (measured)
+First SfM version on seed 11: positions 0.87 % of path, but 3.26° mean orientation error with
+only 0.08° frame-to-frame error. Investigation, in order:
+1. Alignment on positions only is ill-conditioned on a short arc → alignment now also uses each
+   camera's axes (eval/geometry.py). 5.7° → 3.26° (real remaining error).
+2. Orientation-only alignment gives 0.55°: the estimate is internally consistent but sheared.
+3. More BA iterations, a wider matching window, a scale-gauge constraint, periodic BA:
+   3.26° → 3.0–3.2° only.
+4. Re-triangulating the same tracks with the **true** cameras gives a *lower* reprojection error
+   (0.231 px) than the estimate (0.261 px); BA started from the true cameras stays there
+   (0.008°). So the model is right and SfM converged to a worse local minimum.
+5. Cause: a short initial baseline (first frame with 3 % parallax). Choosing the **widest
+   baseline initial pair** that still has ≥ 80 essential-matrix inliers (standard practice, e.g.
+   COLMAP) gives 1.46° and halves every other error. Kept: widest-pair initialisation, scale
+   gauge in BA (harmless, correct). Periodic BA is available (`ba_every`) but off: +40 % time for
+   ~0.01°.
+
+### D-3a.5 Ground-truth novel views
+The generator renders `--eval-views N` extra cameras (10–25° around the scene, ±1.5 m height) at
+frame 1 that are never used for reconstruction; `tools/synth.py check` verifies them
+(reprojection error ≈ 0.24 %).
+
+### D-3a.6 Thresholds: what was seen when (honesty record)
+`eval/thresholds.toml` was first written after one SfM run on seed 11 had shown trajectory
+numbers (ATE 0.87 %, rotation 3.26°), but before any depth or novel-view number. The rotation
+threshold (2°) was deliberately set below that observed value. Depth thresholds were set blind.
+
+The first novel-view thresholds (PSNR ≥ 20 dB, SSIM ≥ 0.6, absolute) were **infeasible**: an
+oracle (true geometry, same reference frames and density, same point renderer) only reaches
+~19–20 dB / SSIM ~0.4 on this texture. They were replaced, after seeing seed 11's results, by
+oracle-relative thresholds (gap ≤ 2 dB, SSIM ratio ≥ 0.7). Rendering through the global Sim(3)
+alignment also mixes in the residual pose bias, which is already scored by the trajectory
+metrics, so the thresholds use the **localised** protocol: the eval camera is first located in
+the reconstruction by SIFT + PnP (as BARF / NoPe-NeRF optimise test poses). Both `aligned` and
+`localized` numbers are reported. Seeds 12 and 13 were rendered only after these choices.
+The oracle is a reference, not a strict ceiling: fusing many frames can beat it (seed 11).
+
+Bugs found while validating: the oracle used *estimated* intrinsics in uncalibrated runs (made
+the gap pass trivially), fixed to always use the true intrinsics; pooling more frames for
+localisation was tried after seeing seed 13 and **reverted** because it did not help.
+
+### D-3a.7 Results (480x360, 30 frames, 7 textured boxes, no actors, 4 eval views)
+
+| Scene | Intrinsics | ATE/len | Rot (deg) | RPE rot (deg) | Depth AbsRel | delta1 | Depth compl. | Novel PSNR loc / oracle | SSIM loc / oracle | Cover | All pass | camera + reconstruct (s) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 11 | true | 0.0040 | 1.46 | 0.041 | 0.035 | 0.988 | 0.92 | 20.09 / 19.75 | 0.445 / 0.400 | 0.97 | yes | 56 + 10 |
+| 11 | assumed 60 deg | 0.0056 | 1.89 | 0.076 | 0.056 | 0.986 | 0.93 | 20.12 / 19.75 | 0.451 / 0.400 | 0.98 | yes | 58 + 10 |
+| 12 | true | 0.0014 | 0.29 | 0.026 | 0.021 | 0.988 | 0.93 | 19.43 / 20.07 | 0.409 / 0.438 | 0.90 | yes | 65 + 11 |
+| 12 | assumed 60 deg | 0.0036 | 1.12 | 0.065 | 0.049 | 0.988 | 0.94 | 19.49 / 20.07 | 0.411 / 0.438 | 0.90 | yes | 66 + 10 |
+| 13 | true | 0.0022 | 0.75 | 0.030 | 0.020 | 0.985 | 0.91 | 16.78 / 20.45 | 0.271 / 0.442 | 0.76 | **NO** | 40 + 10 |
+| 13 | assumed 60 deg | 0.0038 | 1.45 | 0.066 | 0.031 | 0.985 | 0.91 | 16.76 / 20.45 | 0.270 / 0.442 | 0.74 | **NO** | 42 + 9 |
+
+(True horizontal FOV is 61.9°, so "assumed 60°" is a mild 3 % focal error.) Trajectory and depth
+pass on all six runs. Novel views fail on seed 13: one eval view looks at the boxes from an
+angle the camera path barely covers; localisation finds only 45 matches and the pose is wrong.
+Kept as a recorded failure: it is a limitation of sparse classical matching and of point
+rendering, targeted by 3b (learned features, splats).
+
+Sensitivity: at 320x240 with 16 frames the orientation error is 4.0° (fails), so the method
+needs reasonable resolution and sequence length. Timing is SfM-dominated (~1 min per 30 frames
+at 480x360 on this laptop); matching is brute force.
+
+### D-3a.8 Defaults
+`pipeline/default.toml` now uses the classical `camera` and `reconstruct` stages for real
+videos (CPU), frames at 6 fps. The Phase 2 acceptance test uses an explicit frames-only config
+because its ffmpeg test pattern has no camera motion.
+
+### D-3a.9 Not done in 3a (→ 3b / later)
+Moving actors (segmentation, tracking, per-actor geometry), learned depth/pose, Gaussian
+splats, LPIPS (needs a network), gravity/scale estimation, loop closure, a speed-up of
+matching. **A real (non-synthetic) video** has not been processed yet: needs a clip from the
+owner (Phase 3 acceptance: "a short real video becomes a free-camera .wreel"). A synthetic MP4
+through the full video path (ffmpeg → SfM with assumed intrinsics → plane sweep → package)
+works and opens in the player with a free camera.
