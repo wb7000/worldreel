@@ -63,40 +63,57 @@ except Exception as exc:
     report["sam2_import_error"] = repr(exc)
     log(f"sam2 import failed: {exc!r}")
 
-from transformers import DetrForObjectDetection, DetrImageProcessor
+import transformers
+from transformers import DetrConfig, DetrForObjectDetection, DetrImageProcessor
 
-proc = DetrImageProcessor.from_pretrained("facebook/detr-resnet-50", revision="no_timm")
-detr = (
-    DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50", revision="no_timm")
-    .cuda()
-    .eval()
-)
-labels = detr.config.id2label
-report["detr_has_person"] = [i for i, n in labels.items() if n == "person"]
-log(f"DETR person label ids: {report['detr_has_person']}")
+report["transformers_version"] = transformers.__version__
+frames: list = []
+scene = find_scenes()[0]
+try:
+    import json
 
-scenes = find_scenes()
-import json
+    from pipeline.io import read_rgb
 
-from pipeline.io import read_rgb
-
-scene = scenes[0]
-gt = json.loads((scene / "gt.json").read_text())
-frames = [read_rgb(scene / f["rgb"]) for f in gt["frames"][:8]]
-dets = []
-for img in frames:
-    inputs = proc(images=img, return_tensors="pt").to("cuda")
-    with torch.no_grad():
-        out = detr(**inputs)
-    res = proc.post_process_object_detection(out, target_sizes=[img.shape[:2]], threshold=0.5)[0]
-    dets.append(
-        [
-            (labels[int(lab)], round(float(s), 3), [round(float(x), 1) for x in b])
-            for s, lab, b in zip(res["scores"], res["labels"], res["boxes"], strict=False)
-        ]
+    gt = json.loads((scene / "gt.json").read_text())
+    frames = [read_rgb(scene / f["rgb"]) for f in gt["frames"][:8]]
+    proc = DetrImageProcessor.from_pretrained("facebook/detr-resnet-50", revision="no_timm")
+    # The no_timm config stores "dilation": null, which strict config validation in recent
+    # transformers rejects (seen on Kaggle). False is the plain ResNet-50 backbone.
+    cfg_dict, _ = DetrConfig.get_config_dict("facebook/detr-resnet-50", revision="no_timm")
+    report["detr_config_dilation_raw"] = cfg_dict.get("dilation")
+    if cfg_dict.get("dilation") is None:
+        cfg_dict["dilation"] = False
+    detr = (
+        DetrForObjectDetection.from_pretrained(
+            "facebook/detr-resnet-50", revision="no_timm", config=DetrConfig.from_dict(cfg_dict)
+        )
+        .cuda()
+        .eval()
     )
-report["detr_on_synthetic"] = dets[:3]
-log(f"DETR detections frame 0: {dets[0]}")
+    labels = detr.config.id2label
+    report["detr_has_person"] = [i for i, n in labels.items() if n == "person"]
+    log(f"DETR person label ids: {report['detr_has_person']}")
+    dets = []
+    for img in frames:
+        inputs = proc(images=img, return_tensors="pt").to("cuda")
+        with torch.no_grad():
+            out = detr(**inputs)
+        res = proc.post_process_object_detection(out, target_sizes=[img.shape[:2]], threshold=0.5)[
+            0
+        ]
+        dets.append(
+            [
+                (labels[int(lab)], round(float(s), 3), [round(float(x), 1) for x in b])
+                for s, lab, b in zip(res["scores"], res["labels"], res["boxes"], strict=False)
+            ]
+        )
+    report["detr_on_synthetic"] = dets[:3]
+    log(f"DETR detections frame 0: {dets[0]}")
+except Exception as exc:
+    import traceback
+
+    report["detr_error"] = traceback.format_exc()[-2000:]
+    log(f"DETR failed: {exc!r}")
 
 # SAM2 video tracking from a ground-truth box of actor 1 on frame 0.
 try:
