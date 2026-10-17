@@ -440,3 +440,23 @@ better or equal on every scene and steadier on seed 11 → **adopted** as defaul
 5 of 12 eval views cannot be localised reliably with SIFT + PnP (≤ 230 inliers), which limits
 evaluation on seeds 12 and 13. Classical numbers on Kaggle differ slightly from the laptop
 (different OpenCV build); comparisons above use the Kaggle run only.
+
+### D-3b.7 Gaussian layers in `.wreel` 1.1 and the player (2026-10-17)
+- Spec §6.3: `"kind": "gaussians"` layers with 52-byte records (centre, std-dev scales, unit
+  quaternion, sRGB colour, opacity, provenance class, confidence). Files with Gaussian layers are
+  1.1; point-only files stay 1.0 so older players can open them. View-dependent colour (SH) is
+  reserved for a later minor version.
+- Conversion (`stages/package/gaussians.py`): OpenCV → WorldReel axes as R' = F·R·F (scales
+  unchanged), tested to preserve every covariance. Gaussians with opacity < 1/255 are dropped.
+  Background-sphere Gaussians are found by distance (densification reorders them) and stay
+  `observed` (their colour is seen) with confidence 0.6 (their distance is assumed); the
+  rest get 0.9. LOD 0 = the 20 % with the largest opacity x cross-section.
+- Signing stays local: Kaggle returns only parameters + an unsigned-for-us template;
+  `python -m tools.splat_wreel` builds and signs with the owner's key.
+- Player: EWA projection of each Gaussian to a screen ellipse (±3σ quad, 0.3 px² low-pass),
+  back-to-front "over" blending from a CPU 16-bit counting sort, re-sorted only when the view
+  changes and at most every 120 ms; splats are depth-tested against points but do not write
+  depth; far plane raised to 1000 m. Same maths in WGSL and GLSL.
+- Verified 2026-10-17 in the Claude browser pane on the Iris Xe: seed 11 splats (414,358
+  Gaussians, 16.6 MB) render correctly in WebGPU and WebGL2, original and free cameras. Frame
+  rate not measured (pane throttles). Regions no training camera saw show streaks — expected.
