@@ -112,7 +112,11 @@ def train_splats(
     kk = torch.as_tensor(k, dtype=torch.float32, device=dev)
 
     centers = -np.einsum("nji,nj->ni", viewmats[:, :3, :3], viewmats[:, :3, 3])
-    extent = float(np.linalg.norm(init_points - init_points.mean(0), axis=1).max()) * 1.1
+    # Scene extent from the 95th percentile of point distances, not the maximum: a few stray SfM
+    # points inflated it threefold on seed 13 (15.9 vs ~5), which scales the prune limit and the
+    # position learning rate (DECISIONS D-3b.5).
+    centre = np.median(init_points, axis=0)
+    extent = float(np.percentile(np.linalg.norm(init_points - centre, axis=1), 95)) * 1.1
     extent = max(extent, float(np.linalg.norm(centers - centers.mean(0), axis=1).max()))
 
     # Background sphere: SfM finds no points in the sky or far background, so without a place
@@ -123,8 +127,7 @@ def train_splats(
         rng_bg = np.random.default_rng(cfg.seed + 1)
         dirs = rng_bg.normal(size=(cfg.background_points, 3))
         dirs /= np.linalg.norm(dirs, axis=1, keepdims=True)
-        center = init_points.mean(0)
-        far = center + dirs * extent * cfg.background_radius
+        far = centre + dirs * extent * cfg.background_radius
         mean_rgb = np.stack(images).reshape(-1, 3).mean(0)
         init_points = np.concatenate([init_points, far])
         init_colors = np.concatenate(
