@@ -32,6 +32,39 @@ FLIP = np.diag([1.0, -1.0, -1.0])
 SEED = int(os.environ.get("WORLDREEL_SPLAT_SEED", "1"))
 
 
+SAM2_CKPT = WORK / "sam2.1_hiera_small.pt"
+
+
+def ensure_sam2():
+    """SAM 2.1 (Apache-2.0) for the real actors stage; checkpoint URL from the official repo."""
+    try:
+        __import__("sam2")
+    except ImportError:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "-q",
+                "git+https://github.com/facebookresearch/sam2.git",
+            ],
+            check=True,
+        )
+    if not SAM2_CKPT.exists():
+        subprocess.run(
+            [
+                "wget",
+                "-q",
+                "-O",
+                str(SAM2_CKPT),
+                "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_small.pt",
+            ],
+            check=True,
+        )
+    log("sam2 ready")
+
+
 def viewmat(position, rotation):
     r, t = cv_pose(position, rotation)
     m = np.eye(4)
@@ -57,6 +90,9 @@ for meta_file in sorted(INPUT.rglob("item.json")):
         upload_rights=meta["upload_rights"],
     )
     cfg = PipelineConfig.load(folder / "pipeline.toml")
+    if cfg.impl.get("actors") == "real":
+        ensure_sam2()
+        cfg.stage.setdefault("actors", {})["sam2_checkpoint"] = str(SAM2_CKPT)
     work = WORK / "processed"
     runner = Runner(
         work,
@@ -75,6 +111,22 @@ for meta_file in sorted(INPUT.rglob("item.json")):
         log(f"camera failed: {result.stages['camera'].error}")
         continue
     out_item = work / item.id
+    (OUT / name).mkdir(parents=True, exist_ok=True)
+    if (out_item / "actors" / "actors.json").exists():
+        actors_meta = json.loads((out_item / "actors" / "actors.json").read_text())
+        save_json(
+            f"{name}/actors.json",
+            {
+                "backend": actors_meta.get("backend"),
+                "tracks": [
+                    {"id": t["id"], "frames": len(t["frames"]), "max_pixels": max(t["pixels"])}
+                    for t in actors_meta.get("tracks", [])
+                ],
+            },
+        )
+        log(f"{name}: {len(actors_meta.get('tracks', []))} person tracks")
+    if (out_item / "package" / "actors_report.json").exists():
+        shutil.copy(out_item / "package" / "actors_report.json", OUT / name / "actors_report.json")
     cam = json.loads((out_item / "camera" / "camera.json").read_text())
     reg = [i for i, p in enumerate(cam["poses"]) if p.get("registered", True)]
     k = cam["intrinsics"]

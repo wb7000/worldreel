@@ -24,6 +24,7 @@ from pipeline.io import (
     REGIONS_JSON,
     WORLD_WREEL,
     read_json,
+    write_json,
 )
 from pipeline.stage import Impl, StageContext, StageError
 from stages.package.actors import package_actors
@@ -90,6 +91,7 @@ class PackageStage:
         entries.update(actor_entries)
         if actor_report["tracks"]:
             ctx.log.info("actors: %s", actor_report)
+            write_json(ctx.out / "actors_report.json", actor_report)
 
         k = cam["intrinsics"]
         fov_y = math.degrees(2 * math.atan((k["height"] / 2) / k["fy"]))
