@@ -25,6 +25,11 @@ from tools.make_sample_wreel import person_cloud
 F64 = npt.NDArray[np.float64]
 REFERENCE_HEIGHT = 1.75  # height of tools.make_sample_wreel.person_cloud
 MIN_MASK_FRACTION = 0.0005  # ignore masks smaller than this fraction of the frame
+# A track whose 3D path stays within this fraction of its height of its median position is
+# "static" and gets no avatar (its pixels stay masked, so a real standing person never shows
+# their real appearance). Measured (DECISIONS D-3b.10): props falsely detected 0.08-0.16,
+# walkers 0.53-0.57.
+MIN_MOTION_RATIO = 0.3
 # Neutral, non-identifying clothing colours for avatars.
 PALETTE = [
     (70, 110, 160),
@@ -57,6 +62,13 @@ def _align_up(normal: F64) -> list[float]:
     angle = math.atan2(s, float(up @ normal))
     axis = axis / s * math.sin(angle / 2)
     return [float(axis[0]), float(axis[1]), float(axis[2]), math.cos(angle / 2)]
+
+
+def is_moving(positions: F64, height: float, ratio: float = MIN_MOTION_RATIO) -> bool:
+    """True when the path leaves a ball of `ratio` x height around its median position."""
+    p = np.asarray(positions, dtype=np.float64)
+    extent = float(np.linalg.norm(p - np.median(p, axis=0), axis=1).max()) if len(p) else 0.0
+    return extent >= ratio * height
 
 
 def avatar(seed: int, height: float) -> PointCloud:
@@ -102,6 +114,9 @@ def package_actors(
         height = float(lifted.height)
         if not np.isfinite(height) or height <= 0:
             report["skipped"].append(track["id"])
+            continue
+        if not is_moving(np.asarray(lifted.positions), height):
+            report.setdefault("static", []).append(track["id"])
             continue
         body = avatar(identity_seed, height)
         aid = track["id"]

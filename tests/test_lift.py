@@ -144,3 +144,13 @@ def test_lift_on_blender_ground_truth(tmp_path: Path) -> None:
         err = np.linalg.norm(np.asarray(track.positions) - truth, axis=1)
         # The mask bottom is the nearest visible edge of the body, not its centre: up to ~radius.
         assert np.median(err) < 0.35, (actor["id"], err)
+
+
+def test_is_moving_separates_walkers_from_static_tracks() -> None:
+    from stages.package.actors import is_moving
+
+    still = np.array([[0.0, 0, 0], [0.05, 0, 0.02], [0.1, 0, -0.03], [0.02, 0, 0.01]])
+    walk = np.array([[0.0, 0, 0], [0.5, 0, 0], [1.0, 0, 0], [1.5, 0, 0]])
+    assert not is_moving(still, 1.75)
+    assert is_moving(walk, 1.75)
+    assert not is_moving(np.zeros((0, 3)), 1.75)

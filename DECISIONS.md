@@ -508,3 +508,26 @@ evaluation on seeds 12 and 13. Classical numbers on Kaggle differ slightly from 
   from the video. POV presets per person: "Follow person N" (third person) and
   "Person N's eyes" (first person, comfort mode).
 - Verified in the player (WebGPU, Iris Xe): both presets play and follow the avatar.
+
+### D-3b.10 Real actors stage: DETR + SAM 2.1, and the static-track guard (2026-10-17)
+- `stages/actors/sam2_stage.py` (impl `real`): DETR person boxes on every 5th frame → boxes
+  linked into tracks by IoU (Hungarian, max gap 3 keyframes, ≥ 2 hits) → each track's first box
+  prompts SAM 2.1 hiera_small → video propagation → highest positive logit per pixel.
+- Interfaces checked on Kaggle before use (`actors_env` job): transformers 5.16.1 rejects the
+  `no_timm` DETR config's `"dilation": null`, so it is set to False (plain ResNet-50); "person"
+  is id 1; SAM 2.1 signatures recorded; from a ground-truth box SAM 2.1 reached IoU 0.92–0.94
+  vs ground truth on 8 frames. The predictor must run under bf16 autocast, as in the official
+  README; without it the full run crashed (mat1/mat2 dtype BFloat16 vs Float).
+- Full pipeline on synthetic scene seed 21 ran end to end (125 s on Kaggle) but detection
+  FAILED the test: DETR does not see the cylinder-and-sphere test people (23×67 and 15×49 px)
+  as people. With "vase" allowed (test-only) it tracked 4 scene props instead: mask IoU 0.0,
+  3.9 false tracks per frame, "heights" 3.2–3.6 m. Synthetic scenes therefore cannot score
+  detection; that needs real footage (asked the owner for a short walking clip).
+- Guard added from what that run showed: a track whose 3D path stays within 0.3 × its height
+  of its median position gets no avatar (`static` in the package report). Measured separation:
+  falsely detected props 0.08–0.16 × height, true walkers 0.53–0.57. Static tracks stay masked
+  out of the static scene, so a real person standing still is never shown with their real
+  appearance — they are simply absent (accepted loss, privacy first). On the Kaggle output the
+  guard drops all 4 false tracks; on the oracle run it keeps both walkers.
+- Rejected guard: person height vs camera height above the floor. The test camera is 4.96 m
+  up, so true people scored 0.35 and props ~0.7 — it would have kept the props.
