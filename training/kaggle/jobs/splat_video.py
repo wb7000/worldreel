@@ -22,6 +22,7 @@ import numpy as np
 from pipeline.registry import VIDEO_PIPELINE, PipelineConfig, build_stages
 from pipeline.runner import Runner
 from pipeline.stage import Item
+from stages.actors.common import static_masks
 from stages.camera.classical import SPARSE_COLORS, SPARSE_POINTS, load_frames
 from stages.reconstruct.planesweep import cv_pose
 from stages.reconstruct.splat_train import SplatConfig, train_splats
@@ -89,7 +90,9 @@ for meta_file in sorted(INPUT.rglob("item.json")):
         f"{name}: training on {len(frames)} registered frames of {len(frames_all)}, {len(sparse_cv)} SfM points"
     )
     splat_cfg = SplatConfig(seed=SEED)
-    res = train_splats(frames, kmat, views, sparse_cv, colors, splat_cfg, log=log)
+    people = static_masks(out_item / "actors", len(frames_all), frames_all[0].shape[:2])
+    ignore = [people[i] for i in reg] if people is not None else None
+    res = train_splats(frames, kmat, views, sparse_cv, colors, splat_cfg, log=log, ignore=ignore)
     out = OUT / name
     out.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(out / "splats.npz", **res.params)

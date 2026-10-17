@@ -100,7 +100,9 @@ def train_splats(
     *,
     checkpoint_dir: Path | None = None,
     log: Any = print,
+    ignore: list[npt.NDArray[np.bool_] | None] | None = None,
 ) -> SplatResult:
+    """`ignore[i]` (H x W bool) marks pixels of frame i the loss must skip, e.g. moving people."""
     import torch
     from gsplat import DefaultStrategy, rasterization
 
@@ -110,6 +112,11 @@ def train_splats(
     gt = torch.as_tensor(np.stack(images), device=dev).float() / 255.0  # [N, H, W, 3]
     vm = torch.as_tensor(viewmats, dtype=torch.float32, device=dev)
     kk = torch.as_tensor(k, dtype=torch.float32, device=dev)
+    masks = (
+        [None if m is None else torch.as_tensor(m, device=dev)[..., None] for m in ignore]
+        if ignore is not None
+        else [None] * len(images)
+    )
 
     centers = -np.einsum("nji,nj->ni", viewmats[:, :3, :3], viewmats[:, :3, 3])
     # Scene extent from the 95th percentile of point distances, not the maximum: a few stray SfM
@@ -195,8 +202,13 @@ def train_splats(
         )
         strategy.step_pre_backward(params, optimizers, state, step, info)
         pred = render[0]
-        l1 = (pred - gt[i]).abs().mean()
-        ssim = _ssim(pred.permute(2, 0, 1)[None], gt[i].permute(2, 0, 1)[None])
+        target = gt[i]
+        if masks[i] is not None:
+            # Ignored pixels take the (detached) prediction as their target, so they add no error
+            # or gradient to L1 or SSIM. People move, so the static model must not explain them.
+            target = torch.where(masks[i], pred.detach(), target)
+        l1 = (pred - target).abs().mean()
+        ssim = _ssim(pred.permute(2, 0, 1)[None], target.permute(2, 0, 1)[None])
         loss = (1 - cfg.ssim_weight) * l1 + cfg.ssim_weight * (1 - ssim)
         loss.backward()
         strategy.step_post_backward(params, optimizers, state, step, info, packed=False)
