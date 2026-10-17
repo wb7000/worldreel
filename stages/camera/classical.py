@@ -32,6 +32,7 @@ from pipeline.io import (
     write_json,
 )
 from pipeline.stage import Impl, StageContext, StageError
+from stages.actors.common import static_masks
 from stages.camera.sfm import SfmConfig, SfmError, run_sfm
 
 F64 = npt.NDArray[np.float64]
@@ -103,7 +104,7 @@ class ClassicalCameraStage:
     name: ClassVar[str] = "camera"
     version: ClassVar[str] = "0.1.0"
     impl: ClassVar[Impl] = "real"
-    depends_on: ClassVar[tuple[str, ...]] = ("frames",)
+    depends_on: ClassVar[tuple[str, ...]] = ("frames", "actors")
 
     def run(self, ctx: StageContext) -> None:
         cfg = {**DEFAULTS, **ctx.config}
@@ -114,7 +115,8 @@ class ClassicalCameraStage:
         kmat = np.array([[k["fx"], 0, k["cx"]], [0, k["fy"], k["cy"]], [0, 0, 1]])
         sfm_cfg = SfmConfig(**{f: cfg[f] for f in SfmConfig.__dataclass_fields__ if f in cfg})
         try:
-            res = run_sfm(images, kmat, sfm_cfg)
+            ignore = static_masks(ctx.inputs.get("actors"), len(images), (h, w))
+            res = run_sfm(images, kmat, sfm_cfg, ignore)
         except SfmError as exc:
             raise StageError(f"structure-from-motion failed: {exc}") from exc
         n = len(images)

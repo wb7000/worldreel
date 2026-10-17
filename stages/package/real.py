@@ -16,7 +16,6 @@ import numpy as np
 from formats.common import load_or_create_signing_key
 from formats.wreel import FORMAT_VERSION, PointCloud, write_wreel
 from pipeline.io import (
-    ACTORS_JSON,
     AUDIO_JSON,
     CAMERA_JSON,
     FRAMES_JSON,
@@ -27,6 +26,7 @@ from pipeline.io import (
     read_json,
 )
 from pipeline.stage import Impl, StageContext, StageError
+from stages.package.actors import package_actors
 
 TOOL_VERSION = "0.2.0"
 LOD0_STEP = 4
@@ -52,7 +52,7 @@ def _subsample(c: PointCloud, step: int) -> PointCloud:
 
 class PackageStage:
     name: ClassVar[str] = "package"
-    version: ClassVar[str] = "0.1.0"
+    version: ClassVar[str] = "0.2.0"
     impl: ClassVar[Impl] = "real"
     depends_on: ClassVar[tuple[str, ...]] = (
         "frames",
@@ -67,9 +67,6 @@ class PackageStage:
         inp = ctx.inputs
         frames = read_json(inp["frames"] / FRAMES_JSON)
         cam = read_json(inp["camera"] / CAMERA_JSON)
-        actors = read_json(inp["actors"] / ACTORS_JSON)["actors"]
-        if actors:
-            raise StageError("packaging tracked actors is implemented in Phase 3")
         audio = read_json(inp["audio"] / AUDIO_JSON)
         regions = read_json(inp["fill"] / REGIONS_JSON)["regions"]
         point_size = float(read_json(inp["reconstruct"] / POINTS_JSON).get("point_size", 0.05))
@@ -86,6 +83,13 @@ class PackageStage:
         entries = {"scene/static/lod0.pts": coarse.pack(), "scene/static/lod1.pts": cloud.pack()}
         lo = cloud.positions.min(axis=0) - 0.5
         hi = cloud.positions.max(axis=0) + 0.5
+
+        actors, actor_entries, actor_presets, actor_report = package_actors(
+            inp["actors"], cam, cloud.positions[cloud.cls == 0].astype(np.float64), ctx.seed
+        )
+        entries.update(actor_entries)
+        if actor_report["tracks"]:
+            ctx.log.info("actors: %s", actor_report)
 
         k = cam["intrinsics"]
         fov_y = math.degrees(2 * math.atan((k["height"] / 2) / k["fy"]))
@@ -107,8 +111,8 @@ class PackageStage:
                     ctx.config.get("created_at") or datetime.now(UTC).isoformat(timespec="seconds")
                 ),
                 "source": {"kind": "video", "sha256": item.sha256},
-                # No people are tracked yet; once actors exist, people get synthetic replacement.
-                "identity_policy": "none",
+                # People from footage are shown as synthetic avatars (brief §5/§11).
+                "identity_policy": "synthetic-replacement" if actors else "none",
                 "rights": {
                     "upload_rights": item.upload_rights
                     if item.upload_rights in _RIGHTS
@@ -143,7 +147,7 @@ class PackageStage:
                     }
                 ],
             },
-            "actors": [],
+            "actors": actors,
             "cameras": [
                 {
                     "id": "director",
@@ -177,6 +181,7 @@ class PackageStage:
                     "mode": "overhead",
                     "height": float(max(10.0, (hi - lo).max() * 1.5)),
                 },
+                *actor_presets,
             ],
             "regions": regions,
             "audio": {"tracks": audio["tracks"], "events": audio["events"], "mood": audio["mood"]},

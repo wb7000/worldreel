@@ -161,11 +161,12 @@ def test_failure_is_isolated_and_leaves_no_partial_output(tmp_path: Path) -> Non
     result = mock_runner(work, [*stages, FailingStage()]).run(item)
     assert result.stages["camera"].status == "failed"
     assert "exploded" in result.stages["camera"].error
-    for blocked in ("reconstruct", "actors", "fill", "package", "export"):
+    for blocked in ("reconstruct", "fill", "package", "export"):
         assert result.stages[blocked].status == "failed"
         assert "blocked" in result.stages[blocked].error
     assert result.stages["frames"].status == "done"
     assert result.stages["audio"].status == "done"  # independent of camera
+    assert result.stages["actors"].status == "done"  # people are found before camera tracking
     assert not (work / item.id / "camera" / "partial.txt").exists()
     assert read_json(work / item.id / "camera" / "_stage.json")["status"] == "failed"
 

@@ -20,6 +20,7 @@ from typing import Any
 
 from pipeline.stage import Stage
 from stages.actors.mock import MockActorsStage
+from stages.actors.oracle import OracleActorsStage
 from stages.audio.mock import MockAudioStage
 from stages.camera.classical import ClassicalCameraStage
 from stages.camera.mock import MockCameraStage
@@ -39,7 +40,7 @@ IMPLEMENTATIONS: dict[str, dict[str, type]] = {
     "frames": {"mock": MockFramesStage, "real": FramesStage, "images": ImageSequenceFramesStage},
     "camera": {"mock": MockCameraStage, "real": ClassicalCameraStage},
     "reconstruct": {"mock": MockReconstructStage, "real": PlaneSweepReconstructStage},
-    "actors": {"mock": MockActorsStage},
+    "actors": {"mock": MockActorsStage, "oracle": OracleActorsStage},
     "fill": {"mock": MockFillStage},
     "audio": {"mock": MockAudioStage},
     "package": {"mock": PackageStage, "real": PackageStage},
@@ -47,7 +48,7 @@ IMPLEMENTATIONS: dict[str, dict[str, type]] = {
     "generate": {"mock": MockGenerateStage},
 }
 
-VIDEO_PIPELINE = ("frames", "camera", "reconstruct", "actors", "fill", "audio", "package", "export")
+VIDEO_PIPELINE = ("frames", "actors", "camera", "reconstruct", "fill", "audio", "package", "export")
 
 
 @dataclass

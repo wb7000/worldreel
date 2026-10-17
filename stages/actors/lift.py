@@ -72,7 +72,7 @@ def fit_ground_plane(
     # Least-squares refinement on the inliers.
     inl = points[np.abs(points @ best.normal - best.offset) < thr]
     mu = inl.mean(0)
-    _, _, vt = np.linalg.svd(inl - mu)
+    _, _, vt = np.linalg.svd(inl - mu, full_matrices=False)  # only the 3x3 part is needed
     n = vt[2] if vt[2][1] > 0 else -vt[2]
     return Plane(n, float(n @ mu), len(inl))
 
@@ -131,9 +131,15 @@ def lift_track(
     *,
     smooth: int = 5,
     min_speed: float = 0.05,
+    body_half_depth_ratio: float = 0.075,
 ) -> Track3D | None:
-    """3D track of one person from its per-frame masks (frame index → mask)."""
+    """3D track of one person from its per-frame masks (frame index → mask).
+
+    The lowest mask pixel is the body's front edge, not its centre: each foot point is moved
+    away from the camera, along the floor, by `body_half_depth_ratio` x height (0.075 ≈ 13 cm
+    for a 1.75 m adult, from human proportions; DECISIONS D-3b.9)."""
     feet: dict[int, F64] = {}
+    cams: dict[int, F64] = {}
     heights: list[float] = []
     for f in sorted(masks):
         fh = mask_foot_and_head(masks[f])
@@ -145,6 +151,7 @@ def lift_track(
         if foot is None:
             continue
         feet[f] = foot
+        cams[f] = o
         o2, d2 = pixel_ray(hu, hv, k, poses[f]["position"], poses[f]["rotation"])
         # Closest point on the head ray to the vertical line through the foot.
         w = o2 - foot
@@ -158,7 +165,16 @@ def lift_track(
     if len(feet) < 2:
         return None
     frames = sorted(feet)
-    pos = np.stack([feet[f] for f in frames])
+    height = float(np.median(heights)) if heights else 1.7
+    shifted: list[F64] = []
+    for f in frames:
+        away = feet[f] - cams[f]
+        away = away - plane.normal * float(away @ plane.normal)
+        norm = float(np.linalg.norm(away))
+        shifted.append(
+            feet[f] + (away / norm if norm > 1e-9 else 0.0) * body_half_depth_ratio * height
+        )
+    pos = np.stack(shifted)
     # Median filter with a window symmetric around each sample (shrinking at the ends): a
     # one-sided window at the ends would drag a steadily walking person towards the middle.
     half = smooth // 2
@@ -170,7 +186,7 @@ def lift_track(
             for r in [min(half, i, n - 1 - i)]
         ]
     )
-    track = Track3D(height=float(np.median(heights)) if heights else 1.7, frames=frames)
+    track = Track3D(height=height, frames=frames)
     last_dir = np.array([0.0, 0.0, -1.0])
     for i, f in enumerate(frames):
         j0, j1 = max(0, i - 1), min(len(frames) - 1, i + 1)

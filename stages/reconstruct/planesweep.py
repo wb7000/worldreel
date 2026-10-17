@@ -32,6 +32,7 @@ from pipeline.io import (
     write_json,
 )
 from pipeline.stage import Impl, StageContext, StageError
+from stages.actors.common import static_masks
 from stages.camera.classical import SPARSE_COLORS, SPARSE_POINTS, load_frames
 
 F32 = npt.NDArray[np.float32]
@@ -164,7 +165,7 @@ class PlaneSweepReconstructStage:
     name: ClassVar[str] = "reconstruct"
     version: ClassVar[str] = "0.1.0"
     impl: ClassVar[Impl] = "real"
-    depends_on: ClassVar[tuple[str, ...]] = ("frames", "camera")
+    depends_on: ClassVar[tuple[str, ...]] = ("frames", "camera", "actors")
 
     def run(self, ctx: StageContext) -> None:
         cfg = {**DEFAULTS, **ctx.config}
@@ -195,6 +196,7 @@ class PlaneSweepReconstructStage:
         poses = [cv_pose(p["position"], p["rotation"]) for p in cam["poses"]]
         registered = [bool(p.get("registered", True)) for p in cam["poses"]]
 
+        people = static_masks(ctx.inputs.get("actors"), n, (sh, sw), dilate_px=2)
         refs = [i for i in range(0, n, int(cfg["ref_stride"])) if registered[i]]
         depth_maps: dict[int, F32] = {}
         scores: dict[int, F32] = {}
@@ -221,6 +223,8 @@ class PlaneSweepReconstructStage:
             )
             depth, cost = best_depth(volume, depths)
             good = (1.0 - cost > cfg["ncc_min"]) & (var_r > cfg["texture_min"])
+            if people is not None:
+                good &= ~people[r]  # moving people are not part of the static scene
             depth_maps[r] = np.where(good, depth, 0.0).astype(np.float32)
             scores[r] = (1.0 - cost).astype(np.float32)
         if not depth_maps:

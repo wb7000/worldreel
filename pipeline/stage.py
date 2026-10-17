@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Literal, Protocol
 
 Status = Literal["pending", "running", "done", "failed"]
-Impl = Literal["mock", "real", "images"]
+Impl = Literal["mock", "real", "images", "oracle"]
 
 SOURCE = "source"
 """Pseudo-dependency name for the item's raw source file."""

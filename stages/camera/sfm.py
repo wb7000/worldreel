@@ -84,15 +84,23 @@ class _Frame:
     point_of: dict[int, int] = field(default_factory=dict)  # keypoint index -> map point id
 
 
-def _features(images: list[npt.NDArray[np.uint8]], cfg: SfmConfig) -> list[_Frame]:
+def _features(
+    images: list[npt.NDArray[np.uint8]],
+    cfg: SfmConfig,
+    ignore: list[npt.NDArray[np.bool_]] | None = None,
+) -> list[_Frame]:
     sift = cv2.SIFT.create(nfeatures=cfg.max_features)
-    frames = []
+    frames: list[_Frame] = []
     for rgb in images:
         gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
         kps, desc = sift.detectAndCompute(gray, None)
         pts = np.array([k.pt for k in kps], np.float64).reshape(-1, 2)
         ui = np.clip(np.round(pts[:, 0]).astype(int), 0, rgb.shape[1] - 1)
         vi = np.clip(np.round(pts[:, 1]).astype(int), 0, rgb.shape[0] - 1)
+        if ignore is not None and desc is not None:
+            # Moving people violate the static-scene assumption: drop their keypoints.
+            keep = ~ignore[len(frames)][vi, ui]
+            pts, ui, vi, desc = pts[keep], ui[keep], vi[keep], desc[keep]
         frames.append(
             _Frame(
                 pts,
@@ -167,13 +175,19 @@ class _Map:
         return len(self.points) - 1
 
 
-def run_sfm(images: list[npt.NDArray[np.uint8]], k: F64, cfg: SfmConfig | None = None) -> SfmResult:
+def run_sfm(
+    images: list[npt.NDArray[np.uint8]],
+    k: F64,
+    cfg: SfmConfig | None = None,
+    ignore: list[npt.NDArray[np.bool_]] | None = None,
+) -> SfmResult:
+    """`ignore`: optional per-frame masks of pixels whose features must not be used."""
     cfg = cfg or SfmConfig()
     n = len(images)
     if n < 3:
         raise SfmError("need at least 3 frames")
     width = images[0].shape[1]
-    frames = _features(images, cfg)
+    frames = _features(images, cfg, ignore)
     rot: list[F64 | None] = [None] * n
     trans: list[F64 | None] = [None] * n
     world = _Map()

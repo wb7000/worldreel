@@ -89,8 +89,14 @@ def test_lift_walking_person_recovers_path_height_and_facing() -> None:
         _, hv = project(feet + np.array([0, 1.75, 0]), poses[i])
         mask[round(hv) : round(fv), int(fu) - 3 : int(fu) + 4] = True
         masks[i] = mask
-    track = lift_track(masks, poses, times, K, plane)
+    track = lift_track(masks, poses, times, K, plane, body_half_depth_ratio=0.0)
     assert track is not None and len(track.positions) == 10
+    shifted = lift_track(masks, poses, times, K, plane)
+    assert shifted is not None
+    # Default: feet move away from the camera (here -z) by 0.075 x height along the floor.
+    delta = np.asarray(shifted.positions) - np.asarray(track.positions)
+    assert np.allclose(np.linalg.norm(delta, axis=1), 0.075 * shifted.height, atol=1e-3)
+    assert np.all(delta[:, 2] < 0)
     err = np.linalg.norm(np.asarray(track.positions) - np.asarray(truth), axis=1)
     assert err.max() < 0.08  # metres, from 1-pixel mask quantisation at 6 m
     assert track.height == pytest.approx(1.75, abs=0.1)
