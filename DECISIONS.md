@@ -475,3 +475,36 @@ evaluation on seeds 12 and 13. Classical numbers on Kaggle differ slightly from 
   has no ground truth; a held-out-frame evaluation is the next step. Frame rate not measured.
 - Phase 3 acceptance ("a short real video becomes a free-camera .wreel") is now met with the
   GPU method as well as the classical one, for the trackable part of the clip.
+
+### D-3b.9 Moving people: masks, lifting, synthetic avatars (2026-10-17)
+- Mask format shared by all actor backends: `masks.npz` (uint8 labels per frame, 0 = nobody,
+  k = track k) plus `actors.json` (track ids, frames, pixel counts). Camera (SfM features) and
+  plane-sweep depth ignore people's pixels (masks dilated 4 px / 2 px) so walkers don't corrupt
+  the static scene.
+- Backends: `mock` (no people), `oracle` (Blender ground truth: depth back-projected and tested
+  against each actor's body cylinder + head sphere; for testing lifting in isolation). The real
+  backend (DETR person boxes → SAM 2.1 video propagation, both Apache-2.0) comes next; its
+  interfaces are being checked on Kaggle first, not assumed. torchvision Mask R-CNN weights
+  were rejected: their licence is unclear.
+- Lifting (invented, `stages/actors/lift.py`): RANSAC floor plane from static points (normal
+  within 35° of +Y), foot pixel ray ∩ floor, height from the head pixel ray at the foot's depth,
+  median height per track, symmetric median smoothing, facing from velocity.
+- Body-depth correction: the visible foot contour is the near edge of the body, not its centre.
+  With true cameras and floor the range bias was −0.20 m (= the 0.22 m test body radius). Fix:
+  push each foot 0.075 × height away from the camera along the floor — a human-proportion
+  value (≈13 cm for 1.75 m), deliberately not tuned to the test cylinders.
+- Measured on synthetic scene seed 21 (2 walkers, 30 frames, 480×360, full pipeline, oracle
+  masks), errors in each frame's own camera frame scaled by the trajectory Sim(3):
+  p1 median 0.385 m (range bias −0.380 m), p2 0.361 m (−0.358 m); estimated heights 1.77 m
+  for both (true 1.75). The remaining error is mostly along the viewing ray at ~12 m range and
+  grazing angles, where a small floor/camera error moves the foot intersection a lot (camera
+  height above the fitted floor was within 12 cm). Not good enough for close first-person
+  views; acceptable for follow/overhead views. A bigger fix (e.g. joint floor+track bundle
+  adjustment) goes in the roadmap, not this phase.
+- Heights stay in reconstruction units (monocular scale is unknown), so there is no metric
+  clamp; an early 1.2–2.1 m clamp made every avatar 1.2 units and was removed.
+- Identity: every person becomes a seeded, faceless, neutral-coloured avatar scaled to the
+  estimated height (`identity.policy = "synthetic-replacement"`, seed stored); only motion comes
+  from the video. POV presets per person: "Follow person N" (third person) and
+  "Person N's eyes" (first person, comfort mode).
+- Verified in the player (WebGPU, Iris Xe): both presets play and follow the avatar.
