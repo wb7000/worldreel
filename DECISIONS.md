@@ -460,3 +460,18 @@ evaluation on seeds 12 and 13. Classical numbers on Kaggle differ slightly from 
 - Verified 2026-10-17 in the Claude browser pane on the Iris Xe: seed 11 splats (414,358
   Gaussians, 16.6 MB) render correctly in WebGPU and WebGL2, original and free cameras. Frame
   rate not measured (pane throttles). Regions no training camera saw show streaks — expected.
+
+### D-3b.8 Owner's room video with splats (2026-10-17)
+- With the owner's explicit consent, the room video was uploaded to the owner's Kaggle account
+  as a PRIVATE dataset (`worldreel-video-room`: the video, its source/licence note and the
+  pipeline config only). `python -m tools.kaggle_runner push-video <id>` does this.
+- Kaggle has ffmpeg/ffprobe at /usr/bin. Pipeline (`data/real_video.toml`) ran end to end; the
+  camera stage registered 49 of 183 frames there (62 on the laptop; different OpenCV build).
+- Splats trained on the 49 registered frames from 8,644 SfM points: 997,822 Gaussians after
+  densification, 988,430 kept (opacity ≥ 1/255) → `room_splats.wreel` 47.8 MB, signed locally.
+- In the player (WebGPU, Iris Xe) the tracked part of the room is photo-like: door and mirror,
+  window ledge with cable, wall, bed cover, laptop with its screen content, mouse, blue cloth.
+  Untracked parts and views far from the camera path smear. No numeric quality score: real video
+  has no ground truth; a held-out-frame evaluation is the next step. Frame rate not measured.
+- Phase 3 acceptance ("a short real video becomes a free-camera .wreel") is now met with the
+  GPU method as well as the classical one, for the trackable part of the clip.
