@@ -39,11 +39,13 @@ class SplatConfig:
     refine_every: int = 100
     reset_every: int = 3000
     checkpoint_every: int = 2000
-    background_points: int = 20000  # far sphere for sky/background (0 = off)
+    background_points: int = 100000  # far sphere for sky/background (0 = off)
     background_radius: float = 10.0  # times the scene extent
-    # gsplat prunes Gaussians larger than prune_scale3d x scene extent (default 0.1). The far
-    # sphere's Gaussians are ~0.3 x extent, so the default would delete them at the first refine.
-    prune_scale3d: float = 1.0
+    # gsplat prunes Gaussians larger than prune_scale3d x scene extent. Keep gsplat's default
+    # (0.1): raising it to protect the background let large foreground blobs survive and veil
+    # whole views (seed 13, DECISIONS D-3b.4). Background Gaussians start below the limit instead.
+    prune_scale3d: float = 0.1
+    background_max_scale: float = 0.05  # initial background Gaussian size, times the extent
     seed: int = 0
 
 
@@ -129,7 +131,12 @@ def train_splats(
             [init_colors, np.tile(mean_rgb.round().astype(np.uint8), (len(far), 1))]
         )
     n = len(init_points)
-    scales = np.log(_knn_scale(init_points))[:, None].repeat(3, 1)
+    sizes = _knn_scale(init_points)
+    if cfg.background_points > 0:
+        sizes[-cfg.background_points :] = np.minimum(
+            sizes[-cfg.background_points :], cfg.background_max_scale * extent
+        )
+    scales = np.log(sizes)[:, None].repeat(3, 1)
     colors = np.clip(init_colors.astype(np.float64) / 255.0, 1e-3, 1 - 1e-3)
     params = torch.nn.ParameterDict(
         {
