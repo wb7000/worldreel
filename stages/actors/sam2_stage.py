@@ -172,7 +172,9 @@ def segment(
         # The SAM 2 video predictor reads a folder of JPEG frames named by index.
         for i, img in enumerate(frames):
             cv2.imwrite(str(jpeg / f"{i:05d}.jpg"), cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-        with torch.inference_mode():
+        # Same context as the official SAM 2 README video example; without bf16 autocast the
+        # predictor mixed bfloat16 and float32 tensors on Kaggle (mat1/mat2 dtype error).
+        with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
             state = predictor.init_state(video_path=str(jpeg), offload_video_to_cpu=True)
             for k, track in enumerate(tracks, start=1):
                 f0, box = track.first

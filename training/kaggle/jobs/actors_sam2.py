@@ -5,6 +5,7 @@
 # of real humans; that needs real footage.
 import hashlib
 import json
+import logging
 import subprocess
 import sys
 import time
@@ -46,6 +47,10 @@ from pipeline.stage import Item
 from stages.actors.common import read_tracks
 from stages.safety.hook import PassThroughSafety
 from tools.synth import actor_masks
+
+# Stage crashes are logged with their traceback at DEBUG; show them in the kernel log.
+logging.basicConfig(level=logging.WARNING)
+logging.getLogger("worldreel.pipeline").setLevel(logging.DEBUG)
 
 scene = find_scenes()[0]
 gt = json.loads((scene / "gt.json").read_text())
