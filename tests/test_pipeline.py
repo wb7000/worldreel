@@ -212,7 +212,7 @@ def test_default_config_loads_and_selects_real_frames() -> None:
     assert cfg.stage["frames"]["fps"] == 6.0
     assert cfg.impl["camera"] == "real" and cfg.impl["reconstruct"] == "real"
     with pytest.raises(ValueError, match="no 'real' implementation"):
-        build_stages(("actors",), {"actors": "real"})
+        build_stages(("fill",), {"fill": "real"})
 
 
 # --------------------------------------------------------------------------- real frames stage
