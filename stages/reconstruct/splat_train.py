@@ -39,6 +39,11 @@ class SplatConfig:
     refine_every: int = 100
     reset_every: int = 3000
     checkpoint_every: int = 2000
+    background_points: int = 20000  # far sphere for sky/background (0 = off)
+    background_radius: float = 10.0  # times the scene extent
+    # gsplat prunes Gaussians larger than prune_scale3d x scene extent (default 0.1). The far
+    # sphere's Gaussians are ~0.3 x extent, so the default would delete them at the first refine.
+    prune_scale3d: float = 1.0
     seed: int = 0
 
 
@@ -108,6 +113,21 @@ def train_splats(
     extent = float(np.linalg.norm(init_points - init_points.mean(0), axis=1).max()) * 1.1
     extent = max(extent, float(np.linalg.norm(centers - centers.mean(0), axis=1).max()))
 
+    # Background sphere: SfM finds no points in the sky or far background, so without a place
+    # to put them the optimiser fits sky colour with "floaters" close to the cameras, which then
+    # block novel views (measured on seed 11, DECISIONS D-3b.4). Seeding Gaussians on a far
+    # sphere, a common practice for unbounded scenes, gives the background its own geometry.
+    if cfg.background_points > 0:
+        rng_bg = np.random.default_rng(cfg.seed + 1)
+        dirs = rng_bg.normal(size=(cfg.background_points, 3))
+        dirs /= np.linalg.norm(dirs, axis=1, keepdims=True)
+        center = init_points.mean(0)
+        far = center + dirs * extent * cfg.background_radius
+        mean_rgb = np.stack(images).reshape(-1, 3).mean(0)
+        init_points = np.concatenate([init_points, far])
+        init_colors = np.concatenate(
+            [init_colors, np.tile(mean_rgb.round().astype(np.uint8), (len(far), 1))]
+        )
     n = len(init_points)
     scales = np.log(_knn_scale(init_points))[:, None].repeat(3, 1)
     colors = np.clip(init_colors.astype(np.float64) / 255.0, 1e-3, 1 - 1e-3)
@@ -141,6 +161,7 @@ def train_splats(
         refine_every=cfg.refine_every,
         reset_every=cfg.reset_every,
         pause_refine_after_reset=len(images),
+        prune_scale3d=cfg.prune_scale3d,
     )
     strategy.check_sanity(params, optimizers)
     state = strategy.initialize_state(scene_scale=extent)

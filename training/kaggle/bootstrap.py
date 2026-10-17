@@ -56,7 +56,12 @@ def find_scenes() -> list[_Path]:
                 zf.extractall(dest)
         scenes.append(dest)
     for gt in sorted(INPUT.rglob("gt.json")):
-        dest = WORK / "scenes" / next(p.name for p in gt.parents if p.parent == INPUT or p.parent.parent == INPUT)
+        # Name each scene after its dataset slug (Kaggle mounts datasets at varying depths, e.g.
+        # /kaggle/input/datasets/<user>/<slug>/...), falling back to the folder holding gt.json.
+        name = next(
+            (p.name for p in gt.parents if p.name.startswith("worldreel-scene")), gt.parent.name
+        )
+        dest = WORK / "scenes" / name
         if not dest.exists():
             _shutil.copytree(gt.parent, dest)
         if dest not in scenes:
