@@ -34,13 +34,17 @@ extend-exclude = ["player"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF"]
 
+[tool.ruff.lint.per-file-ignores]
+# Kaggle jobs are appended to training/kaggle/bootstrap.py, which defines log, WORK, OUT, ...
+"training/kaggle/jobs/*.py" = ["F821", "E402", "E501"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
 files = ["formats", "pipeline", "stages", "tools", "eval", "training", "tests"]
 # Runs inside Blender against the untyped bpy API; covered by the Blender integration test.
-exclude = ['tools/blender/gen_scene\.py']
+exclude = ['tools/blender/gen_scene\.py', 'training/kaggle/']
 
 [[tool.mypy.overrides]]
-module = ["cv2", "cv2.*"]
+module = ["cv2", "cv2.*", "torch", "torch.*", "gsplat", "gsplat.*"]
 ignore_missing_imports = true

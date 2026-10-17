@@ -1,0 +1,236 @@
+"""3D Gaussian Splatting training (Kerbl et al. 2023) with the gsplat library (Apache-2.0).
+
+GPU only: imports torch and gsplat lazily so the rest of the package works without them.
+Camera convention: OpenCV (x right, y down, z forward), world-to-camera view matrices, as
+measured for gsplat on Kaggle (DECISIONS D-3b.2).
+
+The loop follows the paper's recipe: Gaussians initialised from SfM points with isotropic scales
+from the 3 nearest neighbours, Adam with per-parameter learning rates and an exponentially
+decaying position learning rate, loss = 0.8·L1 + 0.2·(1 - SSIM), and gsplat's DefaultStrategy for
+densification (clone / split / prune, opacity reset). Colours are plain RGB (no spherical
+harmonics) in v1.
+"""
+
+from __future__ import annotations
+
+import math
+import time
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import numpy.typing as npt
+
+
+@dataclass
+class SplatConfig:
+    steps: int = 7000
+    sh_free_rgb: bool = True
+    lr_means: float = 1.6e-4  # times scene extent, decays to 1/100 over training
+    lr_scales: float = 5e-3
+    lr_quats: float = 1e-3
+    lr_opacities: float = 5e-2
+    lr_colors: float = 2.5e-3
+    ssim_weight: float = 0.2
+    init_opacity: float = 0.1
+    refine_start: int = 500
+    refine_stop: int = 5000
+    refine_every: int = 100
+    reset_every: int = 3000
+    checkpoint_every: int = 2000
+    seed: int = 0
+
+
+@dataclass
+class SplatResult:
+    params: dict[str, npt.NDArray[np.float32]]
+    stats: dict[str, Any] = field(default_factory=dict)
+
+
+def _ssim(x: Any, y: Any) -> Any:
+    """SSIM between image batches [B, 3, H, W] in [0, 1] (11x11 Gaussian window, sigma 1.5)."""
+    import torch
+    import torch.nn.functional as nnf
+
+    coords = torch.arange(11, device=x.device, dtype=x.dtype) - 5
+    g = torch.exp(-(coords**2) / (2 * 1.5**2))
+    g = g / g.sum()
+    window = (g[:, None] @ g[None, :]).expand(3, 1, 11, 11).contiguous()
+
+    def blur(z: Any) -> Any:
+        return nnf.conv2d(z, window, padding=5, groups=3)
+
+    mx, my = blur(x), blur(y)
+    sxx = blur(x * x) - mx * mx
+    syy = blur(y * y) - my * my
+    sxy = blur(x * y) - mx * my
+    c1, c2 = 0.01**2, 0.03**2
+    s = ((2 * mx * my + c1) * (2 * sxy + c2)) / ((mx * mx + my * my + c1) * (sxx + syy + c2))
+    return s.mean()
+
+
+def _knn_scale(points: npt.NDArray[np.float64], k: int = 3) -> npt.NDArray[np.float64]:
+    """Mean distance to the k nearest neighbours (brute force in chunks; fine for ≤ 100k)."""
+    import torch
+
+    p = torch.as_tensor(points, dtype=torch.float32, device="cuda")
+    out = torch.empty(len(p), device="cuda")
+    for i in range(0, len(p), 4096):
+        d = torch.cdist(p[i : i + 4096], p)
+        d, _ = torch.topk(d, k + 1, largest=False)
+        out[i : i + 4096] = d[:, 1:].mean(1)
+    return np.asarray(out.clamp_min(1e-4).cpu().numpy(), dtype=np.float64)
+
+
+def train_splats(
+    images: list[npt.NDArray[np.uint8]],
+    k: npt.NDArray[np.float64],
+    viewmats: npt.NDArray[np.float64],
+    init_points: npt.NDArray[np.float64],
+    init_colors: npt.NDArray[np.uint8],
+    cfg: SplatConfig,
+    *,
+    checkpoint_dir: Path | None = None,
+    log: Any = print,
+) -> SplatResult:
+    import torch
+    from gsplat import DefaultStrategy, rasterization
+
+    torch.manual_seed(cfg.seed)
+    dev = torch.device("cuda")
+    h, w = images[0].shape[:2]
+    gt = torch.as_tensor(np.stack(images), device=dev).float() / 255.0  # [N, H, W, 3]
+    vm = torch.as_tensor(viewmats, dtype=torch.float32, device=dev)
+    kk = torch.as_tensor(k, dtype=torch.float32, device=dev)
+
+    centers = -np.einsum("nji,nj->ni", viewmats[:, :3, :3], viewmats[:, :3, 3])
+    extent = float(np.linalg.norm(init_points - init_points.mean(0), axis=1).max()) * 1.1
+    extent = max(extent, float(np.linalg.norm(centers - centers.mean(0), axis=1).max()))
+
+    n = len(init_points)
+    scales = np.log(_knn_scale(init_points))[:, None].repeat(3, 1)
+    colors = np.clip(init_colors.astype(np.float64) / 255.0, 1e-3, 1 - 1e-3)
+    params = torch.nn.ParameterDict(
+        {
+            "means": torch.nn.Parameter(
+                torch.as_tensor(init_points, dtype=torch.float32, device=dev)
+            ),
+            "scales": torch.nn.Parameter(torch.as_tensor(scales, dtype=torch.float32, device=dev)),
+            "quats": torch.nn.Parameter(torch.tensor([[1.0, 0, 0, 0]], device=dev).repeat(n, 1)),
+            "opacities": torch.nn.Parameter(
+                torch.full((n,), math.log(cfg.init_opacity / (1 - cfg.init_opacity)), device=dev)
+            ),
+            "colors": torch.nn.Parameter(
+                torch.logit(torch.as_tensor(colors, dtype=torch.float32, device=dev))
+            ),
+        }
+    )
+    lrs = {
+        "means": cfg.lr_means * extent,
+        "scales": cfg.lr_scales,
+        "quats": cfg.lr_quats,
+        "opacities": cfg.lr_opacities,
+        "colors": cfg.lr_colors,
+    }
+    optimizers = {key: torch.optim.Adam([params[key]], lr=lr, eps=1e-15) for key, lr in lrs.items()}
+    decay = 0.01 ** (1.0 / cfg.steps)
+    strategy = DefaultStrategy(
+        refine_start_iter=cfg.refine_start,
+        refine_stop_iter=cfg.refine_stop,
+        refine_every=cfg.refine_every,
+        reset_every=cfg.reset_every,
+        pause_refine_after_reset=len(images),
+    )
+    strategy.check_sanity(params, optimizers)
+    state = strategy.initialize_state(scene_scale=extent)
+
+    rng = np.random.default_rng(cfg.seed)
+    losses: list[float] = []
+    t0 = time.time()
+    for step in range(cfg.steps):
+        i = int(rng.integers(len(images)))
+        render, _, info = rasterization(
+            params["means"],
+            params["quats"],
+            torch.exp(params["scales"]),
+            torch.sigmoid(params["opacities"]),
+            torch.sigmoid(params["colors"]),
+            vm[i : i + 1],
+            kk[None],
+            w,
+            h,
+            packed=False,
+        )
+        strategy.step_pre_backward(params, optimizers, state, step, info)
+        pred = render[0]
+        l1 = (pred - gt[i]).abs().mean()
+        ssim = _ssim(pred.permute(2, 0, 1)[None], gt[i].permute(2, 0, 1)[None])
+        loss = (1 - cfg.ssim_weight) * l1 + cfg.ssim_weight * (1 - ssim)
+        loss.backward()
+        strategy.step_post_backward(params, optimizers, state, step, info, packed=False)
+        for opt in optimizers.values():
+            opt.step()
+            opt.zero_grad(set_to_none=True)
+        for group in optimizers["means"].param_groups:
+            group["lr"] *= decay
+        losses.append(float(loss))
+        if step % 500 == 0 or step == cfg.steps - 1:
+            log(
+                f"step {step:5d} loss {np.mean(losses[-100:]):.4f} gaussians {len(params['means'])}"
+            )
+        if checkpoint_dir and step and step % cfg.checkpoint_every == 0:
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            torch.save(
+                {k2: v.detach().cpu() for k2, v in params.items()} | {"step": step},
+                checkpoint_dir / "latest.pt",
+            )
+
+    out = {key: v.detach().cpu().numpy().astype(np.float32) for key, v in params.items()}
+    return SplatResult(
+        out,
+        {
+            "steps": cfg.steps,
+            "seconds": round(time.time() - t0, 1),
+            "gaussians": len(out["means"]),
+            "initial_points": n,
+            "final_loss": float(np.mean(losses[-100:])),
+            "loss_every_500": [
+                float(np.mean(losses[max(0, s - 100) : s + 1])) for s in range(0, cfg.steps, 500)
+            ],
+            "scene_extent": extent,
+            "config": asdict(cfg),
+        },
+    )
+
+
+def render_splats(
+    params: dict[str, npt.NDArray[np.float32]],
+    k: npt.NDArray[np.float64],
+    viewmat: npt.NDArray[np.float64],
+    width: int,
+    height: int,
+    background: tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.float32]]:
+    """Render one view → (RGB uint8 image, alpha)."""
+    import torch
+    from gsplat import rasterization
+
+    dev = torch.device("cuda")
+    p = {key: torch.as_tensor(v, device=dev) for key, v in params.items()}
+    with torch.no_grad():
+        img, alpha, _ = rasterization(
+            p["means"],
+            p["quats"],
+            torch.exp(p["scales"]),
+            torch.sigmoid(p["opacities"]),
+            torch.sigmoid(p["colors"]),
+            torch.as_tensor(viewmat, dtype=torch.float32, device=dev)[None],
+            torch.as_tensor(k, dtype=torch.float32, device=dev)[None],
+            width,
+            height,
+            packed=False,
+            backgrounds=torch.tensor([background], device=dev),
+        )
+    rgb = (img[0].clamp(0, 1) * 255).round().byte().cpu().numpy()
+    return rgb, alpha[0, :, :, 0].cpu().numpy()
