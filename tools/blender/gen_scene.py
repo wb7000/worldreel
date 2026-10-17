@@ -255,7 +255,21 @@ def build_scene(
             root.keyframe_insert("location", frame=f)
             root.keyframe_insert("rotation_euler", frame=f)
         actors.append(
-            {"id": f"a{a}", "object": root.name, "type": "person", "height": 1.75, "radius": 0.22}
+            {
+                "id": f"a{a}",
+                "object": root.name,
+                "type": "person",
+                "height": 1.75,
+                "radius": 0.22,
+                # Exact body shape in the actor's frame (metres, up = +Y in WorldReel), used to
+                # derive ground-truth person masks from depth (tools/synth.actor_masks).
+                "body": {
+                    "cylinder_radius": 0.22,
+                    "cylinder_height": 1.45,
+                    "head_centre_height": 1.62,
+                    "head_radius": 0.13,
+                },
+            }
         )
 
     # Camera orbits slowly around the centre, looking slightly down.

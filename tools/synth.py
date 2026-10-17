@@ -218,6 +218,47 @@ def check(scene_dir: Path, *, ground_tol: float = 0.05, reproj_tol: float = 0.05
     return report
 
 
+DEFAULT_BODY = {
+    "cylinder_radius": 0.22,
+    "cylinder_height": 1.45,
+    "head_centre_height": 1.62,
+    "head_radius": 0.13,
+}
+
+
+def actor_masks(scene_dir: Path, frame_index: int, tol: float = 0.03) -> npt.NDArray[np.uint8]:
+    """Ground-truth person mask for one frame: 0 = no person, k = the k-th actor (1-based).
+    A pixel belongs to an actor when its 3D point (from the exact depth) lies inside that
+    actor's body (vertical cylinder + head sphere) at that frame."""
+    gt: dict[str, Any] = json.loads((scene_dir / "gt.json").read_text(encoding="utf-8"))
+    frame = gt["frames"][frame_index]
+    depth = np.load(scene_dir / frame["depth"])
+    labels = np.zeros(depth.shape, np.uint8)
+    if not gt.get("actors"):
+        return labels
+    pts = backproject(
+        depth, gt["intrinsics"], frame["camera"]["position"], frame["camera"]["rotation"]
+    )
+    valid = depth > 0
+    flat = np.zeros(len(pts), np.uint8)
+    for k, actor in enumerate(gt["actors"], start=1):
+        body = actor.get("body", DEFAULT_BODY)
+        pos = np.asarray(actor["track"]["positions"][frame_index])
+        rel = pts - pos
+        horizontal = np.hypot(rel[:, 0], rel[:, 2])
+        # Start 1 cm above the floor: floor pixels at the feet are within the radius too.
+        in_body = (
+            (rel[:, 1] >= 0.01)
+            & (rel[:, 1] <= body["cylinder_height"] + tol)
+            & (horizontal <= body["cylinder_radius"] + tol)
+        )
+        head = pos + np.array([0.0, body["head_centre_height"], 0.0])
+        in_head = np.linalg.norm(pts - head, axis=1) <= body["head_radius"] + tol
+        flat[(in_body | in_head) & (flat == 0)] = k
+    labels[valid] = flat
+    return labels
+
+
 def to_inbox(scene_dir: Path, inbox: Path) -> Path:
     """Encode the RGB frames as an MP4 and drop it, with its info sidecar, into an inbox."""
     ffmpeg = require_tool("ffmpeg")
