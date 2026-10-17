@@ -3,6 +3,7 @@ through configuration, not code changes).
 
     python -m tools.kaggle_runner push-code                  # code → private dataset
     python -m tools.kaggle_runner push-scene <scene dir>     # a synthetic scene → private dataset
+    python -m tools.kaggle_runner push-video <id> --name N --config <toml>  # an ingested video
     python -m tools.kaggle_runner run <job.py> [--scene NAME] [--wait]
     python -m tools.kaggle_runner status <job.py>
     python -m tools.kaggle_runner fetch <job.py>            # outputs → runs/kaggle/<job>/
@@ -106,6 +107,34 @@ def push_scene(scene: Path, name: str) -> None:
         _upload(Path(tmp), f"worldreel-scene-{name}", f"WorldReel scene {name}", "scene upload")
 
 
+def push_video(store_root: Path, file_id: str, name: str, config: Path) -> None:
+    """Upload one ingested video (by data id) and the pipeline config to run on it, as a
+    PRIVATE dataset. Only the video file, its manifest row and the config are uploaded."""
+    from stages.ingest.store import DataStore
+
+    store = DataStore(store_root)
+    row = store.get(file_id)
+    if row.status != "active" or row.media_type != "video":
+        raise SystemExit(f"{file_id} is not an active video")
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        shutil.copy(store.root / row.path, folder / f"video{Path(row.path).suffix}")
+        shutil.copy(config, folder / "pipeline.toml")
+        (folder / "item.json").write_text(
+            json.dumps(
+                {
+                    "id": row.id,
+                    "sha256": row.hash,
+                    "source": row.source,
+                    "license": row.license,
+                    "upload_rights": row.upload_rights,
+                }
+            ),
+            encoding="utf-8",
+        )
+        _upload(folder, f"worldreel-video-{name}", f"WorldReel video {name}", "video upload")
+
+
 def kernel_slug(job: Path) -> str:
     return f"worldreel-{job.stem.replace('_', '-')}"
 
@@ -159,7 +188,12 @@ def _push(job: Path, scenes: list[str], any_gpu: bool) -> None:
             "enable_internet": True,
             **({} if any_gpu else {"machine_shape": MACHINE_SHAPE}),
             "dataset_sources": [f"{user}/{CODE_DATASET}"]
-            + [f"{user}/worldreel-scene-{s}" for s in scenes],
+            + [
+                f"{user}/worldreel-video-{s[6:]}"
+                if s.startswith("video:")
+                else f"{user}/worldreel-scene-{s}"
+                for s in scenes
+            ],
         }
         (folder / "kernel-metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
         print(kaggle("kernels", "push", "-p", str(folder)).strip())
@@ -198,9 +232,15 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("push-scene")
     s.add_argument("scene", type=Path)
     s.add_argument("--name", required=True)
+    v = sub.add_parser("push-video")
+    v.add_argument("id")
+    v.add_argument("--name", required=True)
+    v.add_argument("--config", type=Path, required=True)
+    v.add_argument("--root", type=Path, default=REPO_ROOT / "data")
     r = sub.add_parser("run")
     r.add_argument("job", type=Path)
     r.add_argument("--scene", action="append", default=[])
+    r.add_argument("--video", action="append", default=[])
     r.add_argument("--wait", action="store_true")
     r.add_argument(
         "--any-gpu", action="store_true", help="let Kaggle pick the GPU (T4 x2 queues can be long)"
@@ -218,8 +258,11 @@ def main(argv: list[str] | None = None) -> int:
         push_code(a.message)
     elif a.cmd == "push-scene":
         push_scene(a.scene, a.name)
+    elif a.cmd == "push-video":
+        push_video(a.root, a.id, a.name, a.config)
     elif a.cmd == "run":
-        run(a.job, a.scene, a.wait, a.any_gpu, a.requeue_after)
+        datasets = a.scene + [f"video:{n}" for n in a.video]
+        run(a.job, datasets, a.wait, a.any_gpu, a.requeue_after)
     elif a.cmd == "status":
         print(status(a.job))
     elif a.cmd == "wait":
