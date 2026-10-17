@@ -110,9 +110,32 @@ def kernel_slug(job: Path) -> str:
     return f"worldreel-{job.stem.replace('_', '-')}"
 
 
-def run(job: Path, scenes: list[str], wait: bool, any_gpu: bool = False) -> None:
+def run(
+    job: Path, scenes: list[str], wait: bool, any_gpu: bool = False, requeue_after: float = 0
+) -> None:
+    """Push the job. With `requeue_after` minutes > 0, a job still QUEUED after that long is
+    deleted and pushed again (observed on Kaggle: a fresh push often starts at once while the
+    queued one waits for hours; DECISIONS D-3b.3)."""
     if not job.exists():
         job = JOBS_DIR / job.name
+    _push(job, scenes, any_gpu)
+    if requeue_after > 0:
+        started = time.time()
+        while "queued" in status(job).lower():
+            if time.time() - started > requeue_after * 60:
+                print(
+                    f"still queued after {requeue_after:g} min: deleting and pushing again",
+                    flush=True,
+                )
+                kaggle("kernels", "delete", f"{username()}/{kernel_slug(job)}", "-y")
+                _push(job, scenes, any_gpu)
+                started = time.time()
+            time.sleep(60)
+    if wait:
+        wait_for(job)
+
+
+def _push(job: Path, scenes: list[str], any_gpu: bool) -> None:
     user = username()
     with tempfile.TemporaryDirectory() as tmp:
         folder = Path(tmp)
@@ -140,8 +163,6 @@ def run(job: Path, scenes: list[str], wait: bool, any_gpu: bool = False) -> None
         }
         (folder / "kernel-metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
         print(kaggle("kernels", "push", "-p", str(folder)).strip())
-    if wait:
-        wait_for(job)
 
 
 def status(job: Path) -> str:
@@ -184,6 +205,12 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument(
         "--any-gpu", action="store_true", help="let Kaggle pick the GPU (T4 x2 queues can be long)"
     )
+    r.add_argument(
+        "--requeue-after",
+        type=float,
+        default=20.0,
+        help="minutes queued before re-pushing (0 = never)",
+    )
     for name in ("status", "fetch", "wait"):
         sub.add_parser(name).add_argument("job", type=Path)
     a = p.parse_args(argv)
@@ -192,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
     elif a.cmd == "push-scene":
         push_scene(a.scene, a.name)
     elif a.cmd == "run":
-        run(a.job, a.scene, a.wait, a.any_gpu)
+        run(a.job, a.scene, a.wait, a.any_gpu, a.requeue_after)
     elif a.cmd == "status":
         print(status(a.job))
     elif a.cmd == "wait":
