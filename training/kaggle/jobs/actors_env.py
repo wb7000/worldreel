@@ -3,7 +3,6 @@
 # github.com/facebookresearch/sam2). Prints real signatures/labels; runs both on a scene.
 # Runs after bootstrap.py.
 import inspect
-import shutil
 import subprocess
 import sys
 import time
@@ -85,15 +84,15 @@ scene = scenes[0]
 gt = json.loads((scene / "gt.json").read_text())
 frames = [read_rgb(scene / f["rgb"]) for f in gt["frames"][:8]]
 dets = []
-for i, img in enumerate(frames):
+for img in frames:
     inputs = proc(images=img, return_tensors="pt").to("cuda")
     with torch.no_grad():
         out = detr(**inputs)
     res = proc.post_process_object_detection(out, target_sizes=[img.shape[:2]], threshold=0.5)[0]
     dets.append(
         [
-            (labels[int(l)], round(float(s), 3), [round(float(x), 1) for x in b])
-            for s, l, b in zip(res["scores"], res["labels"], res["boxes"])
+            (labels[int(lab)], round(float(s), 3), [round(float(x), 1) for x in b])
+            for s, lab, b in zip(res["scores"], res["labels"], res["boxes"], strict=False)
         ]
     )
 report["detr_on_synthetic"] = dets[:3]
@@ -127,7 +126,7 @@ try:
     state = predictor.init_state(video_path=str(jpeg))
     predictor.add_new_points_or_box(inference_state=state, frame_idx=0, obj_id=1, box=box)
     ious = []
-    for fidx, obj_ids, logits in predictor.propagate_in_video(state):
+    for fidx, _obj_ids, logits in predictor.propagate_in_video(state):
         pred = (logits[0, 0] > 0).cpu().numpy()
         truth = actor_masks(scene, fidx) == 1
         inter, union = (pred & truth).sum(), (pred | truth).sum()
