@@ -31,8 +31,9 @@ from formats.common import (
 )
 
 FORMAT = "wreel"
-SUPPORTED_VERSION = (1, 0)
-FORMAT_VERSION = "1.0"
+SUPPORTED_VERSION = (1, 1)
+FORMAT_VERSION = "1.0"  # files without Gaussian layers stay 1.0 (spec §6.3)
+GAUSSIAN_FORMAT_VERSION = "1.1"
 MANIFEST = "manifest.json"
 SIGNATURE = "signature.json"
 SCHEMA = "wreel-manifest-1.schema.json"
@@ -43,6 +44,21 @@ POINT_DTYPE = np.dtype(
 )
 POINT_STRIDE = 20
 assert POINT_DTYPE.itemsize == POINT_STRIDE
+
+GAUSSIAN_DTYPE = np.dtype(
+    [
+        ("position", "<f4", (3,)),
+        ("scale", "<f4", (3,)),
+        ("rotation", "<f4", (4,)),
+        ("rgb", "u1", (3,)),
+        ("opacity", "u1"),
+        ("cls", "u1"),
+        ("reserved", "u1", (3,)),
+        ("conf", "<f4"),
+    ]
+)
+GAUSSIAN_STRIDE = 52
+assert GAUSSIAN_DTYPE.itemsize == GAUSSIAN_STRIDE
 
 QUAT_TOLERANCE = 1e-3
 
@@ -97,6 +113,70 @@ class PointCloud:
         if not isinstance(other, PointCloud):
             return NotImplemented
         return self.pack() == other.pack()
+
+
+@dataclass
+class GaussianCloud:
+    """Columns of a `.gsp` chunk (spec §6.3). `rotations` are unit quaternions [x, y, z, w];
+    `scales` are standard deviations in metres; `opacity` is in [0, 1]."""
+
+    positions: npt.NDArray[np.float32]
+    scales: npt.NDArray[np.float32]
+    rotations: npt.NDArray[np.float32]
+    colors: npt.NDArray[np.uint8]
+    opacity: npt.NDArray[np.float32]
+    cls: npt.NDArray[np.uint8]
+    confidence: npt.NDArray[np.float32]
+
+    def __post_init__(self) -> None:
+        n = len(self.positions)
+        expected = {
+            "positions": (n, 3),
+            "scales": (n, 3),
+            "rotations": (n, 4),
+            "colors": (n, 3),
+            "opacity": (n,),
+            "cls": (n,),
+            "confidence": (n,),
+        }
+        for name, shape in expected.items():
+            if getattr(self, name).shape != shape:
+                raise ValueError(f"{name} must have shape {shape}")
+
+    def __len__(self) -> int:
+        return len(self.positions)
+
+    def pack(self) -> bytes:
+        records = np.zeros(len(self), dtype=GAUSSIAN_DTYPE)
+        records["position"] = self.positions
+        records["scale"] = self.scales
+        records["rotation"] = self.rotations
+        records["rgb"] = self.colors
+        records["opacity"] = np.clip(np.round(self.opacity * 255), 0, 255).astype(np.uint8)
+        records["cls"] = self.cls
+        records["conf"] = self.confidence
+        return records.tobytes()
+
+    @classmethod
+    def unpack(cls, data: bytes) -> GaussianCloud:
+        if len(data) % GAUSSIAN_STRIDE:
+            raise FormatError(
+                f"gaussian chunk size {len(data)} is not a multiple of {GAUSSIAN_STRIDE}"
+            )
+        r = np.frombuffer(data, dtype=GAUSSIAN_DTYPE)
+        return cls(
+            positions=r["position"].copy(),
+            scales=r["scale"].copy(),
+            rotations=r["rotation"].copy(),
+            colors=r["rgb"].copy(),
+            opacity=(r["opacity"].astype(np.float32) / 255).astype(np.float32),
+            cls=r["cls"].copy(),
+            confidence=r["conf"].copy(),
+        )
+
+
+def stride_for(kind: str) -> int:
+    return GAUSSIAN_STRIDE if kind == "gaussians" else POINT_STRIDE
 
 
 # --------------------------------------------------------------------------- document
@@ -229,6 +309,12 @@ def _semantic_checks(m: dict[str, Any], data: Mapping[str, bytes], rep: Report) 
         if actor["track"]["path"] in data:
             _check_track(data[actor["track"]["path"]], rep, where + ".track")
 
+    layers_all = [*m["scene"]["layers"], *(a["geometry"] for a in m["actors"])]
+    if any(layer["kind"] == "gaussians" for layer in layers_all) and tuple(
+        int(x) for x in m["format_version"].split(".")
+    ) < (1, 1):
+        rep.error("version_too_low", "gaussian layers need format_version 1.1 or later")
+
     directors = [c for c in m["cameras"] if c["kind"] == "director"]
     if len(directors) > 1:
         rep.error("multiple_director_cameras", "at most one camera may have kind 'director'")
@@ -283,13 +369,17 @@ def _check_layer(
         if path not in data:
             rep.error("missing_file", f"referenced file {path!r} is not in the container", where)
             continue
-        expected = lod["count"] * POINT_STRIDE
+        stride = stride_for(layer["kind"])
+        expected = lod["count"] * stride
         if len(data[path]) != expected:
             rep.error(
                 "bad_point_chunk",
-                f"{path}: {len(data[path])} bytes, expected count*{POINT_STRIDE} = {expected}",
+                f"{path}: {len(data[path])} bytes, expected count*{stride} = {expected}",
                 where,
             )
+            continue
+        if layer["kind"] == "gaussians":
+            _check_gaussians(GaussianCloud.unpack(data[path]), rep, f"{where}: {path}")
             continue
         cloud = PointCloud.unpack(data[path])
         if len(cloud) and int(cloud.cls.max()) >= len(PROVENANCE_CLASSES):
@@ -299,6 +389,24 @@ def _check_layer(
             rep.error("bad_confidence", f"{path}: confidence outside [0, 1]", where)
         if len(cloud) and not np.all(np.isfinite(cloud.positions)):
             rep.error("bad_positions", f"{path}: non-finite positions", where)
+
+
+def _check_gaussians(g: GaussianCloud, rep: Report, where: str) -> None:
+    if not len(g):
+        return
+    if int(g.cls.max()) >= len(PROVENANCE_CLASSES):
+        rep.error("bad_point_class", "provenance class code out of range", where)
+    if not np.all(np.isfinite(g.confidence)) or g.confidence.min() < 0 or g.confidence.max() > 1:
+        rep.error("bad_confidence", "confidence outside [0, 1]", where)
+    if not (np.all(np.isfinite(g.positions)) and np.all(np.isfinite(g.scales))):
+        rep.error("bad_positions", "non-finite positions or scales", where)
+    if g.scales.min() <= 0:
+        rep.error("bad_scale", "scales must be positive", where)
+    norms = np.linalg.norm(g.rotations.astype(np.float64), axis=1)
+    if np.abs(norms - 1).max() > QUAT_TOLERANCE:
+        rep.error(
+            "bad_quaternion", "gaussian rotations must be unit quaternions [x, y, z, w]", where
+        )
 
 
 def _check_track(raw: bytes, rep: Report, where: str) -> None:

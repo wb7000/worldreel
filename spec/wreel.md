@@ -1,6 +1,6 @@
 # `.wreel` — WorldReel interactive world container
 
-**Format version: 1.0** · Status: draft for Phase 1 · Schema: `spec/schemas/wreel-manifest-1.schema.json`
+**Format version: 1.1** (1.0 + Gaussian layers, §6.3) · Status: draft · Schema: `spec/schemas/wreel-manifest-1.schema.json`
 
 A `.wreel` file stores a *scene* rather than pixels: geometry, actors and their motion, lighting,
 camera paths, sound, interaction rules, and an honest record of what was seen versus guessed.
@@ -136,8 +136,8 @@ Enough to regenerate the same file.
 ```jsonc
 {
   "id": "static",
-  "kind": "points",                 // v1: "points" only. Reserved: "gaussians", "mesh".
-  "point_size": 0.05,               // world-space diameter hint (metres)
+  "kind": "points",                 // "points" (1.0) or "gaussians" (1.1). Reserved: "mesh".
+  "point_size": 0.05,               // points only: world-space diameter hint (metres)
   "lods": [                         // ordered coarse → fine; progressive streaming
     { "level": 0, "path": "scene/static/lod0.pts", "count": 2000 },
     { "level": 1, "path": "scene/static/lod1.pts", "count": 20000 }
@@ -160,6 +160,31 @@ No header; the record count comes from the manifest. Record stride **20 bytes**:
 | 16 | float32 | confidence in `[0, 1]` |
 
 File size MUST equal `count × 20`.
+
+### 6.3 Gaussian chunk binary layout (`application/x-wreel-gaussians`, `.gsp`) — since 1.1
+
+A layer with `"kind": "gaussians"` holds 3D Gaussians as produced by Gaussian splatting
+(Kerbl et al. 2023). `point_size` is not used. No header; record stride **52 bytes**:
+
+| Offset | Type | Field |
+|---|---|---|
+| 0 | float32 × 3 | centre x, y, z (§2 axes, metres) |
+| 12 | float32 × 3 | scale: standard deviation along the Gaussian's local x, y, z (metres, > 0) |
+| 24 | float32 × 4 | rotation, unit quaternion `[x, y, z, w]`, local → world |
+| 40 | uint8 × 3 | colour r, g, b (sRGB-encoded 0–255), view-independent in 1.1 |
+| 43 | uint8 | opacity, 0–255 → [0, 1] |
+| 44 | uint8 | provenance class (§10.1) |
+| 45 | uint8 × 3 | reserved, 0 |
+| 48 | float32 | confidence in `[0, 1]` |
+
+File size MUST equal `count × 52`. Covariance Σ = R · diag(scale²) · Rᵀ. A Gaussian contributes
+`opacity · exp(-½ dᵀ Σ₂ᴰ⁻¹ d)` at pixel offset `d` from its projected centre (Σ₂ᴰ is the projected
+covariance), alpha-composited in view-depth order. LODs (§6.1) apply as for points; LOD 0 SHOULD
+hold the Gaussians that contribute most (e.g. largest opacity × area). View-dependent colour
+(spherical harmonics) is reserved for a later minor version.
+
+A 1.0 reader does not know `"kind": "gaussians"`; files that contain no Gaussian layer SHOULD
+therefore still be written as 1.0 so older players can open them.
 
 ## 7. Actors (`actors`)
 
@@ -317,5 +342,5 @@ Readers ignore extensions they do not understand.
 | Track | `application/json` |
 
 ## 16. Out of scope for v1 (see ROADMAP)
-Gaussian splat layers, meshes, spatial (octree) chunking, HTTP range streaming, branching story
+Meshes, view-dependent splat colour, spatial (octree) chunking, HTTP range streaming, branching story
 graphs, embedded scripting, trust lists for signing keys.
