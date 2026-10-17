@@ -37,3 +37,24 @@ def test_merge_logits_highest_positive_wins() -> None:
     labels = merge_logits({1: a, 2: b}, (2, 2))
     assert labels.tolist() == [[1, 2], [2, 0]]
     assert merge_logits({}, (2, 2)).sum() == 0
+
+
+def test_duplicate_objects_on_one_person_are_merged() -> None:
+    from stages.actors.sam2_stage import duplicate_map, relabel
+
+    body = np.zeros((10, 10), bool)
+    body[2:9, 3:6] = True
+    other = np.zeros((10, 10), bool)
+    other[2:9, 7:9] = True
+    torso = body.copy()
+    torso[6:] = False  # object 3 covers part of person 1 (track restarted on the same body)
+    masks = {
+        1: {f: body for f in range(6)},
+        2: {f: other for f in range(6)},
+        3: {f: torso for f in range(2, 6)},
+        4: {f: body for f in range(8, 10)},  # same place, never co-visible: kept separate
+    }
+    mapping = duplicate_map(masks)
+    assert mapping == {1: 1, 2: 2, 3: 1, 4: 4}
+    labels = np.array([[0, 1, 2, 3, 4]], np.uint8)
+    assert relabel(labels, mapping).tolist() == [[0, 1, 2, 1, 3]]

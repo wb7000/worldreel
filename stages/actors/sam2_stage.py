@@ -10,6 +10,7 @@ Steps:
      fewer than `min_hits` keyframes (one-off false positives).
   3. Prompt SAM 2.1 with each track's first box at its frame; propagate through the video.
   4. Merge per-object logits into one label image per frame (highest logit wins, > 0 only).
+  5. Merge objects that segment the same person (`duplicate_map`, `merge_overlap` 0.6).
 
 Config: detect_every (5), score (0.8), labels (["person"]), min_hits (2), link_iou (0.3),
 max_gap (3 keyframes), sam2_checkpoint (path, required), sam2_config
@@ -108,6 +109,52 @@ def merge_logits(per_object: dict[int, F32], shape: tuple[int, int]) -> npt.NDAr
     return labels
 
 
+Mask = npt.NDArray[np.bool_]
+
+
+def duplicate_map(
+    masks: dict[int, dict[int, Mask]], *, min_overlap: float = 0.6, min_frames: int = 3
+) -> dict[int, int]:
+    """Objects that segment the same person: {object: representative} (smallest id wins).
+
+    A track breaks when a person is lost for a while; the detector then starts a new track while
+    SAM 2 may still follow the person with the old object, so both segment the same body. Two
+    objects are merged when, over the frames both are visible (at least `min_frames`), the
+    median of intersection / smaller area is >= `min_overlap`.
+    """
+    ids = sorted(masks)
+    parent = {i: i for i in ids}
+
+    def root(i: int) -> int:
+        while parent[i] != i:
+            i = parent[i]
+        return i
+
+    for x, a in enumerate(ids):
+        for b in ids[x + 1 :]:
+            shared = [f for f in masks[a] if f in masks[b]]
+            if len(shared) < min_frames:
+                continue
+            ratios = []
+            for f in shared:
+                ma, mb = masks[a][f], masks[b][f]
+                small = min(int(ma.sum()), int(mb.sum()))
+                ratios.append(int((ma & mb).sum()) / small if small else 0.0)
+            if float(np.median(ratios)) >= min_overlap:
+                ra, rb = root(a), root(b)
+                parent[max(ra, rb)] = min(ra, rb)
+    return {i: root(i) for i in ids}
+
+
+def relabel(labels: npt.NDArray[np.uint8], mapping: dict[int, int]) -> npt.NDArray[np.uint8]:
+    """Apply {old: representative} and renumber representatives 1..n in order."""
+    reps = sorted(set(mapping.values()))
+    lut = np.zeros(256, np.uint8)
+    for old, rep in mapping.items():
+        lut[old] = reps.index(rep) + 1
+    return lut[labels]
+
+
 def _load_detr(device: str) -> tuple[Any, Any]:
     from transformers import DetrConfig, DetrForObjectDetection, DetrImageProcessor
 
@@ -158,14 +205,18 @@ def segment(
     checkpoint: Path,
     config_name: str,
     device: str,
-) -> npt.NDArray[np.uint8]:
+    *,
+    min_overlap: float = 0.6,
+) -> tuple[npt.NDArray[np.uint8], dict[int, int]]:
+    """Returns (labels after merging duplicates, {SAM object id: merged label})."""
     import torch
     from sam2.build_sam import build_sam2_video_predictor
 
     h, w = frames[0].shape[:2]
     labels = np.zeros((len(frames), h, w), np.uint8)
     if not tracks:
-        return labels
+        return labels, {}
+    small: dict[int, dict[int, Mask]] = {k: {} for k in range(1, len(tracks) + 1)}
     predictor = build_sam2_video_predictor(config_name, str(checkpoint), device=device)
     jpeg = Path(tempfile.mkdtemp(prefix="sam2_frames_"))
     try:
@@ -186,14 +237,20 @@ def segment(
                     int(o): logits[j, 0].float().cpu().numpy() for j, o in enumerate(obj_ids)
                 }
                 labels[fidx] = merge_logits(per_obj, (h, w))
+                for o, lg in per_obj.items():
+                    m = lg[::4, ::4] > 0  # quarter resolution is enough to compare objects
+                    if m.any():
+                        small[o][fidx] = m
     finally:
         shutil.rmtree(jpeg, ignore_errors=True)
-    return labels
+    mapping = duplicate_map(small, min_overlap=min_overlap)
+    merged = relabel(labels, mapping)
+    return merged, {o: int(relabel(np.array([o], np.uint8), mapping)[0]) for o in mapping}
 
 
 class Sam2ActorsStage:
     name: ClassVar[str] = "actors"
-    version: ClassVar[str] = "0.1.0"
+    version: ClassVar[str] = "0.2.0"
     impl: ClassVar[Impl] = "real"
     depends_on: ClassVar[tuple[str, ...]] = ("frames",)
 
@@ -219,11 +276,14 @@ class Sam2ActorsStage:
             max_gap=int(cfg.get("max_gap", 3)),
             min_hits=int(cfg.get("min_hits", 2)),
         )[: int(cfg.get("max_people", 32))]
-        labels = segment(
+        labels, merged = segment(
             frames,
             tracks,
             checkpoint,
             str(cfg.get("sam2_config", "configs/sam2.1/sam2.1_hiera_s.yaml")),
             device,
+            min_overlap=float(cfg.get("merge_overlap", 0.6)),
         )
-        write_tracks(ctx.out, labels, "detr-resnet-50+sam2.1-hiera-small", ["person"] * len(tracks))
+        people = len(set(merged.values()))
+        ctx.log.info("actors: %d box tracks -> %d people after merging", len(tracks), people)
+        write_tracks(ctx.out, labels, "detr-resnet-50+sam2.1-hiera-small", ["person"] * people)

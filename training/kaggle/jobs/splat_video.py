@@ -125,6 +125,8 @@ for meta_file in sorted(INPUT.rglob("item.json")):
             },
         )
         log(f"{name}: {len(actors_meta.get('tracks', []))} person tracks")
+    if (out_item / "actors" / "masks.npz").exists():
+        shutil.copy(out_item / "actors" / "masks.npz", OUT / name / "masks.npz")
     if (out_item / "package" / "actors_report.json").exists():
         shutil.copy(out_item / "package" / "actors_report.json", OUT / name / "actors_report.json")
     cam = json.loads((out_item / "camera" / "camera.json").read_text())
