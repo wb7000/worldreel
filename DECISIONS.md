@@ -378,3 +378,65 @@ works and opens in the player with a free camera.
 - Phase 3 acceptance "a short real video becomes a free-camera .wreel": **met for the trackable
   part of the clip**. Better results need slower camera motion with sideways movement, or the
   learned components of Phase 3b.
+
+---
+
+## Phase 3b: GPU reconstruction with Gaussian splats (2026-10-17, in progress)
+
+### D-3b.1 Kaggle runner and environment (measured)
+`tools/kaggle_runner.py` uploads tracked code only (never `data/`, never credentials) and
+scenes as PRIVATE datasets of the owner's account, pushes a job script as a private GPU kernel,
+waits and downloads outputs to `runs/kaggle/` (git-ignored). Credentials: Kaggle's new
+`KGAT_` access token in `C:\Users\li\.kaggle\access_token`, never in the repository.
+Environment check on Kaggle: 2x Tesla T4 (15 GB), Python 3.13.15, PyTorch 2.11.0+cu128,
+gsplat 1.5.3 (Apache-2.0) installs in 6 s; its CUDA code compiles on first use in ~5.6 min per
+job. Kaggle unpacks uploaded zip files and mounts datasets under
+`/kaggle/input/datasets/<user>/<slug>/`; `training/kaggle/bootstrap.py` handles both forms.
+
+### D-3b.2 gsplat camera convention (measured, not assumed)
+A Gaussian at camera-space +z is visible and one at -z is not; one at +y renders below the image
+centre. So gsplat uses OpenCV axes (x right, y down, z forward) with world-to-camera matrices,
+which is what `stages/reconstruct/splat_train.py` assumes.
+
+### D-3b.3 Kaggle queue behaviour (observed 4 times)
+Freshly pushed GPU jobs often stayed QUEUED for 20–60+ minutes, while deleting and pushing the
+same job again usually started it within seconds (once it stayed queued). The runner now does
+this automatically: `--requeue-after 20` (owner's rule) is the default.
+
+### D-3b.4 Splat trainer and the fog investigation
+`stages/reconstruct/splat_train.py`: 3D Gaussian Splatting (Kerbl et al. 2023) on gsplat,
+initialised from the classical SfM points and poses (so it inherits their accuracy), plain RGB
+colour, loss 0.8·L1 + 0.2·(1-SSIM), 7,000 steps, gsplat DefaultStrategy densification.
+History, in order (single runs, so see D-3b.6 for what holds up):
+1. No background: seed 11 novel views 26.9 dB avg, but sky-coloured "floaters" in the higher
+   eval views.
+2. A far "background sphere" of Gaussians (common for unbounded scenes) with gsplat's 3D prune
+   limit raised to 1.0 x extent so they survive: seed 11 → 29.0 dB, but seed 13 got a fog veil.
+3. Background Gaussians started small (≤ 0.05 x extent, 100k of them) with the default 0.1 limit.
+4. A diagnosis job proved (2): the raised limit let ~240 huge Gaussians (median size 3.2 units)
+   sit in front of the scene. It also showed that the same configuration scores 15.2 dB in one
+   run and 24.2 dB in another on the same view: **single training runs are not comparable**.
+
+### D-3b.5 Robust scene extent
+The extent was the maximum point distance; a few stray SfM points made it 15.9 units on
+seed 13 while the cameras span ~5. It now uses the 95th percentile (x1.1). It scales the prune
+limit, the position learning rate and the background sphere.
+
+### D-3b.6 Variance experiment (protocol fixed before results)
+Protocol written before the run: 2 variants x 3 training seeds x 3 scenes; headline = eval
+views localised with ≥ 1000 PnP inliers (fair test of the splats, not of localisation); all
+views reported too. Results (PSNR / SSIM, mean over 3 seeds, non-sky pixels):
+
+| Scene (well-localised views) | Classical (Kaggle run) | Splats, no background | Splats, small background |
+|---|---|---|---|
+| 11 (4 of 4) | 20.13 / 0.447 | 25.05 / 0.742 (runs 25.9, 30.4, 18.8) | **28.54 / 0.873** (24.9, 30.8, 29.9) |
+| 12 (2 of 4) | 20.75 / 0.497 | 31.14 / 0.941 (30.7, 31.1, 31.6) | **32.78 / 0.956** (32.8, 32.6, 33.0) |
+| 13 (1 of 4) | 20.78 / 0.543 | 22.09 / 0.791 (22.5, 20.9, 22.8) | **22.24 / 0.787** (23.1, 22.5, 21.1) |
+
+Decisions: splats beat the classical reconstruction on every scene (1.4–12 dB, SSIM 0.79–0.96 vs
+0.45–0.54) → **adopted** as the Phase 3b reconstruction method. The small background sphere is
+better or equal on every scene and steadier on seed 11 → **adopted** as default. Training takes
+~100–420 s per scene on one T4. Open problems: run-to-run spread is still ~6 dB on seed 11;
+5 of 12 eval views cannot be localised reliably with SIFT + PnP (≤ 230 inliers), which limits
+evaluation on seeds 12 and 13. Classical numbers on Kaggle differ slightly from the laptop
+(different OpenCV build); comparisons above use the Kaggle run only.
