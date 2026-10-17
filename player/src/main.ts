@@ -3,6 +3,8 @@
 import { CameraDirector, type FreeInput } from "./cameras";
 import { perspective, poseMatrix, viewMatrix, type Vec3 } from "./math";
 import { createRenderer, type DrawItem, type Renderer } from "./render/renderer";
+import { backToFront, reorder, splatInstances, type GaussianChunk } from "./wreel/gaussians";
+import type { PointChunk } from "./wreel/points";
 import { createRuleEngine, moodTension, type RuleEngine } from "./rules";
 import { openWreel, WreelError, type OpenedWreel, type SignatureStatus } from "./wreel/reader";
 import { sampleTrack } from "./wreel/track";
@@ -132,12 +134,52 @@ function showProvenance(wreel: OpenedWreel): void {
   $("scene-title").textContent = wreel.manifest.title;
 }
 
+/** Splat layers: decoded instances, a reusable sorted copy, and when/where they were sorted. */
+interface SplatState {
+  instances: Float32Array;
+  sorted: Float32Array;
+  lastSortMs: number;
+  lastView: Float32Array | null;
+}
+const splatStates = new Map<string, SplatState>();
+const SORT_INTERVAL_MS = 120;
+
+function upload(id: string, kind: string, chunk: PointChunk | GaussianChunk): void {
+  if (!renderer) return;
+  if (kind === "gaussians") {
+    const instances = splatInstances(chunk);
+    splatStates.set(id, { instances, sorted: new Float32Array(instances.length), lastSortMs: 0, lastView: null });
+  } else {
+    splatStates.delete(id);
+    renderer.setPoints(id, chunk);
+  }
+}
+
+function viewChanged(a: Float32Array | null, b: Float32Array): boolean {
+  if (!a) return true;
+  for (let i = 0; i < 16; i++) if (Math.abs(a[i]! - b[i]!) > 1e-4) return true;
+  return false;
+}
+
+/** Re-sort splats back to front when the camera moved (at most every SORT_INTERVAL_MS). */
+function sortSplats(view: Float32Array, now: number): void {
+  if (!renderer) return;
+  for (const [id, s] of splatStates) {
+    if (s.lastView && (now - s.lastSortMs < SORT_INTERVAL_MS || !viewChanged(s.lastView, view))) continue;
+    s.sorted = reorder(s.instances, backToFront(s.instances, view), s.sorted);
+    renderer.setSplats(id, s.sorted);
+    s.lastSortMs = now;
+    s.lastView = view.slice();
+  }
+}
+
 async function load(data: Uint8Array): Promise<void> {
   showMessage("Opening…");
   const wreel = await openWreel(data);
   if (!renderer) renderer = await createRenderer(canvas, preferredRenderer());
-  for (const [id, d] of wreel.layers) renderer.setPoints(`layer:${id}`, d.chunk);
-  for (const [id, d] of wreel.actorGeometry) renderer.setPoints(`actor:${id}`, d.chunk);
+  splatStates.clear();
+  for (const [id, d] of wreel.layers) upload(`layer:${id}`, d.layer.kind, d.chunk);
+  for (const [id, d] of wreel.actorGeometry) upload(`actor:${id}`, d.layer.kind, d.chunk);
 
   const presets = wreel.manifest.pov_presets;
   const initial =
@@ -162,8 +204,8 @@ async function load(data: Uint8Array): Promise<void> {
   setTimeout(() => {
     void wreel.refine().then((n) => {
       if (!renderer || player?.wreel !== wreel || n === 0) return;
-      for (const [id, d] of wreel.layers) renderer.setPoints(`layer:${id}`, d.chunk);
-      for (const [id, d] of wreel.actorGeometry) renderer.setPoints(`actor:${id}`, d.chunk);
+      for (const [id, d] of wreel.layers) upload(`layer:${id}`, d.layer.kind, d.chunk);
+      for (const [id, d] of wreel.actorGeometry) upload(`actor:${id}`, d.layer.kind, d.chunk);
     });
   }, 300);
 }
@@ -212,20 +254,31 @@ function frame(now: number): void {
   input.dragX = input.dragY = input.wheel = 0;
 
   const aspect = canvas.width / Math.max(1, canvas.height);
-  const proj = perspective(cam.fov, aspect, 0.05, 200, renderer.zeroToOneDepth);
+  // Far plane 1000 m: splat scenes keep a background sphere about ten scene sizes away.
+  const proj = perspective(cam.fov, aspect, 0.05, 1000, renderer.zeroToOneDepth);
+  const view = viewMatrix(cam.eye, cam.rotation);
+  sortSplats(view, now);
   const items: DrawItem[] = [];
   const identity = poseMatrix([0, 0, 0], [0, 0, 0, 1]);
-  for (const [id, d] of wreel.layers) items.push({ id: `layer:${id}`, model: identity, pointSize: d.layer.point_size });
+  for (const [id, d] of wreel.layers) {
+    const kind = d.layer.kind === "gaussians" ? ("splats" as const) : ("points" as const);
+    items.push({ id: `layer:${id}`, model: identity, pointSize: d.layer.point_size ?? 0.05, kind });
+  }
   for (const actor of wreel.manifest.actors) {
     if (actor.id === cam.hiddenActor) continue;
     const track = wreel.tracks.get(actor.id);
     if (!track) continue;
     const pose = sampleTrack(track, player.time);
-    items.push({ id: `actor:${actor.id}`, model: poseMatrix(pose.position, pose.rotation), pointSize: actor.geometry.point_size });
+    items.push({
+      id: `actor:${actor.id}`,
+      model: poseMatrix(pose.position, pose.rotation),
+      pointSize: actor.geometry.point_size ?? 0.05,
+      kind: actor.geometry.kind === "gaussians" ? "splats" : "points",
+    });
   }
   renderer.render(
     {
-      view: viewMatrix(cam.eye, cam.rotation),
+      view,
       proj,
       background: wreel.manifest.scene.background,
       fogTop: FOG_TOP,

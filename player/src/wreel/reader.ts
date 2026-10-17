@@ -8,11 +8,12 @@
  */
 
 import { unzipSync } from "fflate";
+import { gaussianChunk, type GaussianChunk } from "./gaussians";
 import { pointChunk, type PointChunk } from "./points";
 import type { GeometryLayer, Manifest, Track } from "./types";
 
 export const SUPPORTED_MAJOR = 1;
-export const SUPPORTED_MINOR = 0;
+export const SUPPORTED_MINOR = 1;
 
 export type SignatureStatus = "valid" | "invalid" | "missing" | "unsupported";
 
@@ -22,7 +23,8 @@ export interface LayerData {
   layer: GeometryLayer;
   /** Highest LOD loaded so far. */
   level: number;
-  chunk: PointChunk;
+  /** PointChunk for `points` layers, GaussianChunk for `gaussians` layers (layer.kind). */
+  chunk: PointChunk | GaussianChunk;
 }
 
 export interface OpenedWreel {
@@ -133,6 +135,12 @@ function lodAt(layer: GeometryLayer, which: "coarse" | "fine") {
   return lod;
 }
 
+function chunkFor(layer: GeometryLayer, bytes: Uint8Array, count: number): PointChunk | GaussianChunk {
+  if (layer.kind === "gaussians") return gaussianChunk(bytes, count);
+  if (layer.kind === "points") return pointChunk(bytes, count);
+  throw new WreelError(`layer ${layer.id} has unsupported kind ${String(layer.kind)}`);
+}
+
 export async function openWreel(data: Uint8Array): Promise<OpenedWreel> {
   const warnings: string[] = [];
   const names: string[] = [];
@@ -170,7 +178,7 @@ export async function openWreel(data: Uint8Array): Promise<OpenedWreel> {
 
   const toLayer = (layer: GeometryLayer): LayerData => {
     const lod = lodAt(layer, "coarse");
-    return { layer, level: lod.level, chunk: pointChunk(got.get(lod.path)!, lod.count) };
+    return { layer, level: lod.level, chunk: chunkFor(layer, got.get(lod.path)!, lod.count) };
   };
   const layers = new Map(manifest.scene.layers.map((l) => [l.id, toLayer(l)] as const));
   const actorGeometry = new Map(manifest.actors.map((a) => [a.id, toLayer(a.geometry)] as const));
@@ -186,7 +194,7 @@ export async function openWreel(data: Uint8Array): Promise<OpenedWreel> {
     const fine = await extract(data, manifest, new Set(targets.map((d) => lodAt(d.layer, "fine").path)));
     for (const d of targets) {
       const lod = lodAt(d.layer, "fine");
-      d.chunk = pointChunk(fine.get(lod.path)!, lod.count);
+      d.chunk = chunkFor(d.layer, fine.get(lod.path)!, lod.count);
       d.level = lod.level;
     }
     return targets.length;

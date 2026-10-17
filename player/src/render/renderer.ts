@@ -1,6 +1,10 @@
 /**
- * Point renderer interface. Points are drawn as camera-facing discs (instanced quads) straight
- * from the .pts records (20-byte stride: xyz f32, rgb u8 + class u8, confidence f32).
+ * Renderer interface. Two primitives:
+ * - points: camera-facing discs (instanced quads) straight from the .pts records (20-byte
+ *   stride: xyz f32, rgb u8 + class u8, confidence f32), depth-tested and depth-written;
+ * - splats: 3D Gaussians (spec §6.3) projected to screen-space ellipses (EWA, Zwicker et al.
+ *   2001, as used by 3D Gaussian Splatting), alpha-blended back to front from a CPU-sorted
+ *   instance buffer (wreel/gaussians.ts), depth-tested but not depth-written. Points draw first.
  *
  * Confidence rendering (spec/wreel.md §10.3): points that are not `observed`, or whose
  * confidence is below 0.5, are blended towards a soft vertical colour gradient in proportion
@@ -15,8 +19,9 @@ export type RendererKind = "webgpu" | "webgl2";
 export interface DrawItem {
   id: string;
   model: Mat4;
-  /** World-space disc diameter in metres. */
+  /** World-space disc diameter in metres (points only). */
   pointSize: number;
+  kind?: "points" | "splats";
 }
 
 export interface FrameParams {
@@ -34,6 +39,8 @@ export interface Renderer {
   /** True when clip-space depth is [0, 1] (WebGPU) rather than [-1, 1] (WebGL). */
   readonly zeroToOneDepth: boolean;
   setPoints(id: string, chunk: PointChunk): void;
+  /** Upload splat instances (16 floats each, already sorted back to front). */
+  setSplats(id: string, instances: Float32Array): void;
   resize(width: number, height: number): void;
   render(frame: FrameParams, items: readonly DrawItem[]): void;
 }
@@ -42,9 +49,14 @@ export interface Renderer {
 export const MIN_POINT_PIXELS = 1.5;
 
 /** Uniform block layout shared by both back ends (floats). */
-export const UNIFORM_FLOATS = 16 * 3 + 4 * 3;
+export const UNIFORM_FLOATS = 16 * 3 + 4 * 4;
 
-export function packUniforms(frame: FrameParams, item: DrawItem, viewportHeight: number): Float32Array {
+export function packUniforms(
+  frame: FrameParams,
+  item: DrawItem,
+  viewportHeight: number,
+  viewportWidth = 0,
+): Float32Array {
   const u = new Float32Array(UNIFORM_FLOATS);
   u.set(item.model, 0);
   u.set(frame.view, 16);
@@ -52,7 +64,13 @@ export function packUniforms(frame: FrameParams, item: DrawItem, viewportHeight:
   u.set([...frame.fogTop, 1], 48);
   u.set([...frame.fogBottom, 1], 52);
   u.set([item.pointSize, frame.fogStrength, viewportHeight, MIN_POINT_PIXELS], 56);
+  u.set([viewportWidth, viewportHeight, 0, 0], 60);
   return u;
+}
+
+/** Splats are drawn after points, so that opaque geometry occludes them correctly. */
+export function drawOrder(items: readonly DrawItem[]): DrawItem[] {
+  return [...items.filter((i) => i.kind !== "splats"), ...items.filter((i) => i.kind === "splats")];
 }
 
 export async function createRenderer(canvas: HTMLCanvasElement, prefer: RendererKind | "auto" = "auto"): Promise<Renderer> {

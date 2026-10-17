@@ -1,6 +1,8 @@
 import type { PointChunk } from "../wreel/points";
 import { POINT_STRIDE } from "../wreel/points";
-import { packUniforms, type DrawItem, type FrameParams, type Renderer } from "./renderer";
+import { drawOrder, packUniforms, type DrawItem, type FrameParams, type Renderer } from "./renderer";
+import { SPLAT_FS, SPLAT_VS } from "./splatShaders";
+import { SPLAT_FLOATS } from "../wreel/gaussians";
 
 const VS = `#version 300 es
 precision highp float;
@@ -67,25 +69,40 @@ interface GlDrawable {
   count: number;
 }
 
-export function createWebGL2Renderer(canvas: HTMLCanvasElement): Renderer {
-  const gl = canvas.getContext("webgl2", { antialias: true });
-  if (!gl) throw new Error("WebGL2 is not available in this browser");
+function link(gl: WebGL2RenderingContext, vs: string, fs: string): WebGLProgram {
   const program = gl.createProgram()!;
-  gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, VS));
-  gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, FS));
+  gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, vs));
+  gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, fs));
   gl.linkProgram(program);
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
     throw new Error(`program link failed: ${gl.getProgramInfoLog(program) ?? ""}`);
   }
+  return program;
+}
+
+function uniforms(gl: WebGL2RenderingContext, program: WebGLProgram) {
   const loc = (name: string) => gl.getUniformLocation(program, name);
-  const uModel = loc("uModel");
-  const uView = loc("uView");
-  const uProj = loc("uProj");
-  const uFogTop = loc("uFogTop");
-  const uFogBottom = loc("uFogBottom");
-  const uParams = loc("uParams");
+  return {
+    model: loc("uModel"),
+    view: loc("uView"),
+    proj: loc("uProj"),
+    fogTop: loc("uFogTop"),
+    fogBottom: loc("uFogBottom"),
+    params: loc("uParams"),
+    viewport: loc("uViewport"),
+  };
+}
+
+export function createWebGL2Renderer(canvas: HTMLCanvasElement): Renderer {
+  const gl = canvas.getContext("webgl2", { antialias: true });
+  if (!gl) throw new Error("WebGL2 is not available in this browser");
+  const program = link(gl, VS, FS);
+  const splatProgram = link(gl, SPLAT_VS, SPLAT_FS);
+  const pointU = uniforms(gl, program);
+  const splatU = uniforms(gl, splatProgram);
 
   const drawables = new Map<string, GlDrawable>();
+  const splats = new Map<string, GlDrawable>();
   gl.enable(gl.DEPTH_TEST);
 
   function setPoints(id: string, chunk: PointChunk): void {
@@ -112,6 +129,40 @@ export function createWebGL2Renderer(canvas: HTMLCanvasElement): Renderer {
     drawables.set(id, { vao, buffer, count: chunk.count });
   }
 
+  function setSplats(id: string, instances: Float32Array): void {
+    const count = instances.length / SPLAT_FLOATS;
+    const existing = splats.get(id);
+    if (existing && existing.count === count) {
+      gl!.bindBuffer(gl!.ARRAY_BUFFER, existing.buffer);
+      gl!.bufferSubData(gl!.ARRAY_BUFFER, 0, instances);
+      return;
+    }
+    if (existing) {
+      gl!.deleteBuffer(existing.buffer);
+      gl!.deleteVertexArray(existing.vao);
+    }
+    const vao = gl!.createVertexArray()!;
+    const buffer = gl!.createBuffer()!;
+    gl!.bindVertexArray(vao);
+    gl!.bindBuffer(gl!.ARRAY_BUFFER, buffer);
+    gl!.bufferData(gl!.ARRAY_BUFFER, instances, gl!.DYNAMIC_DRAW);
+    const stride = SPLAT_FLOATS * 4;
+    const layout: [number, number, number][] = [
+      [0, 3, 0],
+      [1, 3, 12],
+      [2, 3, 24],
+      [3, 4, 36],
+      [4, 2, 52],
+    ];
+    for (const [location, size, offset] of layout) {
+      gl!.enableVertexAttribArray(location);
+      gl!.vertexAttribPointer(location, size, gl!.FLOAT, false, stride, offset);
+      gl!.vertexAttribDivisor(location, 1);
+    }
+    gl!.bindVertexArray(null);
+    splats.set(id, { vao, buffer, count });
+  }
+
   function resize(w: number, h: number): void {
     canvas.width = Math.max(1, w);
     canvas.height = Math.max(1, h);
@@ -121,22 +172,40 @@ export function createWebGL2Renderer(canvas: HTMLCanvasElement): Renderer {
   function render(frame: FrameParams, items: readonly DrawItem[]): void {
     gl!.clearColor(frame.background[0], frame.background[1], frame.background[2], 1);
     gl!.clear(gl!.COLOR_BUFFER_BIT | gl!.DEPTH_BUFFER_BIT);
-    gl!.useProgram(program);
-    for (const item of items) {
-      const d = drawables.get(item.id);
+    gl!.depthMask(true);
+    gl!.disable(gl!.BLEND);
+    let current: WebGLProgram | null = null;
+    for (const item of drawOrder(items)) {
+      const isSplat = item.kind === "splats";
+      const d = (isSplat ? splats : drawables).get(item.id);
       if (!d || d.count === 0) continue;
-      const u = packUniforms(frame, item, canvas.height);
-      gl!.uniformMatrix4fv(uModel, false, u.subarray(0, 16));
-      gl!.uniformMatrix4fv(uView, false, u.subarray(16, 32));
-      gl!.uniformMatrix4fv(uProj, false, u.subarray(32, 48));
-      gl!.uniform4fv(uFogTop, u.subarray(48, 52));
-      gl!.uniform4fv(uFogBottom, u.subarray(52, 56));
-      gl!.uniform4fv(uParams, u.subarray(56, 60));
+      const prog = isSplat ? splatProgram : program;
+      const loc = isSplat ? splatU : pointU;
+      if (prog !== current) {
+        gl!.useProgram(prog);
+        current = prog;
+        if (isSplat) {
+          // Back-to-front "over" compositing; splats test against points but do not write depth.
+          gl!.enable(gl!.BLEND);
+          gl!.blendFuncSeparate(gl!.SRC_ALPHA, gl!.ONE_MINUS_SRC_ALPHA, gl!.ONE, gl!.ONE_MINUS_SRC_ALPHA);
+          gl!.depthMask(false);
+        }
+      }
+      const u = packUniforms(frame, item, canvas.height, canvas.width);
+      gl!.uniformMatrix4fv(loc.model, false, u.subarray(0, 16));
+      gl!.uniformMatrix4fv(loc.view, false, u.subarray(16, 32));
+      gl!.uniformMatrix4fv(loc.proj, false, u.subarray(32, 48));
+      gl!.uniform4fv(loc.fogTop, u.subarray(48, 52));
+      gl!.uniform4fv(loc.fogBottom, u.subarray(52, 56));
+      gl!.uniform4fv(loc.params, u.subarray(56, 60));
+      if (loc.viewport) gl!.uniform4fv(loc.viewport, u.subarray(60, 64));
       gl!.bindVertexArray(d.vao);
       gl!.drawArraysInstanced(gl!.TRIANGLES, 0, 6, d.count);
     }
     gl!.bindVertexArray(null);
+    gl!.depthMask(true);
+    gl!.disable(gl!.BLEND);
   }
 
-  return { kind: "webgl2", zeroToOneDepth: false, setPoints, resize, render };
+  return { kind: "webgl2", zeroToOneDepth: false, setPoints, setSplats, resize, render };
 }

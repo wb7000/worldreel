@@ -19,8 +19,9 @@ export interface Lod {
 
 export interface GeometryLayer {
   id: string;
-  kind: "points";
-  point_size: number;
+  kind: "points" | "gaussians";
+  /** points only */
+  point_size?: number;
   lods: Lod[];
 }
 

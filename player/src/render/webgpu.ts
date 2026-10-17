@@ -1,6 +1,8 @@
 import type { PointChunk } from "../wreel/points";
 import { POINT_STRIDE } from "../wreel/points";
-import { packUniforms, UNIFORM_FLOATS, type DrawItem, type FrameParams, type Renderer } from "./renderer";
+import { drawOrder, packUniforms, UNIFORM_FLOATS, type DrawItem, type FrameParams, type Renderer } from "./renderer";
+import { SPLAT_WGSL } from "./splatShaders";
+import { SPLAT_FLOATS } from "../wreel/gaussians";
 
 const SHADER = /* wgsl */ `
 struct U {
@@ -101,7 +103,47 @@ export async function createWebGPURenderer(canvas: HTMLCanvasElement): Promise<R
     depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "less" },
   });
 
+  const splatModule = device.createShaderModule({ code: SPLAT_WGSL });
+  const splatStride = SPLAT_FLOATS * 4;
+  const splatPipeline = device.createRenderPipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+    vertex: {
+      module: splatModule,
+      entryPoint: "vs",
+      buffers: [
+        {
+          arrayStride: splatStride,
+          stepMode: "instance",
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x3" },
+            { shaderLocation: 1, offset: 12, format: "float32x3" },
+            { shaderLocation: 2, offset: 24, format: "float32x3" },
+            { shaderLocation: 3, offset: 36, format: "float32x4" },
+            { shaderLocation: 4, offset: 52, format: "float32x2" },
+          ],
+        },
+      ],
+    },
+    fragment: {
+      module: splatModule,
+      entryPoint: "fs",
+      targets: [
+        {
+          format,
+          // Back-to-front "over" compositing of pre-sorted splats.
+          blend: {
+            color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+            alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+          },
+        },
+      ],
+    },
+    primitive: { topology: "triangle-list" },
+    depthStencil: { format: "depth24plus", depthWriteEnabled: false, depthCompare: "less" },
+  });
+
   const drawables = new Map<string, GpuDrawable>();
+  const splats = new Map<string, GpuDrawable>();
   let depth: GPUTexture | null = null;
   let height = canvas.height;
 
@@ -134,6 +176,27 @@ export async function createWebGPURenderer(canvas: HTMLCanvasElement): Promise<R
     drawables.set(id, { buffer, count: chunk.count, uniforms, bindGroup });
   }
 
+  function setSplats(id: string, instances: Float32Array): void {
+    const count = instances.length / SPLAT_FLOATS;
+    const old = splats.get(id);
+    if (old && old.count === count) {
+      device.queue.writeBuffer(old.buffer, 0, instances);
+      return;
+    }
+    old?.buffer.destroy();
+    const buffer = device.createBuffer({
+      size: Math.max(splatStride, instances.byteLength),
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(buffer, 0, instances);
+    const uniforms =
+      old?.uniforms ??
+      device.createBuffer({ size: UNIFORM_FLOATS * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const bindGroup =
+      old?.bindGroup ?? device.createBindGroup({ layout: bindGroupLayout, entries: [{ binding: 0, resource: { buffer: uniforms } }] });
+    splats.set(id, { buffer, count, uniforms, bindGroup });
+  }
+
   function render(frame: FrameParams, items: readonly DrawItem[]): void {
     if (!depth) return;
     const encoder = device.createCommandEncoder();
@@ -148,11 +211,17 @@ export async function createWebGPURenderer(canvas: HTMLCanvasElement): Promise<R
       ],
       depthStencilAttachment: { view: depth.createView(), depthClearValue: 1, depthLoadOp: "clear", depthStoreOp: "store" },
     });
-    pass.setPipeline(pipeline);
-    for (const item of items) {
-      const d = drawables.get(item.id);
+    let current: GPURenderPipeline | null = null;
+    for (const item of drawOrder(items)) {
+      const isSplat = item.kind === "splats";
+      const d = (isSplat ? splats : drawables).get(item.id);
       if (!d || d.count === 0) continue;
-      device.queue.writeBuffer(d.uniforms, 0, packUniforms(frame, item, height));
+      const pipe = isSplat ? splatPipeline : pipeline;
+      if (pipe !== current) {
+        pass.setPipeline(pipe);
+        current = pipe;
+      }
+      device.queue.writeBuffer(d.uniforms, 0, packUniforms(frame, item, height, canvas.width));
       pass.setBindGroup(0, d.bindGroup);
       pass.setVertexBuffer(0, d.buffer);
       pass.draw(6, d.count);
@@ -161,5 +230,5 @@ export async function createWebGPURenderer(canvas: HTMLCanvasElement): Promise<R
     device.queue.submit([encoder.finish()]);
   }
 
-  return { kind: "webgpu", zeroToOneDepth: true, setPoints, resize, render };
+  return { kind: "webgpu", zeroToOneDepth: true, setPoints, setSplats, resize, render };
 }
