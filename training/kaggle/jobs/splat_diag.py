@@ -113,7 +113,6 @@ for name, cfg in VARIANTS.items():
     fog = (cam_z > 0) & (cam_z < 0.8 * near_limit)
     report["variants"][name] = {
         "psnr_nonsky": psnr(rgb, truth, valid),
-        "train_view_psnr": float(np.mean([psnr(render, frames[i]) for i, render in []] or [0])),
         "gaussians": res.stats["gaussians"],
         "eval_expected_depth_median": float(np.median(depth[valid])),
         "eval_alpha_mean": float(a.mean()),
