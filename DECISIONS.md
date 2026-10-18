@@ -593,3 +593,22 @@ Owner's manual steps:
    when you like; nothing was uploaded from them.
 4. Kaggle: datasets/kernels are private; GPU quota is weekly — the runner resubmits queued jobs
    after 20 min.
+
+
+## Phase 4: POV and unseen-region filling (2026-10-18, in progress)
+
+### D-4.0 Plan and order
+Brief acceptance: viewer can follow any tracked actor; guessed regions are visibly marked;
+retrieved images carry source/licence records. Order chosen (each builds on the previous):
+1. **4.1 Honest confidence map for splats** (algorithm A-1, docs/ALGORITHMS.md) + the brief's
+   "fill honesty" metric, measured on synthetic ground truth. Without it guessed regions are
+   not marked at all for splat worlds (everything is `observed` 0.9).
+2. **4.2 POV in seen space**: follow/first-person cameras prefer positions with high
+   confidence; the follow camera stays on the observed side of the actor.
+3. **4.3 Time-boxed progressive fill** (brief §6.2): gradient at once, improved fill within a
+   configurable budget, background refinement swapped in.
+4. **4.4 Retrieval** of open-licensed reference images with geometric verification and
+   source/licence records — public outdoor scenes only; never private homes or people (so not
+   the owner's room clips).
+5. **4.5 Generative fill** for the remainder, tagged `generated`; model licence verified first.
+Branch: `phase-4-pov-fill` from main + Phase 3 close-out.
