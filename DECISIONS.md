@@ -638,3 +638,18 @@ candidate with the highest mean recall among those whose precision beats the bas
 seed and whose observed fraction is ≥ 0.75 on every seed. Ties (< 0.02 recall): prefer the one
 that flags less on the walking clip (fewer false alarms on gappy stereo). Adopt A-1 only if the
 chosen candidate beats the baseline on both honesty numbers on all three seeds.
+
+Seeds 12/13 (exports made after the protocol was written; 177,677 / 140,324 Gaussians; bad =
+6 % / 6.3 %):
+
+| Candidate | recall 11 / 12 / 13 (mean) | precision 11 / 12 / 13 | observed 11 / 12 / 13 |
+|---|---|---|---|
+| baseline | 0 / 0 / 0 | 0.890 / 0.940 / 0.937 | 1 / 1 / 1 |
+| count + spread | 0.349 / 0.470 / 0.275 (0.365) | 0.920 / 0.963 / 0.949 | 0.895 / 0.866 / 0.901 |
+| + free-space | 0.534 / 0.677 / 0.362 (0.524) | 0.942 / 0.977 / 0.955 | 0.874 / 0.852 / 0.895 |
+| + far 2 % where covered | **0.791 / 0.967 / 0.961 (0.906)** | 0.973 / 0.998 / 0.997 | 0.837 / 0.827 / 0.834 |
+
+By the protocol: all three beat baseline precision on every seed and keep ≥ 0.75 observed; the
+highest mean recall is "far 2 % where covered" → **adopted** as the A-1 default
+(`relabel_gaussians`), used by `tools/splat_wreel.py --camera camera.json [--masks masks.npz]`.
+Without a camera.json the builder keeps the old constant labels and says so.

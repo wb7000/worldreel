@@ -197,7 +197,8 @@ def classify(
     return cls.astype(np.uint8), conf.astype(np.float32)
 
 
-MVS_RADIUS_FRACTION = 0.02  # x scene extent; seed 11 ablation (D-4.1), pending seeds 12/13
+MVS_RADIUS_FRACTION = 0.02  # x scene extent (D-4.1)
+MIN_COVERED_VIEWS = 3
 
 
 def relabel_gaussians(
@@ -210,17 +211,25 @@ def relabel_gaussians(
     cfg: SupportConfig | None = None,
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.float32], dict[str, Any]]:
     """A-1 labels for the `foreground` Gaussians (background-sphere ones are left to the caller).
-    Returns (class, confidence) for the foreground subset and a small report."""
+
+    Variant chosen by the D-4.1 protocol on seeds 11-13: view count x angular spread, score
+    halved for Gaussians farther than 2 % of the extent from any stereo point, counted only
+    where the stereo reconstruction covers the Gaussian's image cell in >= 3 views (a gap in
+    sparse stereo is no evidence against a Gaussian). Returns (class, confidence, report).
+    """
     cfg = cfg or SupportConfig()
     pos = positions[foreground].astype(np.float64)
     n, spread = view_support(pos, opacity[foreground], views, cfg)
+    covered, _ = stereo_evidence(pos, views, mvs_points)
     far = far_from_points(pos, mvs_points, MVS_RADIUS_FRACTION * extent)
-    cls, conf = classify(n, spread, cfg, far_from_mvs=far)
+    flagged = far & (covered >= MIN_COVERED_VIEWS)
+    cls, conf = classify(n, spread, cfg, far_from_mvs=flagged)
     report = {
-        "algorithm": "A-1 view-support + MVS distance (experimental)",
+        "algorithm": "A-1 view support + covered stereo distance (adopted, D-4.1)",
         "views": len(views),
         "observed": round(float((cls == OBSERVED).mean()), 3),
         "inferred": round(float((cls == INFERRED).mean()), 3),
         "guessed": round(float((cls == GUESSED).mean()), 3),
+        "flagged_off_surface": round(float(flagged.mean()), 3),
     }
     return cls, conf, report

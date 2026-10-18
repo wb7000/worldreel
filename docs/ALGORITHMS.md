@@ -15,7 +15,7 @@ Register of algorithms WorldReel creates or adopts where no ready-made method fi
 ## Register
 | ID | Problem | Status | Baseline | Design note |
 |---|---|---|---|---|
-| A-1 | Per-Gaussian confidence for splat reconstructions (honest seen / inferred / guessed) | experimental | constant: foreground 0.9 observed, background 0.6 | below |
+| A-1 | Per-Gaussian confidence for splat reconstructions (honest seen / inferred / guessed) | adopted (D-4.1) | constant: foreground 0.9 observed, background 0.6 | below |
 
 ## Known open problems (candidates)
 - Confidence-aware honest filling of unseen regions
@@ -81,3 +81,10 @@ honesty pair: of Gaussians with error > 5 % of scene extent, the fraction NOT la
 (recall of bad); of Gaussians labelled observed, the fraction with error ≤ 5 % (precision).
 Ablations: `n` only; `n` + spread; + scale penalty. Adopt only if it beats the baseline on
 both honesty numbers without labelling most good Gaussians as guessed.
+
+**Result (D-4.1).** Adopted variant: count x spread, score halved when > 2 % of the extent from
+any stereo point *and* the stereo covers the Gaussian's image cell in >= 3 views. Seeds 11/12/13:
+bad Gaussians flagged 0.79 / 0.97 / 0.96 (baseline 0), observed-precision 0.973 / 0.998 / 0.997
+(baseline 0.89 / 0.94 / 0.94), 83–84 % still labelled observed. Plain stereo distance failed on
+gappy stereo (walking clip: 42 % flagged); the coverage condition is the fix. Scale-penalty
+ablation not run (not needed to pass; listed as future work).
