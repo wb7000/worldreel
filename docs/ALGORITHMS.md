@@ -15,6 +15,7 @@ Register of algorithms WorldReel creates or adopts where no ready-made method fi
 ## Register
 | ID | Problem | Status | Baseline | Design note |
 |---|---|---|---|---|
+| A-4 | Licensed reference images, geometrically verified, to colour unseen regions | experimental | no retrieval (fill colour = plane mean, A-3) | below |
 | A-3 | Time-boxed progressive fill of holes in planar surfaces | experimental — failed adoption bar (D-4.3) | gradient only (mock fill: flat grey `guessed` floor behind the first camera) | below |
 | A-2 | Follow camera that stays in seen space | adopted (D-4.2; synthetic GT check open) | third-person offset behind the actor (actor frame) | below |
 | A-1 | Per-Gaussian confidence for splat reconstructions (honest seen / inferred / guessed) | adopted (D-4.1) | constant: foreground 0.9 observed, background 0.6 | below |
@@ -202,3 +203,58 @@ dropped. Exact-geometry scenes (generator 0.2.0): fill on the true surface 24 % 
 (seeds 11/12/13 v2) against a ≥ 80 % bar. The fill follows the reconstruction it is built from:
 observed splats on the true surface were 46 % / 32 % / 98 % on the same scenes. Fix the
 reconstruction bias first (D-4.3), then re-test.
+
+---
+
+## A-4 Licensed reference retrieval with geometric verification (design note, 2026-10-18)
+
+**Problem.** Brief §6.3: improve unseen regions with reference images from open-licensed sources
+(Wikimedia Commons, Openverse, ...) or the user, *only* after verifying them geometrically against
+what the video shows ("a wrong image is worse than a gradient"), never images of private homes or
+people, and with source URL + licence stored in the region's provenance record.
+
+**Prior art.** Image retrieval + feature matching + PnP is the standard visual-localisation
+pipeline (it is also how our own eval views are localised, D-3a.6). Verified APIs (2026-10-18):
+Openverse `GET /v1/images/` (`q`, `license`, `category`, `mature`; results carry `url`,
+`license`, `license_version`, `foreign_landing_url`, `attribution`); MediaWiki geosearch on
+Commons (`generator=geosearch`, `ggscoord=lat|lon`, `ggsradius`) with `prop=imageinfo&
+iiprop=url|extmetadata` (`LicenseShortName`, `LicenseUrl`, `AttributionRequired`, `Categories`).
+Wikimedia requires a User-Agent with contact information; WorldReel sends none until the owner
+configures one (`worldreel.local.toml`), so network retrieval is off by default.
+
+**Eligibility (before any request).** The item must be marked by the owner as a public outdoor
+place with a place name or coordinates. Rooms / homes are never eligible.
+
+**Candidate filters.** Licence in {CC0, PDM, CC BY, CC BY-SA} (ND refused — reconstruction is a
+derivative; NC refused — use cannot be guaranteed non-commercial); photographs only; mature off;
+reject when metadata (categories / tags) mention people, portraits, selfies, crowds, interiors or
+homes, and when a face detector (OpenCV Haar frontal face, shipped with opencv-python) fires.
+
+**Geometric verification.**
+```
+for each candidate image I (resized to <= 800 px):
+    SIFT match I against every registered frame (ratio 0.75); keep the 3 best frames
+    for the best frame F: 3D for F's matched keypoints = observed geometry depth at those pixels
+        (z-buffer of observed points from F's camera)
+    solvePnPRansac(2D in I, 3D) for focal in a grid (0.6..1.6 x image width), keep the best
+    accept iff inliers >= 40, inlier ratio >= 0.25, median reprojection <= 2 px, and the pose is
+        consistent with a second frame (>= 20 inliers of the same model in another frame)
+```
+**Use.** Project unseen / inferred elements into each accepted image; where visible (z-test
+against observed geometry) take the image colour; class `retrieved`, confidence 0.5; one region
+per image with `sources: [{kind: retrieval, url, license, verified: geometric}]`; attribution
+text in `extensions["org.worldreel.credits"]`.
+
+**Complexity.** SIFT on (frames + candidates); PnP per candidate; seconds to a minute on CPU.
+
+**Known failure cases.** Repetitive facades (wrong matches with a consistent pose); images
+from a very different season / time of day (few matches → rejected, which is safe); a person too
+small for the face detector; licence metadata errors upstream (Commons warns that multi-licensed
+values are unreliable — such files are skipped).
+
+**Baseline.** No retrieval (plane-mean fill colour / fog).
+
+**Measurement (synthetic, no network).** User-provided references = the held-out eval views of
+the same scene (positives) and of other scenes (negatives). Report: acceptance of positives,
+rejection of negatives, pose error of accepted images vs ground truth, and colour error of
+recoloured elements vs the plane-mean baseline.
