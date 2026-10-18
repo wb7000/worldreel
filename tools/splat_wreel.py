@@ -19,6 +19,7 @@ from eval.geometry import quat_to_matrix
 from formats.common import load_or_create_signing_key
 from formats.wreel import read_wreel, write_wreel
 from stages.package.confidence import relabel_gaussians, views_from_camera_json
+from stages.package.follow import follow_cameras
 from stages.package.gaussians import (
     BACKGROUND_CONFIDENCE,
     carve_people,
@@ -81,6 +82,19 @@ def build(export: Path, out: Path, camera: Path | None = None, masks: Path | Non
         gaussians,
         stage_record={"name": "reconstruct.splat", "version": "0.1.0"},
     )
+    if camera is not None and template.manifest.get("actors"):
+        # Follow views planned in seen space (algorithm A-2, D-4.2): needs the A-1 confidences.
+        keep = np.nonzero(gaussians.opacity >= 0.2)[0]
+        if len(keep) > 60000:
+            keep = np.sort(np.random.default_rng(0).choice(keep, 60000, replace=False))
+        tracks = {a["id"]: template.track(a["track"]["path"]) for a in template.manifest["actors"]}
+        follow = follow_cameras(
+            manifest,
+            tracks,
+            gaussians.positions[keep].astype(np.float64),
+            gaussians.confidence[keep],
+        )
+        print(f"follow paths planned (mean seen share): {follow}")
     manifest["generation"]["seeds"]["splat"] = int(meta["seed"])
     manifest["title"] = manifest["title"] + " (Gaussian splats)"
     write_wreel(out, manifest, entries, load_or_create_signing_key())

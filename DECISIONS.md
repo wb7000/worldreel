@@ -653,3 +653,29 @@ By the protocol: all three beat baseline precision on every seed and keep ≥ 0.
 highest mean recall is "far 2 % where covered" → **adopted** as the A-1 default
 (`relabel_gaussians`), used by `tools/splat_wreel.py --camera camera.json [--masks masks.npz]`.
 Without a camera.json the builder keeps the old constant labels and says so.
+
+
+### D-4.2 Follow views planned in seen space (algorithm A-2) (2026-10-18)
+- "Follow person N" was a third-person offset behind the actor's facing. On the walking clip the
+  people often walk towards the phone, so "behind" looks at parts of the room the video never
+  saw. A-2 plans the follow path offline: per track sample, 36 candidates (18 yaws x distances
+  0.9h / 1.3h, eye 1.15h, aimed at 0.55h), score = mean A-1 confidence of the front-most Gaussian
+  per pixel of a 48x27 buffer (empty = 0), zero if the person is not in clear line of sight;
+  Viterbi for smoothness. Stored as an `alternative` camera path + `directors-cut` preset: **no
+  format change**. Built by `tools/splat_wreel.py --camera ...`.
+- Walking clip, 60k Gaussians scored (opacity ≥ 0.2):
+
+| Person (samples) | seen share: behind → planned | view-direction gap to nearest real camera, mean / p90 (deg): behind → planned |
+|---|---|---|
+| p1 (40) | 0.377 → 0.533 | 94.0 / 137.5 → 26.7 / 40.9 |
+| p2 (31) | 0.324 → 0.513 | 81.1 / 130.7 → 35.0 / 45.5 |
+| p3 (69) | 0.289 → 0.523 | 87.2 / 137.9 → 34.1 / 35.4 |
+
+  The seen share is the planner's own objective; the view gap is independent of it and drops by
+  ~55° on average. Clear line of sight for the baseline was 0.87–0.97. → **adopted** for splat
+  worlds. Not yet measured on a synthetic scene with ground truth (needs a synthetic splat world
+  with actors) — open item.
+- Player: directors-cut presets that play an `alternative` path now say "Planned camera path
+  that keeps to filmed areas." Verified in the player (WebGPU): person framed mid-shot at 15 s and
+  17 s; background soft but tinted where weakly seen; no console errors.
+- Planning cost: ~1.5 min for 140 samples on the laptop (numpy).

@@ -107,7 +107,16 @@ function selectPreset(preset: PovPreset): void {
   for (const btn of $<HTMLDivElement>("presets").querySelectorAll("button")) {
     btn.setAttribute("aria-pressed", String(btn.dataset.id === preset.id));
   }
-  $<HTMLParagraphElement>("hint").textContent = MODE_HINTS[preset.mode];
+  $<HTMLParagraphElement>("hint").textContent = presetHint(preset, player.wreel.manifest.cameras);
+}
+
+/** A directors-cut preset may play an alternative path, e.g. a planned follow camera (A-2). */
+export function presetHint(preset: PovPreset, cameras: { id: string; kind: string }[]): string {
+  if (preset.mode === "directors-cut") {
+    const cam = cameras.find((c) => c.id === preset.camera_id);
+    if (cam && cam.kind === "alternative") return "Planned camera path that keeps to filmed areas.";
+  }
+  return MODE_HINTS[preset.mode];
 }
 
 function buildMenu(wreel: OpenedWreel): void {
