@@ -731,3 +731,12 @@ Without a camera.json the builder keeps the old constant labels and says so.
   vary a lot between scenes with three samples; a stronger fix (e.g. global rotation averaging
   before bundle adjustment, or a level-ground / gravity prior from phone sensors) is a roadmap
   item, not done here.
+- Re-export on Kaggle with `match_window` 8 (seeds 11v2/12v2/13v2): splats on the true surface
+  0.39 → 0.75 / 0.31 → 0.55 / 0.90 → 0.86; eval-view surface covered by observed splats
+  0.58 → 0.85 / 0.48 → 0.78 / 0.75 → 0.72; ground tilt 3.24 → 1.10° / 1.44 → 1.36° / 0.89°.
+  Seed 12v2 keeps −0.23 m on Kaggle although the laptop run gave −0.07 m (different OpenCV
+  build, as in D-3b.6).
+- Fill (A-3) re-test, share on the true surface quick / refined: 0.24 / 0.29, 0.22 / 0.33,
+  0.996 / 0.993 → still below the 0.8 bar on two of three scenes. A-3 stays experimental and
+  opt-in. Where the reconstruction is accurate (13v2) the fill is accurate; the fill does not add
+  error of its own, it inherits the reconstruction's.
