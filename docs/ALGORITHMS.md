@@ -15,6 +15,7 @@ Register of algorithms WorldReel creates or adopts where no ready-made method fi
 ## Register
 | ID | Problem | Status | Baseline | Design note |
 |---|---|---|---|---|
+| A-2 | Follow camera that stays in seen space | experimental | third-person offset behind the actor (actor frame) | below |
 | A-1 | Per-Gaussian confidence for splat reconstructions (honest seen / inferred / guessed) | adopted (D-4.1) | constant: foreground 0.9 observed, background 0.6 | below |
 
 ## Known open problems (candidates)
@@ -88,3 +89,51 @@ bad Gaussians flagged 0.79 / 0.97 / 0.96 (baseline 0), observed-precision 0.973 
 (baseline 0.89 / 0.94 / 0.94), 83–84 % still labelled observed. Plain stereo distance failed on
 gappy stereo (walking clip: 42 % flagged); the coverage condition is the fix. Scale-penalty
 ablation not run (not needed to pass; listed as future work).
+
+---
+
+## A-2 Seen-space follow planner (design note, 2026-10-18)
+
+**Problem.** "Follow person N" puts the camera at a fixed offset behind the actor's facing
+direction. When the person walks towards the original camera, "behind" is the part of the room
+the video never saw, so the view is mostly guessed geometry (blur, smears, fog) — seen on the
+walking clip (D-3b.11). Brief Phase 4: the viewer must be able to follow any tracked actor; the
+view should show what was actually observed.
+
+**Prior art.** Game "chase cameras" avoid walls with ray casts against known collision geometry;
+virtual cinematography plans camera paths with visibility and smoothness costs. Neither knows
+which parts of a reconstruction are trustworthy. Nothing found that uses a per-Gaussian
+confidence map; the idea here combines the two.
+
+**Idea.** Plan the follow path offline (packaging, numpy) and store it as an ordinary camera
+path (`cameras[]` + a `directors-cut` preset) — no format change. At each actor sample time,
+score candidate camera positions on a ring around the actor and pick a smooth high-score path.
+
+**Pseudocode.**
+```
+G = Gaussians (subsample <= 60k, opacity >= 0.2), each with confidence c (A-1)
+for each track sample t (actor at p_t on the floor, height h):
+    for yaw in 0..340 step 20, distance in {0.9h, 1.3h}:      # 36 candidates
+        eye = p_t + distance * dir(yaw) + 1.15h * up; target = p_t + 0.55h * up
+        render a 48 x 27 front-most-Gaussian buffer from eye towards target (fov 60)
+        seen  = mean over pixels of c(front-most) (empty pixel = 0)
+        clear = front-most depth at the target pixel >= 0.9 x |target - eye|   (line of sight)
+        score = seen if clear else 0
+path = Viterbi over t: maximise sum(score) - lambda * (yaw change / 180 deg) - mu * distance change
+keyframes: eye and look-at rotation per t; times between samples interpolate.
+```
+
+**Complexity.** T x 36 x 60k projections (40 samples → 86 M) + tiny buffers; seconds in numpy.
+
+**Known failure cases.** Coarse buffer misses thin occluders; candidates are sampled, not
+optimised; the ring may cut through walls the splats do not represent (empty space looks clear);
+the objective rewards seen pixels, so the camera may prefer facing a well-seen wall over framing
+the actor nicely (the line-of-sight term only ensures the actor is not hidden).
+
+**Baseline.** Current third-person preset (offset [0, 1.15h, 1.0h] in the actor frame).
+
+**Measurement.** Two numbers per path, the second independent of the objective:
+1. seen share (as above) averaged over the path;
+2. view-direction gap: angle between the follow view direction and the nearest registered
+   training view looking at the same target (smaller = closer to what the video saw; the usual
+   proxy for novel-view quality). Report mean and 90th percentile; plus a visual check.
