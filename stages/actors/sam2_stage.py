@@ -10,7 +10,7 @@ Steps:
      fewer than `min_hits` keyframes (one-off false positives).
   3. Prompt SAM 2.1 with each track's first box at its frame; propagate through the video.
   4. Merge per-object logits into one label image per frame (highest logit wins, > 0 only).
-  5. Merge objects that segment the same person (`duplicate_map`, `merge_overlap` 0.6).
+  5. Merge objects that segment the same person (`duplicate_map`, `merge_iou` 0.5).
 
 Config: detect_every (5), score (0.8), labels (["person"]), min_hits (2), link_iou (0.3),
 max_gap (3 keyframes), sam2_checkpoint (path, required), sam2_config
@@ -113,37 +113,75 @@ Mask = npt.NDArray[np.bool_]
 
 
 def duplicate_map(
-    masks: dict[int, dict[int, Mask]], *, min_overlap: float = 0.6, min_frames: int = 3
+    masks: dict[int, dict[int, Mask]],
+    *,
+    min_iou: float = 0.5,
+    separate_iou: float = 0.2,
+    min_frames: int = 3,
 ) -> dict[int, int]:
     """Objects that segment the same person: {object: representative} (smallest id wins).
 
     A track breaks when a person is lost for a while; the detector then starts a new track while
-    SAM 2 may still follow the person with the old object, so both segment the same body. Two
-    objects are merged when, over the frames both are visible (at least `min_frames`), the
-    median of intersection / smaller area is >= `min_overlap`.
+    SAM 2 may still follow the person with the old object, so both segment the same body.
+    Two objects are duplicates when, over the frames both are visible (>= `min_frames`), their
+    median IoU is >= `min_iou`. Pairs whose median IoU is < `separate_iou` are different people
+    seen together and are never put in one group, even through a chain of other merges (an
+    earlier "intersection / smaller area" rule chained two friends into one track on the walking
+    clip, DECISIONS D-3b.11).
     """
     ids = sorted(masks)
-    parent = {i: i for i in ids}
-
-    def root(i: int) -> int:
-        while parent[i] != i:
-            i = parent[i]
-        return i
-
+    pair_iou: dict[tuple[int, int], float] = {}
     for x, a in enumerate(ids):
         for b in ids[x + 1 :]:
             shared = [f for f in masks[a] if f in masks[b]]
             if len(shared) < min_frames:
                 continue
-            ratios = []
+            ious = []
             for f in shared:
                 ma, mb = masks[a][f], masks[b][f]
-                small = min(int(ma.sum()), int(mb.sum()))
-                ratios.append(int((ma & mb).sum()) / small if small else 0.0)
-            if float(np.median(ratios)) >= min_overlap:
-                ra, rb = root(a), root(b)
-                parent[max(ra, rb)] = min(ra, rb)
-    return {i: root(i) for i in ids}
+                union = int((ma | mb).sum())
+                ious.append(int((ma & mb).sum()) / union if union else 0.0)
+            pair_iou[(a, b)] = float(np.median(ious))
+    group = {i: {i} for i in ids}
+    for (a, b), iou in sorted(pair_iou.items(), key=lambda kv: -kv[1]):
+        if iou < min_iou or group[a] is group[b]:
+            continue
+        ga, gb = group[a], group[b]
+        conflict = any(
+            pair_iou.get((min(x, y), max(x, y)), 1.0) < separate_iou for x in ga for y in gb
+        )
+        if conflict:
+            continue
+        merged = ga | gb
+        for i in merged:
+            group[i] = merged
+    return {i: min(group[i]) for i in ids}
+
+
+OBJECTS_NPZ = "objects_small.npz"
+
+
+def save_objects(path: Path, small: dict[int, dict[int, Mask]]) -> None:
+    """Per-object quarter-resolution masks before merging, so merging can be re-tuned offline."""
+    arrays: dict[str, npt.NDArray[np.generic]] = {}
+    for o, per_frame in small.items():
+        frames = sorted(per_frame)
+        arrays[f"o{o}_frames"] = np.asarray(frames, np.int32)
+        if frames:
+            arrays[f"o{o}_masks"] = np.stack([per_frame[f] for f in frames])
+    np.savez_compressed(path, **arrays)  # type: ignore[arg-type]
+
+
+def load_objects(path: Path) -> dict[int, dict[int, Mask]]:
+    out: dict[int, dict[int, Mask]] = {}
+    with np.load(path) as npz:
+        for key in npz.files:
+            if key.endswith("_frames"):
+                o = int(key[1:-7])
+                frames = npz[key].tolist()
+                masks = npz[f"o{o}_masks"] if frames else []
+                out[o] = {f: masks[i] for i, f in enumerate(frames)}
+    return out
 
 
 def relabel(labels: npt.NDArray[np.uint8], mapping: dict[int, int]) -> npt.NDArray[np.uint8]:
@@ -206,7 +244,8 @@ def segment(
     config_name: str,
     device: str,
     *,
-    min_overlap: float = 0.6,
+    min_iou: float = 0.5,
+    objects_out: Path | None = None,
 ) -> tuple[npt.NDArray[np.uint8], dict[int, int]]:
     """Returns (labels after merging duplicates, {SAM object id: merged label})."""
     import torch
@@ -243,14 +282,16 @@ def segment(
                         small[o][fidx] = m
     finally:
         shutil.rmtree(jpeg, ignore_errors=True)
-    mapping = duplicate_map(small, min_overlap=min_overlap)
+    if objects_out is not None:
+        save_objects(objects_out, small)
+    mapping = duplicate_map(small, min_iou=min_iou)
     merged = relabel(labels, mapping)
     return merged, {o: int(relabel(np.array([o], np.uint8), mapping)[0]) for o in mapping}
 
 
 class Sam2ActorsStage:
     name: ClassVar[str] = "actors"
-    version: ClassVar[str] = "0.2.0"
+    version: ClassVar[str] = "0.3.0"
     impl: ClassVar[Impl] = "real"
     depends_on: ClassVar[tuple[str, ...]] = ("frames",)
 
@@ -282,7 +323,8 @@ class Sam2ActorsStage:
             checkpoint,
             str(cfg.get("sam2_config", "configs/sam2.1/sam2.1_hiera_s.yaml")),
             device,
-            min_overlap=float(cfg.get("merge_overlap", 0.6)),
+            min_iou=float(cfg.get("merge_iou", 0.5)),
+            objects_out=ctx.out / OBJECTS_NPZ,
         )
         people = len(set(merged.values()))
         ctx.log.info("actors: %d box tracks -> %d people after merging", len(tracks), people)

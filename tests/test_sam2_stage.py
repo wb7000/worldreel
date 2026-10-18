@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
 from stages.actors.sam2_stage import Box, box_iou, link_detections, merge_logits
@@ -58,3 +60,31 @@ def test_duplicate_objects_on_one_person_are_merged() -> None:
     assert mapping == {1: 1, 2: 2, 3: 1, 4: 4}
     labels = np.array([[0, 1, 2, 3, 4]], np.uint8)
     assert relabel(labels, mapping).tolist() == [[0, 1, 2, 1, 3]]
+
+
+def test_two_people_are_not_chained_through_a_box_covering_both() -> None:
+    from stages.actors.sam2_stage import duplicate_map
+
+    x = np.zeros((10, 10), bool)
+    x[2:8, 1:4] = True
+    y = np.zeros((10, 10), bool)
+    y[2:8, 6:9] = True
+    both = x | y  # IoU 0.5 with each person
+    masks = {
+        1: {f: x for f in range(5)},
+        2: {f: y for f in range(5)},
+        3: {f: both for f in range(5)},
+    }
+    mapping = duplicate_map(masks)
+    assert mapping[1] != mapping[2]
+
+
+def test_objects_round_trip(tmp_path: Path) -> None:
+    from stages.actors.sam2_stage import load_objects, save_objects
+
+    m = np.eye(4, dtype=bool)
+    small = {1: {3: m, 7: ~m}, 2: {}}
+    save_objects(tmp_path / "o.npz", small)
+    back = load_objects(tmp_path / "o.npz")
+    assert sorted(back) == [1, 2] and sorted(back[1]) == [3, 7] and back[2] == {}
+    assert (back[1][7] == ~m).all()

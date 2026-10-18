@@ -19,7 +19,7 @@ from formats.common import dump_json
 from formats.wreel import PointCloud
 from pipeline.io import read_json
 from stages.actors.common import read_tracks
-from stages.actors.lift import Plane, fit_ground_plane, lift_track
+from stages.actors.lift import Plane, Track3D, fit_ground_plane, lift_track
 from tools.make_sample_wreel import person_cloud
 
 F64 = npt.NDArray[np.float64]
@@ -30,6 +30,11 @@ MIN_MASK_FRACTION = 0.0005  # ignore masks smaller than this fraction of the fra
 # their real appearance). Measured (DECISIONS D-3b.10): props falsely detected 0.08-0.16,
 # walkers 0.53-0.57.
 MIN_MOTION_RATIO = 0.3
+# With several people, a track whose height is outside this ratio range of the median height
+# gets no avatar. People in one scene differ far less than this (a child of 1.1 m next to adults
+# of 1.75 m is 0.63); mirror reflections lifted onto the floor come out far too tall (2.4x on the
+# walking clip, DECISIONS D-3b.11). Applies only from 3 people, where the median is meaningful.
+HEIGHT_RATIO_RANGE = (0.55, 1.8)
 # Neutral, non-identifying clothing colours for avatars.
 PALETTE = [
     (70, 110, 160),
@@ -71,6 +76,15 @@ def is_moving(positions: F64, height: float, ratio: float = MIN_MOTION_RATIO) ->
     return extent >= ratio * height
 
 
+def height_inliers(
+    heights: list[float], ratio: tuple[float, float] = HEIGHT_RATIO_RANGE
+) -> list[bool]:
+    if len(heights) < 3:
+        return [True] * len(heights)
+    med = float(np.median(heights))
+    return [ratio[0] <= h / med <= ratio[1] for h in heights]
+
+
 def avatar(seed: int, height: float) -> PointCloud:
     rng = np.random.default_rng(seed)
     cloud = person_cloud(rng, PALETTE[seed % len(PALETTE)])
@@ -98,6 +112,7 @@ def package_actors(
     actors: list[dict[str, Any]] = []
     entries: dict[str, bytes] = {}
     presets: list[dict[str, Any]] = []
+    candidates: list[tuple[int, dict[str, Any], Track3D, float]] = []
     for idx, track in enumerate(meta["tracks"], start=1):
         masks = {
             f: labels[f] == idx
@@ -105,19 +120,21 @@ def package_actors(
             if poses[f].get("registered", True) and px >= min_pixels
         }
         lifted = lift_track(masks, poses, times, k, plane)
-        if lifted is None:
-            report["skipped"].append(track["id"])
-            continue
-        identity_seed = int(seed * 1000 + idx)
-        # Heights are in reconstruction units (monocular scale is unknown), so no metric clip;
-        # an impossible value falls back to the median of the other people.
-        height = float(lifted.height)
-        if not np.isfinite(height) or height <= 0:
+        # Heights are in reconstruction units (monocular scale is unknown), so no metric clip.
+        height = float(lifted.height) if lifted is not None else float("nan")
+        if lifted is None or not np.isfinite(height) or height <= 0:
             report["skipped"].append(track["id"])
             continue
         if not is_moving(np.asarray(lifted.positions), height):
             report.setdefault("static", []).append(track["id"])
             continue
+        candidates.append((idx, track, lifted, height))
+    keep = height_inliers([c[3] for c in candidates])
+    for (idx, track, lifted, height), ok in zip(candidates, keep, strict=True):
+        if not ok:
+            report.setdefault("height_outlier", []).append(track["id"])
+            continue
+        identity_seed = int(seed * 1000 + idx)
         body = avatar(identity_seed, height)
         aid = track["id"]
         prefix = f"actors/{aid}"

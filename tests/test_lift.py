@@ -154,3 +154,11 @@ def test_is_moving_separates_walkers_from_static_tracks() -> None:
     assert not is_moving(still, 1.75)
     assert is_moving(walk, 1.75)
     assert not is_moving(np.zeros((0, 3)), 1.75)
+
+
+def test_height_outliers_need_three_people() -> None:
+    from stages.package.actors import height_inliers
+
+    assert height_inliers([0.66, 0.80, 1.93]) == [True, True, False]  # mirror reflection case
+    assert height_inliers([1.1, 1.75, 1.8]) == [True, True, True]  # child with adults
+    assert height_inliers([0.7, 1.9]) == [True, True]  # two people: no reference
