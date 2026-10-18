@@ -31,7 +31,7 @@ F64 = npt.NDArray[np.float64]
 class SfmConfig:
     max_features: int = 4000
     ratio: float = 0.75
-    match_window: int = 3  # match each frame against this many previous registered frames
+    match_window: int = 8  # previous registered frames each frame is matched against (D-4.3b)
     init_min_parallax_frac: float = 0.03  # of image width, median feature displacement
     init_max_frame: int = 25
     init_anywhere: bool = True  # if frame 0 cannot start, search pairs across the video
