@@ -840,3 +840,26 @@ Owner's manual steps:
   viewpoint with ground-level photos of other parts of the fort. A real positive needs
   ground-level footage of a spot people photograph (main gate, a long wall).
 - Fix: Commons URLs carried `utm_*` tracking parameters; records now keep the bare file URL.
+
+## Phase 5: Audio (2026-10-18, in progress)
+
+### D-5.0 Plan and order
+Brief acceptance: footsteps change with surface and weather; first-person audio differs from
+third-person; stems export separately. Order (each builds on the previous):
+1. **5.1 Sound events + procedural sound engine.** Footstep events from actor tracks (step times
+   from speed / gait), attributes from the spec's open vocabulary (`surface`, `wet`, `footwear`,
+   `weight`, `speed`, `weather`). Sounds are *generated* (numpy DSP, seeded) — no sample
+   libraries, so no licensing risk (brief §7). Each distinct sound is rendered once into a small
+   clip referenced by `attributes.clip` (the engine's vocabulary; no schema change).
+   Measured: spectral features (centroid, decay, noise share) differ by surface and weather.
+2. **5.2 Layers and stems:** foley (footsteps), ambience (weather + tension), music (procedural
+   mood bed driven by the tension curve), effects; dialogue empty (no voices yet). Each layer is
+   its own track; `tools` export them as separate WAV stems plus the mix.
+3. **5.3 Mixing:** loudness measurement and target per spec (`mix.loudness_target_lufs`);
+   ducking hook for dialogue. Library or own implementation decided after checking licences.
+4. **5.4 Player audio:** Web Audio playback of tracks, positional event clips (panner),
+   listener at the camera in third person / free, at the actor's head in first person; mood live.
+   Measured: offline render of the same scene from both listener positions differs (level and
+   left/right balance), plus player unit tests of listener placement.
+Not in this phase: voices, dubbing, diarization (no dialogue source yet); subtitles stay a slot.
+Branch: `phase-5-audio` from main eee6fab.
