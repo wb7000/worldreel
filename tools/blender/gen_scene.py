@@ -35,7 +35,7 @@ from convert import (
     vec_zup_to_yup,
 )
 
-GENERATOR_VERSION = "0.1.0"
+GENERATOR_VERSION = "0.2.0"  # 0.2.0: "objects" (exact static geometry) in gt.json
 CLIP_END = 200.0
 # Pixels with no surface come back as a huge value (EEVEE: 65504, the float16 maximum;
 # Cycles: ~1e10). Anything at or beyond the far clip plane cannot be a real surface.
@@ -148,6 +148,10 @@ def setup_render(scene: bpy.types.Scene, args: argparse.Namespace, out: Path) ->
     tree.links.new(socket, depth_out.inputs[0])
 
 
+# Exact static geometry for evaluation (WorldReel axes): filled by build_scene, written to gt.json.
+OBJECTS: list[dict[str, object]] = []
+
+
 def build_scene(
     args: argparse.Namespace,
 ) -> tuple[list[dict[str, object]], bpy.types.Object, list[dict[str, object]]]:
@@ -194,6 +198,15 @@ def build_scene(
         size=30,
         location=(0, 0, 0),
     )
+    OBJECTS.append(
+        {
+            "id": "ground",
+            "kind": "plane",
+            "normal": [0.0, 1.0, 0.0],
+            "offset": 0.0,
+            "half_size": 15.0,
+        }
+    )
     for i in range(args.boxes):
         size = (rng.uniform(0.6, 2.0), rng.uniform(0.6, 2.0), rng.uniform(0.8, 3.0))
         loc = (rng.uniform(-7, 7), rng.uniform(-7, 7), size[2] / 2)
@@ -206,6 +219,15 @@ def build_scene(
             location=loc,
         )
         box.scale = size
+        # Axis-aligned box; Blender (x, y, z) Z-up -> WorldReel (x, z, -y) Y-up.
+        OBJECTS.append(
+            {
+                "id": f"box_{i}",
+                "kind": "box",
+                "centre": list(vec_zup_to_yup(loc)),
+                "size": [size[0], size[2], size[1]],
+            }
+        )
 
     sun_data = bpy.data.lights.new("Sun", type="SUN")
     sun_data.energy = 3.0
@@ -442,6 +464,7 @@ def main() -> None:
             for a in actors
         ],
         "lights": lights,
+        "objects": OBJECTS,
         "background": [0.55, 0.68, 0.85],
         "texture": args.texture,
     }
