@@ -53,7 +53,7 @@ def _subsample(c: PointCloud, step: int) -> PointCloud:
 
 class PackageStage:
     name: ClassVar[str] = "package"
-    version: ClassVar[str] = "0.4.0"
+    version: ClassVar[str] = "0.5.0"
     impl: ClassVar[Impl] = "real"
     depends_on: ClassVar[tuple[str, ...]] = (
         "frames",

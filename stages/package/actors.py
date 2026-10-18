@@ -168,7 +168,9 @@ def package_actors(
                 "name": f"Follow person {idx}",
                 "mode": "third-person",
                 "actor_id": aid,
-                "offset": [0.0, 0.6 * height + 0.6, 2.2 * height],
+                # Scales with height only: scene units are arbitrary (monocular scale), and a
+                # small room cannot fit a camera far behind (walking clip, DECISIONS D-3b.11).
+                "offset": [0.0, round(1.15 * height, 4), round(1.0 * height, 4)],
             },
             {
                 "id": f"eyes_{aid}",

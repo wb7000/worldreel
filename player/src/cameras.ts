@@ -115,7 +115,9 @@ export class CameraDirector {
         const heading = quatFromYawPitch(yawOf(pose.rotation), 0);
         const desired = add(pose.position, rotate(heading, p.offset ?? [0, 2, 4]));
         this.followEye = this.followEye ? lerp3(this.followEye, desired, smoothing(FOLLOW_RATE, dt)) : desired;
-        const lookAt = add(pose.position, [0, 1.3, 0]);
+        // Aim at chest/head height of this actor. Scene units are arbitrary (monocular scale),
+        // so a fixed height (was 1.3) looked far above small-unit people.
+        const lookAt = add(pose.position, [0, 0.8 * (a.actor.eye_height ?? 1.6), 0]);
         return { eye: this.followEye, rotation: lookRotation(this.followEye, lookAt), fov: p.fov_deg ?? 55 };
       }
       case "first-person": {
