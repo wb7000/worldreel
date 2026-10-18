@@ -31,7 +31,13 @@ from stages.package.gaussians import (
 )
 
 
-def build(export: Path, out: Path, camera: Path | None = None, masks: Path | None = None) -> Path:
+def build(
+    export: Path,
+    out: Path,
+    camera: Path | None = None,
+    masks: Path | None = None,
+    fill: bool = False,
+) -> Path:
     meta = json.loads((export / "meta.json").read_text(encoding="utf-8"))
     with np.load(export / "splats.npz") as npz:
         params = {k: npz[k] for k in npz.files}
@@ -98,9 +104,10 @@ def build(export: Path, out: Path, camera: Path | None = None, masks: Path | Non
             gaussians.confidence[keep],
         )
         print(f"follow paths planned (mean seen share): {follow}")
-    if camera is not None:
-        # Progressive plane-completion fill (algorithm A-3, D-4.3): built from observed Gaussians,
-        # quick tier within a 5 s budget (fill LOD 0), refined tier after (fill LOD 1).
+    if camera is not None and fill:
+        # Progressive plane-completion fill (algorithm A-3), EXPERIMENTAL and off by default: on
+        # exact synthetic geometry it is only as accurate as the reconstruction under it (D-4.3).
+        # Built from observed Gaussians; quick tier within 5 s (fill LOD 0), refined (LOD 1).
         obs = (gaussians.cls == OBSERVED) & (
             gaussians.confidence != np.float32(BACKGROUND_CONFIDENCE)
         )
@@ -157,8 +164,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--camera", type=Path, help="camera.json of the run (enables the A-1 map)")
     p.add_argument("--masks", type=Path, help="actors masks.npz (people pixels are not evidence)")
+    p.add_argument("--fill", action="store_true", help="experimental plane-completion fill (A-3)")
     a = p.parse_args(argv)
-    path = build(a.export, a.out, a.camera, a.masks)
+    path = build(a.export, a.out, a.camera, a.masks, a.fill)
     doc = read_wreel(path)
     layer = doc.manifest["scene"]["layers"][0]
     print(

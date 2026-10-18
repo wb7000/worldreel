@@ -679,3 +679,28 @@ Without a camera.json the builder keeps the old constant labels and says so.
   that keeps to filmed areas." Verified in the player (WebGPU): person framed mid-shot at 15 s and
   17 s; background soft but tinted where weakly seen; no console errors.
 - Planning cost: ~1.5 min for 140 samples on the laptop (numpy).
+
+
+### D-4.3 Progressive plane fill (A-3): built, measured, NOT adopted (2026-10-18)
+- Built: quick tier within a 5 s budget (measured 0.6–3.7 s incl. plane detection) + refined tier
+  (1.3–15.6 s), stored as a separate Gaussian layer (fill LOD 0 = quick, LOD 1 = refined; the
+  player shows LOD 0 then swaps — spec §6.1, no format change) + an `inferred` region record.
+  Fill is `inferred`, confidence ≤ 0.45, so the player keeps marking it.
+- Player bug found and fixed on the way: each Gaussian layer was sorted and drawn separately;
+  splats do not write depth, so a later layer painted over everything (fill covered the TV on
+  the walking clip). All scene Gaussian layers are now merged into one sorted set.
+- Generator 0.2.0 records exact static geometry (`objects`: ground plane, axis-aligned boxes) in
+  gt.json. Old seed 11–13 scenes could not be regenerated (camera paths differ by up to 13.8 m
+  after generator changes), so seeds 11/12/13 were re-rendered as "v2" and re-exported on Kaggle
+  (camera ATE 0.2–0.7 % of path length, rotation 0.7–2.8°).
+- Exact-geometry results (r = 2 % of extent): see docs/ALGORITHMS.md A-3. Coverage of what the
+  eval views see rises only 0.4–6.5 points. Fill inside objects ≈ 0.
+- Root cause on seeds 11v2/12v2 is the **reconstruction**, not the fill: on seed 12v2, 89 % of
+  observed splats lie below the true ground (median −0.29 m; camera 4 m up, oblique view); seed
+  11v2 ground +0.19 m and only 46 % of observed splats within 2 % of the true surface. This is a
+  new finding about splat accuracy that the earlier image-based metrics (PSNR/SSIM) did not show;
+  it is an open problem for the reconstruction stage, recorded here, not fixed.
+- Decision: fill is opt-in (`--fill`) until the reconstruction bias is fixed and fill passes ≥ 80 %
+  precision on all three exact-geometry scenes. Brief §6.2 (gradient → improved fill → refined
+  swap) is implemented and demonstrable, but not switched on by default because it is not yet
+  honest enough.

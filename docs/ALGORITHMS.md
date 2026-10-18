@@ -15,7 +15,7 @@ Register of algorithms WorldReel creates or adopts where no ready-made method fi
 ## Register
 | ID | Problem | Status | Baseline | Design note |
 |---|---|---|---|---|
-| A-3 | Time-boxed progressive fill of holes in planar surfaces | experimental | gradient only (mock fill: flat grey `guessed` floor behind the first camera) | below |
+| A-3 | Time-boxed progressive fill of holes in planar surfaces | experimental — failed adoption bar (D-4.3) | gradient only (mock fill: flat grey `guessed` floor behind the first camera) | below |
 | A-2 | Follow camera that stays in seen space | adopted (D-4.2; synthetic GT check open) | third-person offset behind the actor (actor frame) | below |
 | A-1 | Per-Gaussian confidence for splat reconstructions (honest seen / inferred / guessed) | adopted (D-4.1) | constant: foreground 0.9 observed, background 0.6 | below |
 
@@ -191,3 +191,14 @@ views (their GT depth + RGB). r = 2 % of extent.
 - fill colour error: mean |RGB| difference between fill and the nearest GT point's colour;
 - time to tier 1 and tier 2.
 Adopt if coverage rises, precision ≥ 0.8, and tier 1 meets its budget.
+
+**Result (D-4.3): not adopted, stays experimental (`tools/splat_wreel.py --fill`).** Changes during
+development (all measured): enclosed-gap footprint (morphological closing, ≤ 15 % of extent)
+instead of the convex hull, which joined separate box tops through the air; cells under observed
+objects are hidden, not filled; colour = the plane's opacity-weighted mean (diffusion from noisy
+border splats was worse than a flat colour: 35–40 vs 16–20 mean |RGB|); only level or upright
+planes (a 37° plane through clutter on the walking clip); cells that cameras saw through are
+dropped. Exact-geometry scenes (generator 0.2.0): fill on the true surface 24 % / 5 % / 98 %
+(seeds 11/12/13 v2) against a ≥ 80 % bar. The fill follows the reconstruction it is built from:
+observed splats on the true surface were 46 % / 32 % / 98 % on the same scenes. Fix the
+reconstruction bias first (D-4.3), then re-test.
