@@ -28,7 +28,7 @@ from scipy.spatial import cKDTree
 from eval.geometry import quat_to_matrix, trajectory_errors
 from formats.wreel import read_wreel
 from pipeline.io import read_rgb
-from stages.fill.planes import progressive_fill
+from stages.fill.planes import drop_seen_through, progressive_fill
 from stages.package.confidence import OBSERVED, relabel_gaussians, views_from_camera_json
 from stages.package.gaussians import BACKGROUND_CONFIDENCE, splats_to_gaussians
 from tools.synth import backproject
@@ -45,6 +45,29 @@ def eval_surface(scene: Path, gt: dict[str, Any]) -> tuple[np.ndarray, np.ndarra
         pts.append(p)
         cols.append(rgb.reshape(-1, 3)[depth.reshape(-1) > 0])
     return np.concatenate(pts), np.concatenate(cols).astype(np.float64)
+
+
+def exact_surface_distance(
+    points: np.ndarray, objects: list[dict[str, Any]]
+) -> tuple[np.ndarray, np.ndarray]:
+    """(distance to the nearest true surface, inside-a-box flag) from the generator's exact
+    objects (gt.json "objects", generator >= 0.2.0): a ground plane and axis-aligned boxes."""
+    dist = np.full(len(points), np.inf)
+    inside = np.zeros(len(points), bool)
+    for obj in objects:
+        if obj["kind"] == "plane":
+            n = np.asarray(obj["normal"], np.float64)
+            d = np.abs(points @ n - obj["offset"])
+            within = np.all(np.abs(points[:, [0, 2]]) <= obj["half_size"], axis=1)
+            dist = np.where(within, np.minimum(dist, d), dist)
+        elif obj["kind"] == "box":
+            q = np.abs(points - np.asarray(obj["centre"])) - np.asarray(obj["size"]) / 2
+            outside = np.linalg.norm(np.maximum(q, 0.0), axis=1)
+            inner = q.max(axis=1)
+            is_in = inner < 0
+            dist = np.minimum(dist, np.where(is_in, -inner, outside))
+            inside |= is_in
+    return dist, inside
 
 
 def colour_error(a: np.ndarray, b: np.ndarray) -> float | None:
@@ -90,6 +113,8 @@ def run(
         weights=obs_w,
         colour_mode=colour_mode,
     )
+    views = views_from_camera_json(cam)
+    seen_through = [drop_seen_through(t, views, obs_pos) for t in (tier1, tier2)]
 
     est_pos = np.array([k["position"] for k in keys])
     est_rot = np.stack([quat_to_matrix(k["rotation"]) for k in keys])
@@ -119,6 +144,7 @@ def run(
         "eval_points": len(surf),
         "radius_m": round(r, 3),
         "coverage_observed": round(float(covered_obs.mean()), 3),
+        "dropped_seen_through": seen_through,
     }
     flat = obs_col.astype(np.float64).mean(0)
     for name, tier in (("tier1", tier1), ("tier2", tier2)):
@@ -133,7 +159,15 @@ def run(
         for j in np.nonzero(on)[0]:
             local_mean[j] = full_col[full_tree.query_ball_point(fill_w[j], r)].mean(0)
         covered_fill = cKDTree(fill_w).query(surf, distance_upper_bound=r, workers=-1)[0] < np.inf
+        exact: dict[str, Any] = {}
+        if gt.get("objects"):
+            d_exact, in_box = exact_surface_distance(fill_w, gt["objects"])
+            exact = {
+                "fill_precision_exact": round(float((d_exact <= r).mean()), 3),
+                "fill_inside_objects": round(float((in_box & (d_exact > r)).mean()), 3),
+            }
         report[name] = {
+            **exact,
             "elements": len(tier.positions),
             "cell_m": round(tier.cell * sim.scale, 3),
             "seconds": round(tier.seconds, 2),

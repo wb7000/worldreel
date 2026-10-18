@@ -18,11 +18,14 @@ import numpy as np
 from eval.geometry import quat_to_matrix
 from formats.common import load_or_create_signing_key
 from formats.wreel import read_wreel, write_wreel
-from stages.package.confidence import relabel_gaussians, views_from_camera_json
+from stages.fill.planes import drop_seen_through, progressive_fill
+from stages.package.confidence import OBSERVED, relabel_gaussians, views_from_camera_json
 from stages.package.follow import follow_cameras
 from stages.package.gaussians import (
     BACKGROUND_CONFIDENCE,
+    add_fill_layer,
     carve_people,
+    fill_gaussians,
     splats_to_gaussians,
     wreel_with_gaussians,
 )
@@ -95,6 +98,53 @@ def build(export: Path, out: Path, camera: Path | None = None, masks: Path | Non
             gaussians.confidence[keep],
         )
         print(f"follow paths planned (mean seen share): {follow}")
+    if camera is not None:
+        # Progressive plane-completion fill (algorithm A-3, D-4.3): built from observed Gaussians,
+        # quick tier within a 5 s budget (fill LOD 0), refined tier after (fill LOD 1).
+        obs = (gaussians.cls == OBSERVED) & (
+            gaussians.confidence != np.float32(BACKGROUND_CONFIDENCE)
+        )
+        planes, quick, refined = progressive_fill(
+            gaussians.positions[obs].astype(np.float64),
+            gaussians.colors[obs],
+            float(meta["extent"]),
+            budget_s=5.0,
+            refine_budget_s=60.0,
+            weights=gaussians.opacity[obs].astype(np.float64),
+        )
+        obs_pos = gaussians.positions[obs].astype(np.float64)
+        seen_through = [drop_seen_through(t, views, obs_pos) for t in (quick, refined)]
+        print(f"fill cells dropped as seen-through open space: {seen_through}")
+        tiers = [
+            fill_gaussians(
+                t.positions, t.normals, t.colors, t.confidence.astype(np.float64), t.cell
+            )
+            for t in (quick, refined)
+        ]
+        add_fill_layer(manifest, entries, tiers[0], tiers[1])
+        if len(refined.positions):
+            lo, hi = refined.positions.min(0), refined.positions.max(0)
+            manifest.setdefault("regions", []).append(
+                {
+                    "id": "r_fill_planes",
+                    "bounds": {"min": [float(v) for v in lo], "max": [float(v) for v in hi]},
+                    "class": "inferred",
+                    "confidence": round(float(refined.confidence.mean()), 3),
+                    "sources": [
+                        {"kind": "video"},
+                        {
+                            "kind": "model",
+                            "model": "worldreel A-3 plane-completion fill",
+                            "version": "0.1.0",
+                        },
+                    ],
+                }
+            )
+        print(
+            f"fill: {len(planes)} planes; quick {len(quick.positions)} in {quick.seconds:.1f} s "
+            f"(complete={quick.complete}); "
+            f"refined {len(refined.positions)} in {refined.seconds:.1f} s"
+        )
     manifest["generation"]["seeds"]["splat"] = int(meta["seed"])
     manifest["title"] = manifest["title"] + " (Gaussian splats)"
     write_wreel(out, manifest, entries, load_or_create_signing_key())

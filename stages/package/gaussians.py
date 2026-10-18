@@ -221,3 +221,54 @@ def carve_people(
             )
     keep = np.nonzero(~inside)[0]
     return subset(g, keep), int(inside.sum())
+
+
+INFERRED = PROVENANCE_CLASSES.index("inferred")
+FILL_OPACITY = 0.9
+
+
+def fill_gaussians(
+    positions: F64, normals: F64, colors: npt.NDArray[np.uint8], confidence: F64, cell: float
+) -> GaussianCloud:
+    """Flat disc Gaussians lying on the filled planes (algorithm A-3), class `inferred`."""
+    n = normals / np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-12)
+    helper = np.where(np.abs(n[:, 1:2]) < 0.9, [[0.0, 1.0, 0.0]], [[1.0, 0.0, 0.0]])
+    a = np.cross(n, helper)
+    a /= np.linalg.norm(a, axis=1, keepdims=True)
+    b = np.cross(n, a)
+    rot = np.stack([a, b, n], axis=2)  # columns: local x, y, z (= normal)
+    count = len(positions)
+    return GaussianCloud(
+        positions.astype(np.float32),
+        np.tile(np.array([0.5 * cell, 0.5 * cell, 0.02 * cell], np.float32), (count, 1)),
+        matrix_to_quat_xyzw(rot).astype(np.float32),
+        colors.astype(np.uint8),
+        np.full(count, FILL_OPACITY, np.float32),
+        np.full(count, INFERRED, np.uint8),
+        confidence.astype(np.float32),
+    )
+
+
+def add_fill_layer(
+    manifest: dict[str, Any],
+    entries: dict[str, bytes],
+    quick: GaussianCloud,
+    refined: GaussianCloud,
+    layer_id: str = "fill",
+) -> None:
+    """Fill as its own layer: LOD 0 = the quick tier, LOD 1 = the refined tier. The player shows
+    LOD 0 first and swaps in LOD 1 (spec §6.1), which is the brief's progressive refinement."""
+    if not len(quick) and not len(refined):
+        return
+    lod0, lod1 = f"scene/{layer_id}/lod0.gsp", f"scene/{layer_id}/lod1.gsp"
+    entries[lod0], entries[lod1] = quick.pack(), refined.pack()
+    manifest["scene"]["layers"].append(
+        {
+            "id": layer_id,
+            "kind": "gaussians",
+            "lods": [
+                {"level": 0, "path": lod0, "count": len(quick)},
+                {"level": 1, "path": lod1, "count": len(refined)},
+            ],
+        }
+    )

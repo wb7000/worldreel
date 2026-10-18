@@ -79,3 +79,13 @@ def test_default_fill_colour_is_the_plane_mean() -> None:
     planes, tier1, _ = progressive_fill(pts, cols, extent=4.0)
     floor_mean = cols[planes[0].inliers].astype(float).mean(0)
     assert np.allclose(tier1.colors.astype(float), floor_mean, atol=1.0)
+
+
+def test_slanted_planes_are_not_filled() -> None:
+    from stages.fill.planes import Plane, structural
+
+    up = np.array([0.0, 1.0, 0.0])
+    floor = Plane(np.array([0.0, 1.0, 0.0]), 0.0, np.arange(1))
+    wall = Plane(np.array([1.0, 0.05, 0.0]) / np.linalg.norm([1.0, 0.05, 0.0]), 0.0, np.arange(1))
+    slanted = Plane(np.array([0.0, 0.8, 0.6]), 0.0, np.arange(1))
+    assert structural(floor, up) and structural(wall, up) and not structural(slanted, up)

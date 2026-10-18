@@ -182,13 +182,35 @@ function sortSplats(view: Float32Array, now: number): void {
   }
 }
 
+/** Scene Gaussian layers are merged into one splat set: splats do not write depth, so separately
+ * sorted layers would draw on top of each other regardless of distance (the fill layer covered
+ * the TV on the walking clip, D-4.3). Point layers and actors upload as before. */
+const MERGED_SPLATS = "layer:__splats";
+
+function uploadScene(wreel: OpenedWreel): void {
+  const parts: Float32Array[] = [];
+  for (const [id, d] of wreel.layers) {
+    if (d.layer.kind === "gaussians") parts.push(splatInstances(d.chunk as GaussianChunk));
+    else upload(`layer:${id}`, d.layer.kind, d.chunk);
+  }
+  if (parts.length) {
+    const instances = new Float32Array(parts.reduce((n, a) => n + a.length, 0));
+    let offset = 0;
+    for (const a of parts) {
+      instances.set(a, offset);
+      offset += a.length;
+    }
+    splatStates.set(MERGED_SPLATS, { instances, sorted: new Float32Array(instances.length), lastSortMs: 0, lastView: null });
+  }
+  for (const [id, d] of wreel.actorGeometry) upload(`actor:${id}`, d.layer.kind, d.chunk);
+}
+
 async function load(data: Uint8Array): Promise<void> {
   showMessage("Opening…");
   const wreel = await openWreel(data);
   if (!renderer) renderer = await createRenderer(canvas, preferredRenderer());
   splatStates.clear();
-  for (const [id, d] of wreel.layers) upload(`layer:${id}`, d.layer.kind, d.chunk);
-  for (const [id, d] of wreel.actorGeometry) upload(`actor:${id}`, d.layer.kind, d.chunk);
+  uploadScene(wreel);
 
   const presets = wreel.manifest.pov_presets;
   const initial =
@@ -213,8 +235,7 @@ async function load(data: Uint8Array): Promise<void> {
   setTimeout(() => {
     void wreel.refine().then((n) => {
       if (!renderer || player?.wreel !== wreel || n === 0) return;
-      for (const [id, d] of wreel.layers) upload(`layer:${id}`, d.layer.kind, d.chunk);
-      for (const [id, d] of wreel.actorGeometry) upload(`actor:${id}`, d.layer.kind, d.chunk);
+      uploadScene(wreel);
     });
   }, 300);
 }
@@ -269,9 +290,14 @@ function frame(now: number): void {
   sortSplats(view, now);
   const items: DrawItem[] = [];
   const identity = poseMatrix([0, 0, 0], [0, 0, 0, 1]);
+  let splatsDrawn = false;
   for (const [id, d] of wreel.layers) {
-    const kind = d.layer.kind === "gaussians" ? ("splats" as const) : ("points" as const);
-    items.push({ id: `layer:${id}`, model: identity, pointSize: d.layer.point_size ?? 0.05, kind });
+    if (d.layer.kind === "gaussians") {
+      if (!splatsDrawn) items.push({ id: MERGED_SPLATS, model: identity, pointSize: 0.05, kind: "splats" });
+      splatsDrawn = true;
+      continue;
+    }
+    items.push({ id: `layer:${id}`, model: identity, pointSize: d.layer.point_size ?? 0.05, kind: "points" });
   }
   for (const actor of wreel.manifest.actors) {
     if (actor.id === cam.hiddenActor) continue;

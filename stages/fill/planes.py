@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -37,6 +38,16 @@ class FillTier:
     cell: float = 0.0
     seconds: float = 0.0
     complete: bool = True  # False when the budget ran out before every plane was done
+
+
+STRUCTURAL_TOLERANCE_DEG = 20.0
+
+
+def structural(plane: Plane, up: F64, tol_deg: float = STRUCTURAL_TOLERANCE_DEG) -> bool:
+    """Level (floor, ceiling, ground, table top) or upright (wall). Slanted fits in rooms and
+    courtyards are almost always planes through clutter (walking clip: a 37 deg plane, D-4.3)."""
+    c = abs(float(plane.normal @ up)) / float(np.linalg.norm(up))
+    return bool(c >= np.cos(np.radians(tol_deg)) or c <= np.sin(np.radians(tol_deg)))
 
 
 def ransac_planes(
@@ -262,10 +273,11 @@ def progressive_fill(
     seed: int = 0,
     weights: F64 | None = None,
     colour_mode: str = "plane_mean",
+    up: tuple[float, float, float] = (0.0, 1.0, 0.0),
 ) -> tuple[list[Plane], FillTier, FillTier]:
     """Tier 1 (coarse cells, within `budget_s` including plane detection) and tier 2 (fine)."""
     t0 = time.perf_counter()
-    planes = ransac_planes(points, extent, seed=seed)
+    planes = [p for p in ransac_planes(points, extent, seed=seed) if structural(p, np.asarray(up))]
     spent = time.perf_counter() - t0
     tier1 = fill_tier(
         planes,
@@ -289,3 +301,21 @@ def progressive_fill(
         colour_mode=colour_mode,
     )
     return planes, tier1, tier2
+
+
+def drop_seen_through(tier: FillTier, views: list[Any], observed: F64, min_views: int = 2) -> int:
+    """Remove fill cells that cameras saw through: in >= `min_views` training views the nearest
+    observed surface in that image cell lies clearly behind the fill cell, so the cell is open
+    space (a doorway, the gap beside a TV), not a hole. Returns how many were removed."""
+    from stages.package.confidence import stereo_evidence
+
+    if not len(tier.positions) or not views:
+        return 0
+    _, in_front = stereo_evidence(tier.positions, views, observed)
+    keep = in_front < min_views
+    removed = int((~keep).sum())
+    tier.positions = tier.positions[keep]
+    tier.normals = tier.normals[keep]
+    tier.colors = tier.colors[keep]
+    tier.confidence = tier.confidence[keep]
+    return removed
