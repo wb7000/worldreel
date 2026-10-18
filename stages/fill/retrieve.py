@@ -233,7 +233,7 @@ def _commons_pages(data: dict[str, Any]) -> list[Candidate]:
         out.append(
             Candidate(
                 image=None,
-                url=str(info.get("url", "")),
+                url=str(info.get("url", "")).split("?")[0],  # drop tracking parameters
                 license=lic,
                 source="commons",
                 attribution=re.sub(r"<[^>]+>", "", val("Artist")).strip(),

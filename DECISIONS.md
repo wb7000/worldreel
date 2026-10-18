@@ -822,3 +822,21 @@ Owner's manual steps:
 2. Models live in `data/models/` (git-ignored): YuNet (MIT, 232 KB) and LaMa (Apache-2.0,
    208 MB). Delete them to free space; the code says what to re-download.
 3. Unused clips are still in `data/inbox/` (vide.mp4, approved.mp4, aprove.mp4).
+
+### D-4.4b First real-world retrieval test: Vasai Fort (2026-10-18)
+- Footage: a drone montage of Vasai Fort (a public historic site) provided by the owner, who
+  states they have the creator's permission (creator name pending; watermark "MUMBAI ONE").
+  Only one continuous piece was usable: the gate arch, 53.0–55.07 s (31 frames at 15 fps after
+  removing a cut), cropped to 1135x548 to remove letterbox bars and the watermark. Processed on
+  the laptop only; nothing uploaded. Intrinsics unknown: horizontal FOV assumed 64° (≈70° drone
+  lens before the crop) — an assumption.
+- Classical reconstruction: 31/31 frames registered, reprojection 0.46 px, 5,078 SfM points.
+- Search (live, User-Agent with the owner's contact from the git-ignored local config): Commons
+  "Vasai Fort" + "Bassein Fort" → 46 licence-compatible files (CC BY 2.0, CC BY-SA 3.0/4.0) after
+  the metadata filter; downloaded at 1,280 px to scratch only (not the project).
+- Result: 4 skipped by the face detector; 42 rejected by geometric verification (≤ 32 SIFT
+  matches, 2 with no consistent PnP pose); **0 accepted**. Safe (no wrong image used), but it does
+  not demonstrate a real positive: a 2 s top-down drone view of one gate shares almost no
+  viewpoint with ground-level photos of other parts of the fort. A real positive needs
+  ground-level footage of a spot people photograph (main gate, a long wall).
+- Fix: Commons URLs carried `utm_*` tracking parameters; records now keep the bare file URL.
