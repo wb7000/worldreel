@@ -564,3 +564,32 @@ evaluation on seeds 12 and 13. Classical numbers on Kaggle differ slightly from 
   Better capture (walk around while filming) fixes that, not code.
 - Verified in the player (WebGPU): original-camera view photo-like with avatars standing where
   the friends stood (15 s, 18.5 s); no console errors.
+
+### D-3.end Phase 3 close-out (2026-10-18)
+Final checks on main (b4e69ec + this entry): pytest 162 passed; ruff and ruff format clean;
+mypy clean (86 files); `formats validate` sample OK; player vitest 28 passed; player build OK.
+
+Acceptance (brief §Phase 3):
+- "On synthetic scenes, depth/pose and novel-view metrics meet configured thresholds":
+  trajectory and depth pass on seeds 11/12/13 (true and assumed intrinsics, D-3a.6). Novel
+  views: classical passes 11 and 12, **fails 13** (recorded, thresholds not loosened); splats
+  beat classical on all three (D-3b.6). Partially met — the seed-13 failure stands.
+- "A short real video becomes a free-camera .wreel": **met** (room video, classical D-3a.10 and
+  splats D-3b.8), for the part of the clip the camera stage can track.
+- Dynamic (actors): mask format, lifting (synthetic local error 0.36–0.39 m, heights 1.77 vs
+  1.75 m), DETR + SAM 2.1 stage, merge and guards, synthetic avatars, person carving; real
+  clip gives one avatar per friend (D-3b.9–11). Detection is unscored on synthetic data
+  (test bodies are not human-like) and real footage has no ground truth.
+
+Known limits carried forward: camera tracking registers only part of handheld clips (82/245
+on the walking clip); views away from the camera path show guessed geometry (blur/smears);
+lifting range bias ~0.2 x height; untracked people are not carved; seed-13 novel views.
+
+Owner's manual steps:
+1. For better results, film slowly while walking through the space, each area from 2–3
+   positions, good light (no code needed for the improvement).
+2. Real people: only footage of yourself or adults who agreed; it goes to your PRIVATE Kaggle.
+3. Unused clips are still in `data/inbox/` (vide.mp4, approved.mp4, aprove.mp4) — delete them
+   when you like; nothing was uploaded from them.
+4. Kaggle: datasets/kernels are private; GPU quota is weekly — the runner resubmits queued jobs
+   after 20 min.
