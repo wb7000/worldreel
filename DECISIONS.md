@@ -531,3 +531,36 @@ evaluation on seeds 12 and 13. Classical numbers on Kaggle differ slightly from 
   guard drops all 4 false tracks; on the oracle run it keeps both walkers.
 - Rejected guard: person height vs camera height above the floor. The test camera is 4.96 m
   up, so true people scored 0.35 and props ~0.7 — it would have kept the props.
+
+### D-3b.11 First real-people clip: owner's friends in a room (2026-10-18)
+- Footage: owner's own 30.7 s phone clip of friends in a room (`f29ecb3c1553a`), owner states
+  the friends approved; uploaded only as a PRIVATE Kaggle dataset. Three other clips the owner
+  offered were NOT used: one showed only the owner in a mirror, two showed crowds/events with
+  many third parties (some likely minors) who had not consented. Real people are shown only as
+  synthetic avatars.
+- Pipeline: frames 8 fps (245), camera registered only 82 frames (≈10–22 s; phone barely
+  moved, 1,283 SfM points). Kaggle 2×T4: pipeline 26 min, splat training 7 min.
+- Run 1: 19 tracks for a handful of people — tracks broke during fast pans and SAM 2.1 kept
+  following the person with the old object, so people had several labels.
+- Run 2 (merge on intersection / smaller area ≥ 0.6): 3 tracks, but two friends were chained
+  into one label (frames 16–81, 211) and a wardrobe-mirror reflection became a person
+  (height 1.93 vs 0.66/0.80). Checked by overlaying masks on 16 frames.
+- Run 3 (current rule): objects merge only if median IoU ≥ 0.5 over ≥ 3 co-visible frames, and
+  never if any member pair is co-visible with median IoU < 0.2 (cannot-link). Height guard:
+  from 3 people up, a track outside 0.55–1.8 × the median height gets no avatar. Result:
+  5 tracks → 3 avatars (one per friend, heights 0.66/0.76/0.80 units); rejected: the mirror
+  reflection and a track that leaked onto the bedsheet / an extreme face close-up. A motion-
+  blurred friend in one pan was missed. No ground truth, so no numeric score.
+- Ghosts: a static splat model kept a faint, blurry silhouette of a real friend where masks
+  missed frames — a privacy issue, not just cosmetics. Fix: `carve_people` deletes every
+  Gaussian inside each tracked person's swept body volume (radius 0.35 × height = body
+  half-width ~0.13 + measured lifting range bias ~0.22 from D-3b.9; from 0.04 to 1.1 × height
+  above the floor). 46,019 of 461,750 Gaussians removed; silhouette gone in the player. A
+  person who is never tracked at all is not carved — limit stated, not solved.
+- Player/presets: follow camera aimed at a fixed 1.3 units and sat 2.2 × height (+0.6) back;
+  scene units are arbitrary, so it looked at the ceiling from outside the room. Now aim at
+  0.8 × eye height, offset [0, 1.15 h, 1.0 h]. Even so, follow/eyes views on this clip show
+  mostly guessed geometry: the camera path is ~0.36 units long and only 82 frames registered.
+  Better capture (walk around while filming) fixes that, not code.
+- Verified in the player (WebGPU): original-camera view photo-like with avatars standing where
+  the friends stood (15 s, 18.5 s); no console errors.

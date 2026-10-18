@@ -15,9 +15,10 @@ from pathlib import Path
 
 import numpy as np
 
+from eval.geometry import quat_to_matrix
 from formats.common import load_or_create_signing_key
 from formats.wreel import read_wreel, write_wreel
-from stages.package.gaussians import splats_to_gaussians, wreel_with_gaussians
+from stages.package.gaussians import carve_people, splats_to_gaussians, wreel_with_gaussians
 
 
 def build(export: Path, out: Path) -> Path:
@@ -35,6 +36,14 @@ def build(export: Path, out: Path) -> Path:
     gaussians = splats_to_gaussians(
         params, centre_cv=np.asarray(meta["centre_cv"]), background_beyond=beyond
     )
+    people = []
+    for actor in template.manifest.get("actors", []):
+        tr = template.track(actor["track"]["path"])
+        ups = np.stack([quat_to_matrix(q) @ np.array([0.0, 1.0, 0.0]) for q in tr["rotations"]])
+        people.append((np.asarray(tr["positions"], np.float64), ups, actor["eye_height"] / 0.925))
+    if people:
+        gaussians, removed = carve_people(gaussians, people)
+        print(f"carved {removed:,} gaussians inside {len(people)} people's body volumes")
     manifest, entries = wreel_with_gaussians(
         template,
         gaussians,

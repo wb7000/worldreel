@@ -182,3 +182,42 @@ def wreel_with_gaussians(
         manifest["scene"]["bounds"] = {"min": [float(v) for v in lo], "max": [float(v) for v in hi]}
     manifest["files"] = {}
     return manifest, entries
+
+
+# Person carving (privacy, brief §11): a static splat model keeps faint "ghosts" of people where
+# their masks missed a few frames (seen on the walking clip, DECISIONS D-3b.11). Everything inside
+# the space a tracked person's body occupied is removed; only the avatar stands there.
+CARVE_RADIUS = 0.35  # x height: body half-width ~0.13 + measured lifting range bias ~0.22 (D-3b.9)
+CARVE_FLOOR = 0.04  # x height above the floor kept (feet contact area is floor, not person)
+CARVE_TOP = 1.1  # x height
+
+
+def carve_people(
+    g: GaussianCloud, people: list[tuple[F64, F64, float]], step: float = 0.05
+) -> tuple[GaussianCloud, int]:
+    """`people`: (positions N x 3 on the floor, up vectors N x 3, height). Returns the cloud
+    without Gaussians inside any person's swept body volume, and how many were removed."""
+    pos = g.positions.astype(np.float64)
+    inside = np.zeros(len(pos), bool)
+    for track, ups, height in people:
+        samples, normals = [], []
+        for i in range(len(track)):
+            samples.append(track[i])
+            normals.append(ups[i])
+            if i + 1 < len(track):
+                n = int(np.linalg.norm(track[i + 1] - track[i]) / (step * height))
+                for s in range(1, n + 1):
+                    a = s / (n + 1)
+                    samples.append((1 - a) * track[i] + a * track[i + 1])
+                    normals.append(ups[i])
+        for p, up in zip(samples, normals, strict=True):
+            d = pos - p
+            vertical = d @ up
+            horizontal = np.linalg.norm(d - vertical[:, None] * up, axis=1)
+            inside |= (
+                (horizontal < CARVE_RADIUS * height)
+                & (vertical > CARVE_FLOOR * height)
+                & (vertical < CARVE_TOP * height)
+            )
+    keep = np.nonzero(~inside)[0]
+    return subset(g, keep), int(inside.sum())
