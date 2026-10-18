@@ -48,6 +48,7 @@ class Candidate:
     attribution: str = ""
     landing_url: str = ""
     metadata_text: str = ""  # titles, tags, categories (for the people/interior filter)
+    fetch_url: str = ""  # scaled copy to download (Commons `thumburl`); `url` stays the record
 
 
 @dataclass
@@ -237,6 +238,7 @@ def _commons_pages(data: dict[str, Any]) -> list[Candidate]:
                 source="commons",
                 attribution=re.sub(r"<[^>]+>", "", val("Artist")).strip(),
                 landing_url=str(info.get("descriptionurl", "")),
+                fetch_url=str(info.get("thumburl", "")),
                 metadata_text=" ".join(
                     [str(page.get("title", "")), val("Categories"), val("ImageDescription")]
                 ),
@@ -246,7 +248,12 @@ def _commons_pages(data: dict[str, Any]) -> list[Candidate]:
 
 
 def commons_search(
-    query: str, contact: str, *, limit: int = 30, get: HttpGet = _default_get
+    query: str,
+    contact: str,
+    *,
+    limit: int = 30,
+    thumb_width: int = 1280,
+    get: HttpGet = _default_get,
 ) -> list[Candidate]:
     """Wikimedia Commons files whose title or description match `query` (MediaWiki search
     generator in the File namespace, generator parameters carry the `g` prefix) + imageinfo."""
@@ -259,9 +266,20 @@ def commons_search(
         "gsrlimit": str(limit),
         "prop": "imageinfo",
         "iiprop": "url|extmetadata",
+        "iiurlwidth": str(thumb_width),
     }
     url = "https://commons.wikimedia.org/w/api.php?" + urllib.parse.urlencode(params)
     return _commons_pages(json.loads(get(url, {"User-Agent": user_agent(contact)})))
+
+
+def download_image(cand: Candidate, contact: str, *, get: HttpGet = _default_get) -> Candidate:
+    """Fetch the candidate's image (scaled copy when available) and decode it to RGB."""
+    data = get(cand.fetch_url or cand.url, {"User-Agent": user_agent(contact)})
+    bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    if bgr is None:
+        raise ValueError(f"not an image: {cand.url}")
+    cand.image = np.asarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), np.uint8)
+    return cand
 
 
 def local_contact(config: Path = Path("worldreel.local.toml")) -> str:
