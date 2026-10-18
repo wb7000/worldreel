@@ -15,6 +15,7 @@ Register of algorithms WorldReel creates or adopts where no ready-made method fi
 ## Register
 | ID | Problem | Status | Baseline | Design note |
 |---|---|---|---|---|
+| A-5 | Generative texture for filled planes (LaMa) | experimental | plane-mean colour (A-3) | below |
 | A-4 | Licensed reference images, geometrically verified, to colour unseen regions | adopted, provisional (D-4.4) | no retrieval (fill colour = plane mean, A-3) | below |
 | A-3 | Time-boxed progressive fill of holes in planar surfaces | experimental — failed adoption bar (D-4.3) | gradient only (mock fill: flat grey `guessed` floor behind the first camera) | below |
 | A-2 | Follow camera that stays in seen space | adopted (D-4.2; synthetic GT check open) | third-person offset behind the actor (actor frame) | below |
@@ -265,3 +266,37 @@ pavement): >= 5 % of PnP inliers off the dominant plane, and colour agreement >=
 photo and projected observed points. With them: 12 / 12 true references accepted, 24 / 24 wrong
 ones rejected on seeds 11v2/12v2/13v2; pose error 0.14–0.86 m, 0.7–1.9°. Thresholds were chosen
 on these same scenes (in-sample) — provisional until validated on real photos.
+
+---
+
+## A-5 Generative plane texture (design note, 2026-10-18)
+
+**Problem.** Brief §6.4: a generative model produces the remainder, tagged `generated`. A-3
+fills holes in planes with one flat colour per plane — honest but visibly fake on textured ground.
+
+**Model (verified).** LaMa image inpainting: code Apache-2.0 (advimman/lama LICENSE), Big-LaMa
+weights model card apache-2.0 (huggingface smartywu/big-lama); ONNX port `Carve/LaMa-ONNX`
+`lama_fp32.onnx` (model card: Apache-2.0, opset 17, fixed 512x512), 208,044,816 bytes, SHA-256
+1faef530...eb68d6. Inputs read from the file: `image` [b,3,512,512] float, `mask` [b,1,512,512];
+measured on a synthetic frame: image in [0,1], mask 1 = hole, output in [0,255]; ~12 s per
+512x512 inference on the laptop CPU with onnxruntime 1.31.0 (MIT).
+
+**Idea.** For each A-3 plane: rasterise an orthographic texture of the plane (cell colours =
+opacity-weighted mean of observed Gaussians in the cell), mask the hole cells, inpaint with LaMa
+in 512x512 tiles (resampled), and colour each fill element from the inpainted texture. Class
+`generated`, confidence 0.2; a region record with `sources: [{kind: model, model, version}]`.
+Progressive (§6.2): plane-mean colour is the quick tier, the generated texture the refined tier.
+
+**Complexity.** One 512x512 inference per plane tile, ~12 s each on CPU; usually 1–6 planes.
+
+**Known failure cases.** Invents content (erased half a box in the first test — the model does
+not know what was there); texture scale must match the plane's cell size; tiles can show seams;
+inherits A-3's geometry errors (D-4.3).
+
+**Baseline.** A-3 plane-mean colour.
+
+**Measurement.** On seeds 11v2/12v2/13v2, for fill elements on the true surface: (1) error vs
+the local mean GT colour (as eval.fill) and (2) error vs the single nearest GT pixel (texture
+level), plus (3) the spread (std) of fill colours vs the spread of GT colours around them
+(a flat fill has spread 0; real ground does not). Report all three honestly: a generated texture
+can be more realistic (3) while not more accurate (1).
