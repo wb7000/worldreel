@@ -61,6 +61,8 @@ class Verified:
     inlier_ratio: float = 0.0
     median_px: float = float("inf")
     second_frame_inliers: int = 0
+    off_plane_frac: float = 0.0  # inlier 3D points off the dominant plane
+    photo_agree: float = 0.0  # share of visible observed points whose colour agrees
 
 
 # ---- licences -----------------------------------------------------------------------------
@@ -292,11 +294,61 @@ def depth_buffer(points_cv: F64, v: FrameView, splat_px: int = 2) -> npt.NDArray
     return out
 
 
+def _off_plane_fraction(pts: F64, band: float, iterations: int = 300) -> float:
+    """1 - share of points on the best RANSAC plane: ~0 when all matches lie on one surface."""
+    if len(pts) < 3:
+        return 0.0
+    rng = np.random.default_rng(0)
+    best = 0
+    for _ in range(iterations):
+        a, b, c = pts[rng.choice(len(pts), 3, replace=False)]
+        n = np.cross(b - a, c - a)
+        if np.linalg.norm(n) < 1e-12:
+            continue
+        n /= np.linalg.norm(n)
+        best = max(best, int((np.abs((pts - a) @ n) < band).sum()))
+    return 1.0 - best / len(pts)
+
+
+def _photo_agreement(
+    cand: U8, v: Verified, observed_cv: F64, colors: U8, tol: float = 40.0, max_points: int = 50000
+) -> float:
+    """Share of observed points visible from the estimated pose whose colour matches the photo
+    after a per-channel gain (exposure) correction."""
+    if len(observed_cv) > max_points:
+        idx = np.random.default_rng(0).choice(len(observed_cv), max_points, replace=False)
+        observed_cv, colors = observed_cv[idx], colors[idx]
+    fv = FrameView(cand, v.r, v.t, v.k)
+    depth = depth_buffer(observed_cv, fv)
+    pc = observed_cv @ v.r.T + v.t
+    z = pc[:, 2]
+    h, w = cand.shape[:2]
+    ok = z > 1e-3
+    u = np.where(ok, np.round(v.k[0, 0] * pc[:, 0] / np.where(ok, z, 1) + v.k[0, 2]), -1).astype(
+        np.int64
+    )
+    q = np.where(ok, np.round(v.k[1, 1] * pc[:, 1] / np.where(ok, z, 1) + v.k[1, 2]), -1).astype(
+        np.int64
+    )
+    ok &= (u >= 0) & (u < w) & (q >= 0) & (q < h)
+    ok[ok] = z[ok] <= depth[q[ok], u[ok]] * 1.05
+    if ok.sum() < 50:
+        return 0.0
+    photo = cand[q[ok], u[ok]].astype(np.float64)
+    obs = colors[ok].astype(np.float64)
+    gain = np.median(photo, 0) / np.maximum(np.median(obs, 0), 1.0)
+    err = np.abs(photo - obs * gain).max(axis=1)
+    return float((err < tol).mean())
+
+
 def verify(
     cand: U8,
     frames: list[FrameView],
     observed_world: F64,
     *,
+    observed_colors: U8 | None = None,
+    min_off_plane: float = 0.05,  # D-4.4: ground-texture-only matches had 0.0, true views >= 0.085
+    min_photo_agree: float = 0.3,  # D-4.4: true views 0.43-0.63
     min_inliers: int = 40,
     min_ratio: float = 0.25,
     max_median_px: float = 2.0,
@@ -341,6 +393,7 @@ def verify(
         return Verified(False, f"too few matches with depth ({len(obj)})")
     h, w = cand.shape[:2]
     best: Verified | None = None
+    best_inlier_pts: F64 = np.zeros((0, 3))
     for f_scale in np.linspace(0.6, 1.6, 11):
         f = f_scale * w
         k = np.array([[f, 0, w / 2], [0, f, h / 2], [0, 0, 1.0]])
@@ -364,8 +417,13 @@ def verify(
         )
         if best is None or cand_v.inliers > best.inliers:
             best = cand_v
+            best_inlier_pts = obj[inl[:, 0]]
     if best is None:
         return Verified(False, "PnP failed")
+    scale = float(np.percentile(np.linalg.norm(pts_cv - np.median(pts_cv, 0), axis=1), 95))
+    best.off_plane_frac = _off_plane_fraction(best_inlier_pts, 0.02 * scale)
+    if observed_colors is not None:
+        best.photo_agree = _photo_agreement(cand, best, pts_cv, observed_colors)
     # Second-frame consistency: the same pose must explain matches through another frame.
     for entry in scored[1:3]:
         o2, i2 = correspondences(entry)
@@ -385,13 +443,29 @@ def verify(
         )
     elif best.second_frame_inliers < min_second:
         best.ok, best.reason = False, f"second frame confirms only {best.second_frame_inliers}"
+    elif best.off_plane_frac < min_off_plane:
+        best.ok, best.reason = (
+            False,
+            f"matches lie on one surface ({best.off_plane_frac:.2f} off it)",
+        )
+    elif observed_colors is not None and best.photo_agree < min_photo_agree:
+        best.ok, best.reason = False, f"colours disagree (agreement {best.photo_agree:.2f})"
     return best
 
 
 def colours_from(
-    cand: U8, v: Verified, positions_world: F64, occluders_world: F64, tol: float = 0.05
+    cand: U8,
+    v: Verified,
+    positions_world: F64,
+    occluders_world: F64,
+    tol: float = 0.05,
+    footprint: float = 0.0,
 ) -> tuple[npt.NDArray[np.bool_], U8]:
-    """Colours of `positions_world` seen in the verified image (z-tested against occluders)."""
+    """Colours of `positions_world` seen in the verified image (z-tested against occluders).
+
+    With `footprint` (world size of the element, e.g. the fill cell), the image is averaged over
+    the element's projected size: one element stands for a cell, and a single pixel would carry
+    texture noise instead of the cell's colour (measured: 23 vs 15 mean |RGB| error, D-4.4)."""
     fv = FrameView(cand, v.r, v.t, v.k)
     depth = depth_buffer(occluders_world.astype(np.float64) @ _FLIP.T, fv)
     pc = (positions_world.astype(np.float64) @ _FLIP.T) @ v.r.T + v.t
@@ -406,5 +480,17 @@ def colours_from(
     vis = ok.copy()
     vis[ok] = z[ok] <= depth[q[ok], u[ok]] * (1 + tol)
     colours = np.zeros((len(z), 3), np.uint8)
-    colours[vis] = cand[q[vis], u[vis]]
+    if footprint <= 0:
+        colours[vis] = cand[q[vis], u[vis]]
+        return vis, colours
+    radius_px = np.zeros(len(z))
+    radius_px[vis] = 0.5 * v.k[0, 0] * footprint / z[vis]
+    levels = [0, 1, 2, 4, 8, 16, 32]
+    pick = np.searchsorted(levels, np.clip(radius_px, 0, levels[-1]))
+    for li, rad in enumerate(levels):
+        sel = vis & (np.minimum(pick, len(levels) - 1) == li)
+        if not sel.any():
+            continue
+        img = cand if rad == 0 else cv2.blur(cand, (2 * rad + 1, 2 * rad + 1))
+        colours[sel] = img[q[sel], u[sel]]
     return vis, colours
