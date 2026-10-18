@@ -786,3 +786,39 @@ Without a camera.json the builder keeps the old constant labels and says so.
   player (WebGPU, refined LOD loaded, purple "generated" tint, no console errors).
 - A generative model invents: in the first test it erased half of a box inside a hole. This is
   why generated content is always labelled and fogged, never shown as observed.
+
+### D-4.end Phase 4 close-out (2026-10-18)
+Final checks on `phase-4-pov-fill`: pytest 200 passed; ruff + ruff format clean (124 files);
+mypy clean (101 files); `formats validate` sample OK; player vitest 28 passed; player build OK.
+
+Acceptance (brief §Phase 4):
+- **"Viewer can follow any tracked actor"** — met. Every tracked person has "Follow" (A-2, planned
+  in seen space: view gap to the real camera 81–94° → 27–35° on the walking clip) and "eyes"
+  views; the follow camera scales with the person's height.
+- **"Guessed regions are visibly marked"** — met. A-1 confidence map adopted (bad splats flagged
+  0.79–0.97 vs 0 before, observed-precision 0.97–0.998 on seeds 11–13); fill, retrieved and
+  generated content carry their classes and the player fogs everything not observed.
+- **"Retrieved images carry source/licence records"** — met. A-4: licence allow-list, people
+  filters, geometric verification (12/12 true references accepted, 24/24 wrong ones rejected on
+  exact-geometry scenes); each used image has a region with url + licence + `verified:
+  geometric`, attribution in `extensions["org.worldreel.credits"]`.
+- Time-boxed progressive fill (A-3) and generative fill (A-5) are built and demonstrable but
+  **experimental, opt-in**: fill is only as accurate as the reconstruction under it (24 % / 29 % /
+  99 % on the true surface, bar 80 %); generated texture is realistic (spread 0.9–1.15) but less
+  accurate than a flat colour.
+
+Also in this phase: player fix (all Gaussian layers sorted together); generator 0.2.0 records
+exact geometry; reconstruction tilt found and reduced (`match_window` 3 → 8: splats on the true
+surface 0.39 → 0.75 and 0.31 → 0.55 on the two hard scenes).
+
+Known limits carried forward: residual reconstruction tilt on straight high camera paths
+(seed 11v2 +0.15 m); real-photo retrieval untested (no public outdoor clip; network off without a
+contact); verification and filter thresholds chosen in-sample; YuNet not measured on real faces;
+follow planner not yet checked on synthetic ground truth.
+
+Owner's manual steps:
+1. To try web retrieval: film a public outdoor place (no identifiable people), give its name or
+   coordinates, and a contact (email or web page) for the Wikimedia/Openverse User-Agent.
+2. Models live in `data/models/` (git-ignored): YuNet (MIT, 232 KB) and LaMa (Apache-2.0,
+   208 MB). Delete them to free space; the code says what to re-download.
+3. Unused clips are still in `data/inbox/` (vide.mp4, approved.mp4, aprove.mp4).
