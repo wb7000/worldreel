@@ -15,6 +15,7 @@ Register of algorithms WorldReel creates or adopts where no ready-made method fi
 ## Register
 | ID | Problem | Status | Baseline | Design note |
 |---|---|---|---|---|
+| A-6 | Procedural, event-driven footstep sounds | experimental | one fixed footstep sound for every event | below |
 | A-5 | Generative texture for filled planes (LaMa) | experimental | plane-mean colour (A-3) | below |
 | A-4 | Licensed reference images, geometrically verified, to colour unseen regions | adopted, provisional (D-4.4) | no retrieval (fill colour = plane mean, A-3) | below |
 | A-3 | Time-boxed progressive fill of holes in planar surfaces | experimental — failed adoption bar (D-4.3) | gradient only (mock fill: flat grey `guessed` floor behind the first camera) | below |
@@ -309,3 +310,39 @@ seeds 11v2/12v2/13v2: texture spread vs the real surface 0.91 / 1.15 / 0.96 (pla
 0.34 / 0.00) — realistic texture; but error vs the local true colour 37.9 / 39.9 / 43.1 (plane-mean
 16.9 / 27.1 / 14.9) and vs the nearest true pixel 43–47 (plane-mean 23–32): invented texture is
 not where the real texture was. More realistic, less accurate — hence `generated`, confidence 0.2.
+
+---
+
+## A-6 Procedural event-driven footsteps (design note, 2026-10-18)
+
+**Problem.** Brief §7: every action emits an event with attributes (`surface`, `footwear`,
+`weight`, `speed`, `weather`, ...) and the engine selects or generates the matching sound;
+"walking on wet concrete in rain sounds different from dry gravel". Recorded libraries need
+licences per sound; the brief prefers generated sounds.
+
+**Prior art.** Procedural / physically informed footstep synthesis exists in the sound-design
+literature (modal resonators for hard surfaces, granular synthesis for crunchy ones); not
+verified or cited in this session. Nothing to adopt as a library; the method below is a small
+own design in that spirit, in numpy, deterministic per seed.
+
+**Model.** A step = heel impact + toe roll (second, weaker transient 60–120 ms later, shorter at
+higher speed). Each transient = excitation x surface response:
+- hard (concrete, stone): 15 ms bright noise burst + low "thump" (decaying ~100 Hz sine,
+  amplitude ~ weight);
+- wood: damped modes at 200–800 Hz, ~40 ms;
+- gravel: granular — 20–60 tiny bright clicks spread over ~120 ms (Poisson);
+- grass: soft low-passed swish, ~150 ms, no sharp click;
+- sand / dirt: muffled low-passed burst, ~60 ms.
+Footwear shapes the attack (boot: stiff + more thump; sneaker: softened attack; heels: short
+high click; barefoot: soft, low). `wet` adds a splash (3–8 kHz band-passed fizz, 80–200 ms) and a
+small squelch; `weather: rain` implies wet unless the surface is covered (indoor). Loudness grows
+with weight and speed. Three seeded variants per attribute combination avoid machine-gun repeats.
+
+**Measurement.** Per clip: spectral centroid, decay time (RMS to −20 dB), share of energy above
+3 kHz, onset count (granularity). Acceptance check: for every pair of conditions in the matrix
+surfaces x {dry, wet}, the feature distance between conditions exceeds the largest distance
+between variants of one condition (so each condition is distinguishable), and wet vs dry differs
+in the expected direction (more high-band energy, longer tail).
+
+**Known limits.** Synthetic, not recorded: plausible rather than realistic; no room acoustics
+yet; surface per step comes from scene/config, not from vision (no material recognition).
