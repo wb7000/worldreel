@@ -214,7 +214,10 @@ def commons_geosearch(
         "iiprop": "url|extmetadata",
     }
     url = "https://commons.wikimedia.org/w/api.php?" + urllib.parse.urlencode(params)
-    data = json.loads(get(url, {"User-Agent": user_agent(contact)}))
+    return _commons_pages(json.loads(get(url, {"User-Agent": user_agent(contact)})))
+
+
+def _commons_pages(data: dict[str, Any]) -> list[Candidate]:
     out = []
     for page in (data.get("query", {}).get("pages") or {}).values():
         info = (page.get("imageinfo") or [{}])[0]
@@ -240,6 +243,35 @@ def commons_geosearch(
             )
         )
     return out
+
+
+def commons_search(
+    query: str, contact: str, *, limit: int = 30, get: HttpGet = _default_get
+) -> list[Candidate]:
+    """Wikimedia Commons files whose title or description match `query` (MediaWiki search
+    generator in the File namespace, generator parameters carry the `g` prefix) + imageinfo."""
+    params = {
+        "action": "query",
+        "format": "json",
+        "generator": "search",
+        "gsrsearch": query[:200],
+        "gsrnamespace": "6",
+        "gsrlimit": str(limit),
+        "prop": "imageinfo",
+        "iiprop": "url|extmetadata",
+    }
+    url = "https://commons.wikimedia.org/w/api.php?" + urllib.parse.urlencode(params)
+    return _commons_pages(json.loads(get(url, {"User-Agent": user_agent(contact)})))
+
+
+def local_contact(config: Path = Path("worldreel.local.toml")) -> str:
+    """`[retrieval] contact` from the git-ignored local config, or "" (network stays off)."""
+    import tomllib
+
+    if not config.is_file():
+        return ""
+    with config.open("rb") as fh:
+        return str(tomllib.load(fh).get("retrieval", {}).get("contact", ""))
 
 
 # ---- geometric verification ---------------------------------------------------------------
