@@ -38,6 +38,7 @@ class FillTier:
     cell: float = 0.0
     seconds: float = 0.0
     complete: bool = True  # False when the budget ran out before every plane was done
+    plane_index: npt.NDArray[np.int64] = field(default_factory=lambda: np.zeros(0, np.int64))
 
 
 STRUCTURAL_TOLERANCE_DEG = 20.0
@@ -229,9 +230,9 @@ def fill_tier(
 ) -> FillTier:
     t0 = time.perf_counter()
     deadline = t0 + budget_s
-    parts: list[tuple[F64, F64, F64, F64]] = []
+    parts: list[tuple[F64, F64, F64, F64, int]] = []
     complete = True
-    for plane in planes:
+    for plane_no, plane in enumerate(planes):
         if time.perf_counter() > deadline:
             complete = False
             break
@@ -249,7 +250,7 @@ def fill_tier(
         )
         complete &= done
         if len(pos):
-            parts.append((pos, col, dist, nrm))
+            parts.append((pos, col, dist, nrm, plane_no))
     tier = FillTier(cell=cell, complete=complete)
     if parts:
         tier.positions = np.concatenate([p[0] for p in parts])
@@ -259,6 +260,7 @@ def fill_tier(
         dist = np.concatenate([p[2] for p in parts])
         tier.confidence = (MAX_CONFIDENCE * np.exp(-dist / DECAY_CELLS)).astype(np.float32)
         tier.normals = np.concatenate([p[3] for p in parts])
+        tier.plane_index = np.concatenate([np.full(len(p[0]), p[4], np.int64) for p in parts])
     tier.seconds = time.perf_counter() - t0
     return tier
 
@@ -318,4 +320,5 @@ def drop_seen_through(tier: FillTier, views: list[Any], observed: F64, min_views
     tier.normals = tier.normals[keep]
     tier.colors = tier.colors[keep]
     tier.confidence = tier.confidence[keep]
+    tier.plane_index = tier.plane_index[keep]
     return removed

@@ -18,6 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11", "types-jsonschema", "scipy-stubs"]
+fill = ["onnxruntime>=1.18"]  # generative fill (A-5), MIT licence
 
 [tool.setuptools.packages.find]
 include = ["formats*", "pipeline*", "stages*", "tools*", "eval*", "training*"]
@@ -46,5 +47,5 @@ files = ["formats", "pipeline", "stages", "tools", "eval", "training", "tests"]
 exclude = ['tools/blender/gen_scene\.py', 'training/kaggle/']
 
 [[tool.mypy.overrides]]
-module = ["cv2", "cv2.*", "torch", "torch.*", "gsplat", "gsplat.*", "transformers", "transformers.*", "sam2", "sam2.*"]
+module = ["cv2", "cv2.*", "torch", "torch.*", "gsplat", "gsplat.*", "transformers", "transformers.*", "sam2", "sam2.*", "onnxruntime", "onnxruntime.*"]
 ignore_missing_imports = true
