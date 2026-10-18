@@ -15,6 +15,7 @@ Register of algorithms WorldReel creates or adopts where no ready-made method fi
 ## Register
 | ID | Problem | Status | Baseline | Design note |
 |---|---|---|---|---|
+| A-3 | Time-boxed progressive fill of holes in planar surfaces | experimental | gradient only (mock fill: flat grey `guessed` floor behind the first camera) | below |
 | A-2 | Follow camera that stays in seen space | adopted (D-4.2; synthetic GT check open) | third-person offset behind the actor (actor frame) | below |
 | A-1 | Per-Gaussian confidence for splat reconstructions (honest seen / inferred / guessed) | adopted (D-4.1) | constant: foreground 0.9 observed, background 0.6 | below |
 
@@ -137,3 +138,56 @@ the actor nicely (the line-of-sight term only ensures the actor is not hidden).
 2. view-direction gap: angle between the follow view direction and the nearest registered
    training view looking at the same target (smaller = closer to what the video saw; the usual
    proxy for novel-view quality). Report mean and 90th percentile; plus a visual check.
+
+---
+
+## A-3 Progressive plane-completion fill (design note, 2026-10-18)
+
+**Problem.** Brief §6.2: show a gradient instantly, try an improved fill within a time budget
+(e.g. 5 s), refine in the background and swap in. Today unseen parts are either empty (fog /
+gradient) or smeared splats. Most unseen area in our scenes (rooms, courtyards) lies on large
+planes — floor, walls, ground — where the observed part already tells us a lot: the plane
+itself and the colours around the hole.
+
+**Prior art.** Planar-region completion and image inpainting by diffusion / Laplace
+interpolation are classical; RANSAC plane extraction is standard. Learned 3D completion needs a
+GPU and training data. Nothing to adopt directly for "fill only what is implied by
+observations, label it, and do it within a budget"; this combines the classical parts.
+
+**Idea.** Holes *inside* a detected plane's observed footprint are filled on that plane, with
+colours diffused in from the observed border. Nothing is extended beyond the footprint (that
+would be guessing). Fill is `inferred` with confidence < 0.5 that falls with distance from
+observed evidence, so the player still marks it (spec §10.3).
+
+**Pseudocode.**
+```
+P = observed points (class observed, confidence >= 0.5): positions, colours
+planes = sequential RANSAC on P (<= 6 planes, inlier band 1 % of extent, >= 3 % of P each)
+for each plane (tier 1: cell = extent / 60, <= 30 diffusion iterations, stop at budget_s;
+                tier 2: cell = extent / 120, until converged or refine_budget_s):
+    grid on the plane over the inliers' 2D bounding box
+    occupied cells = cells with inliers (mean colour); footprint = 2D convex hull of inliers
+    holes = footprint cells that are not occupied
+    colour(holes) = Laplace diffusion from occupied cells (Jacobi iterations)
+    d = cell distance to nearest occupied cell; confidence = 0.45 * exp(-d / 4)
+    emit one flat Gaussian / point per hole cell (normal = plane normal, size = cell)
+tier 1 -> fill layer LOD 0, tier 2 -> LOD 1 (player shows LOD 0, then swaps in LOD 1)
+```
+
+**Complexity.** RANSAC O(iterations x |P|) on a subsample; grids O(cells x iterations). Seconds.
+
+**Known failure cases.** Non-planar holes (behind furniture, under a sofa) are not filled;
+planes crossing the footprint of a doorway would fill the opening (convex hull) — a doorway is a
+hole in the wall that should stay open; textured surfaces get blurry colour; a plane under an
+observed object gets filled underneath it (harmless, hidden).
+
+**Baseline.** Gradient only (current mock fill / no fill).
+
+**Measurement (synthetic, seeds 11–13).** Ground-truth surface seen from the held-out eval
+views (their GT depth + RGB). r = 2 % of extent.
+- coverage: fraction of those GT points within r of scene geometry, observed only vs observed +
+  fill;
+- fill precision: fraction of fill elements within r of the GT surface;
+- fill colour error: mean |RGB| difference between fill and the nearest GT point's colour;
+- time to tier 1 and tier 2.
+Adopt if coverage rises, precision ≥ 0.8, and tier 1 meets its budget.
