@@ -704,3 +704,30 @@ Without a camera.json the builder keeps the old constant labels and says so.
   precision on all three exact-geometry scenes. Brief §6.2 (gradient → improved fill → refined
   swap) is implemented and demonstrable, but not switched on by default because it is not yet
   honest enough.
+
+### D-4.3b Reconstruction ground bias: cause and partial fix (2026-10-18)
+- Where: classical stereo points showed the same offset as the splats (+0.28 m seed 11v2,
+  −0.32 m seed 12v2), true intrinsics in use → upstream of splat training.
+- What: the reconstructed ground is tilted 3.2° / 1.4° and the offset grows with distance
+  (seed 11v2: +0.13 m at 0–5 m, +0.73 m at 20–60 m). Per-camera orientation errors after
+  alignment are one constant rotation (sd 0.06–0.23°, axis consistency 0.79–0.99) while
+  frame-to-frame rotation error is tiny (0.08°) and per-view depth is good (AbsRel 3.7 %): the
+  solve misjudges the direction of travel relative to where the cameras point on these short,
+  straight, high (3–4 m) camera paths. Aligning by orientations instead of positions raises
+  stereo-on-surface from 37 % → 61 % (11v2) and 27 % → 58 % (12v2); a smaller offset remains.
+- Tried: more bundle adjustment (ba_max_nfev 60 → 400, periodic BA every 5): 2.55° → 2.28°,
+  5x slower → rejected. Longer feature tracks (`match_window`, frames each frame is matched
+  against): full pipeline on the three v2 scenes, stereo on true surface / benchmark failures:
+
+| match_window | 11v2 | 12v2 | 13v2 | mean | threshold failures |
+|---|---|---|---|---|---|
+| 3 (old default) | 0.432 | 0.364 | 0.973 | 0.590 | rot (11v2), ssim ratio (13v2) |
+| **8** | 0.523 | 0.925 | 0.876 | **0.775** | **none** |
+| 12 | 0.482 | 0.645 | 0.932 | 0.686 | ssim ratio (12v2, 13v2) |
+
+  Original seeds 11/12/13 with 8 vs 3: identical pass/fail (seed 13's novel-view failure was
+  already there), rotation 1.46→1.29, 0.29→0.39, 0.75→0.96°. → **default 8 adopted**.
+- Not solved: seed 11v2 keeps a +0.20 m ground offset; seed 13v2 got slightly worse. Results
+  vary a lot between scenes with three samples; a stronger fix (e.g. global rotation averaging
+  before bundle adjustment, or a level-ground / gravity prior from phone sensors) is a roadmap
+  item, not done here.
