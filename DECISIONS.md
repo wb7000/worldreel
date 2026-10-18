@@ -612,3 +612,29 @@ retrieved images carry source/licence records. Order chosen (each builds on the 
    the owner's room clips).
 5. **4.5 Generative fill** for the remainder, tagged `generated`; model licence verified first.
 Branch: `phase-4-pov-fill` from main + Phase 3 close-out.
+
+### D-4.1 Confidence map A-1: measurements and selection protocol (2026-10-18)
+Seed 11 (export from D-3b, 173,767 foreground Gaussians with opacity ≥ 0.05, 30 views; "bad" =
+centre > 0.58 m (5 % of extent) from the true surface; 11 % are bad):
+
+| Labelling | observed | bad flagged (recall) | observed that are good (precision) | Spearman |
+|---|---|---|---|---|
+| baseline: all observed 0.9 | 1.000 | 0.000 | 0.890 | – |
+| count only | 0.928 | 0.215 | 0.907 | −0.21 |
+| count + spread | 0.895 | 0.349 | 0.920 | −0.29 |
+| + far from stereo (1 % extent) | 0.782 | 0.879 | 0.983 | −0.43 |
+| + far from stereo (2 %) | 0.836 | 0.800 | 0.974 | −0.43 |
+| + far from stereo (4 %) | 0.865 | 0.617 | 0.951 | −0.37 |
+| + free-space violation | 0.874 | 0.534 | 0.942 | −0.35 |
+| + far from stereo (2 %), only where stereo covers ≥ 3 views | 0.837 | 0.791 | 0.973 | −0.42 |
+
+Walking clip (no ground truth): stereo is gappy (phone barely moved), so plain "far from stereo"
+flags 42 % of Gaussians vs 11 % on seed 11 — it cannot tell a floater from a stereo hole. The
+"covered" variant flags 27 %, free-space 12 %. Decision deferred to the protocol below.
+
+**Protocol fixed before seeing seeds 12/13:** candidates = count+spread, +free-space,
++far-2 %-covered. On each of seeds 11, 12, 13 compute recall and precision. Choose the
+candidate with the highest mean recall among those whose precision beats the baseline on every
+seed and whose observed fraction is ≥ 0.75 on every seed. Ties (< 0.02 recall): prefer the one
+that flags less on the walking clip (fewer false alarms on gappy stereo). Adopt A-1 only if the
+chosen candidate beats the baseline on both honesty numbers on all three seeds.

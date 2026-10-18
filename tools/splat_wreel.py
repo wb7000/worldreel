@@ -18,10 +18,16 @@ import numpy as np
 from eval.geometry import quat_to_matrix
 from formats.common import load_or_create_signing_key
 from formats.wreel import read_wreel, write_wreel
-from stages.package.gaussians import carve_people, splats_to_gaussians, wreel_with_gaussians
+from stages.package.confidence import relabel_gaussians, views_from_camera_json
+from stages.package.gaussians import (
+    BACKGROUND_CONFIDENCE,
+    carve_people,
+    splats_to_gaussians,
+    wreel_with_gaussians,
+)
 
 
-def build(export: Path, out: Path) -> Path:
+def build(export: Path, out: Path, camera: Path | None = None, masks: Path | None = None) -> Path:
     meta = json.loads((export / "meta.json").read_text(encoding="utf-8"))
     with np.load(export / "splats.npz") as npz:
         params = {k: npz[k] for k in npz.files}
@@ -36,6 +42,32 @@ def build(export: Path, out: Path) -> Path:
     gaussians = splats_to_gaussians(
         params, centre_cv=np.asarray(meta["centre_cv"]), background_beyond=beyond
     )
+    if camera is not None:
+        # Honest confidence map (algorithm A-1, D-4.1): relabel every non-background Gaussian
+        # from how many registered views saw it, from how wide an angle, and whether the
+        # classical multi-view stereo found a surface near it.
+        cam = json.loads(camera.read_text(encoding="utf-8"))
+        labels = None
+        if masks is not None:
+            with np.load(masks) as npz:
+                labels = npz["labels"]
+        views = views_from_camera_json(cam, labels)
+        layer = template.manifest["scene"]["layers"][0]
+        mvs = template.points(layer["lods"][-1]["path"]).positions.astype(np.float64)
+        fg = gaussians.confidence != np.float32(BACKGROUND_CONFIDENCE)
+        cls, conf, report = relabel_gaussians(
+            gaussians.positions.astype(np.float64),
+            gaussians.opacity,
+            fg,
+            views,
+            mvs,
+            float(meta["extent"]),
+        )
+        gaussians.cls[fg] = cls
+        gaussians.confidence[fg] = conf
+        print(f"confidence map: {report}")
+    else:
+        print("confidence map: no camera.json given, keeping constant labels (baseline)")
     people = []
     for actor in template.manifest.get("actors", []):
         tr = template.track(actor["track"]["path"])
@@ -59,8 +91,10 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="python -m tools.splat_wreel")
     p.add_argument("export", type=Path)
     p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--camera", type=Path, help="camera.json of the run (enables the A-1 map)")
+    p.add_argument("--masks", type=Path, help="actors masks.npz (people pixels are not evidence)")
     a = p.parse_args(argv)
-    path = build(a.export, a.out)
+    path = build(a.export, a.out, a.camera, a.masks)
     doc = read_wreel(path)
     layer = doc.manifest["scene"]["layers"][0]
     print(
