@@ -300,3 +300,12 @@ the local mean GT colour (as eval.fill) and (2) error vs the single nearest GT p
 level), plus (3) the spread (std) of fill colours vs the spread of GT colours around them
 (a flat fill has spread 0; real ground does not). Report all three honestly: a generated texture
 can be more realistic (3) while not more accurate (1).
+
+**Result (D-4.5): experimental, opt-in (`--fill --generative`).** First run: generated colours were
+far too dark (error 140–170) — the hole cells were zero and resampling to 512x512 bled them into
+the known context (known texture 117 vs ~185). Fixed by pre-filling every unknown cell classically
+(OpenCV TELEA) and sending only real holes (> 2 cells from observed cells) to LaMa. Then, on
+seeds 11v2/12v2/13v2: texture spread vs the real surface 0.91 / 1.15 / 0.96 (plane-mean 0.12 /
+0.34 / 0.00) — realistic texture; but error vs the local true colour 37.9 / 39.9 / 43.1 (plane-mean
+16.9 / 27.1 / 14.9) and vs the nearest true pixel 43–47 (plane-mean 23–32): invented texture is
+not where the real texture was. More realistic, less accurate — hence `generated`, confidence 0.2.

@@ -17,6 +17,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import numpy.typing as npt
+from scipy.ndimage import distance_transform_edt
 
 from stages.fill.planes import FillTier, Plane, _basis
 
@@ -25,6 +26,7 @@ U8 = npt.NDArray[np.uint8]
 LAMA_MODEL = Path("data/models/lama_fp32.onnx")
 LAMA_SIZE = 512
 GENERATED_CONFIDENCE = 0.2
+PINHOLE_CELLS = 2.0
 
 Inpainter = Callable[[U8, npt.NDArray[np.bool_]], U8]
 
@@ -64,8 +66,8 @@ def plane_texture(
     targets: F64,
     cell: float,
 ) -> tuple[U8, npt.NDArray[np.bool_], npt.NDArray[np.int64], npt.NDArray[np.int64]]:
-    """(texture H x W x 3 from observed inliers, mask of target cells, target rows, target cols).
-    Unknown cells that are not targets are pre-filled classically."""
+    """(texture H x W x 3, mask of cells for the generative model, target rows, target cols).
+    All unknown cells come back pre-filled classically; the mask marks the real holes."""
     a, b = _basis(plane.normal)
     obs = points[plane.inliers]
     uv_obs = np.stack([obs @ a, obs @ b], axis=1)
@@ -84,11 +86,16 @@ def plane_texture(
     tex8 = np.clip(tex, 0, 255).astype(np.uint8).reshape(h, w, 3)
     target = np.zeros((h, w), bool)
     target[ij_t[:, 1], ij_t[:, 0]] = True
-    target &= ~known.reshape(h, w)
-    other_unknown = ~known.reshape(h, w) & ~target
-    if other_unknown.any():
-        tex8 = cv2.inpaint(tex8, other_unknown.astype(np.uint8), 3, cv2.INPAINT_TELEA)
-    return tex8, target, ij_t[:, 1], ij_t[:, 0]
+    unknown = ~known.reshape(h, w)
+    target &= unknown
+    # Every unknown cell is pre-filled classically first: zeros would bleed into the known
+    # context when the texture is resampled for the model (that darkened it ~40 %, D-4.5).
+    if unknown.any():
+        tex8 = cv2.inpaint(tex8, unknown.astype(np.uint8), 3, cv2.INPAINT_TELEA)
+    # Only real holes go to the generative model; pinholes (<= `PINHOLE_CELLS` from observed
+    # cells) are sampling gaps between splats and keep the classical interpolation.
+    far = distance_transform_edt(unknown) > PINHOLE_CELLS
+    return tex8, target & far, ij_t[:, 1], ij_t[:, 0]
 
 
 def generative_colours(

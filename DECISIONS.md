@@ -771,3 +771,18 @@ Without a camera.json the builder keeps the old constant labels and says so.
   valid. `tools/splat_wreel.py --camera ... --frames ... --references DIR`.
 - Open: no real-photo test yet (needs a public outdoor clip and photos of it); thresholds are
   in-sample; face detector not yet measured on real faces.
+
+
+### D-4.5 Generative fill (A-5, LaMa): built, measured, opt-in (2026-10-18)
+- Model chosen for a verifiable licence and CPU use: LaMa (Apache-2.0 code and weights), ONNX port
+  `Carve/LaMa-ONNX` lama_fp32 (Apache-2.0) via onnxruntime (MIT); I/O ranges measured, not
+  assumed (docs/MODELS.md). Stored in git-ignored `data/models/`; `fill` optional extra.
+- Use: textures of A-3 planes; classical pre-fill of every unknown cell, LaMa only for real holes;
+  the refined fill tier takes the generated texture (class `generated`, confidence 0.2), the quick
+  tier keeps the plane mean; region `r_fill_generated` with `sources: [{kind: model, ...}]`.
+- Results in docs/ALGORITHMS.md A-5: texture realism matches the real surface (spread 0.91–1.15)
+  but colour accuracy is worse than the plane mean (local error 38–43 vs 15–27). Off by default,
+  like A-3, which it builds on. 18,582 elements textured in 42 s on seed 13v2; verified in the
+  player (WebGPU, refined LOD loaded, purple "generated" tint, no console errors).
+- A generative model invents: in the first test it erased half of a box inside a hole. This is
+  why generated content is always labelled and fogged, never shown as observed.

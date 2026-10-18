@@ -19,6 +19,7 @@ from eval.geometry import quat_to_matrix
 from formats.common import load_or_create_signing_key
 from formats.wreel import PROVENANCE_CLASSES, read_wreel, write_wreel
 from pipeline.io import read_rgb
+from stages.fill.generative import GENERATED_CONFIDENCE, generative_colours, lama_inpainter
 from stages.fill.planes import drop_seen_through, progressive_fill
 from stages.fill.retrieve import RETRIEVED_CONFIDENCE, FrameView, apply_references, user_candidates
 from stages.package.confidence import OBSERVED, relabel_gaussians, views_from_camera_json
@@ -33,6 +34,7 @@ from stages.package.gaussians import (
 )
 
 RETRIEVED = PROVENANCE_CLASSES.index("retrieved")
+GENERATED = PROVENANCE_CLASSES.index("generated")
 
 
 def build(
@@ -42,6 +44,7 @@ def build(
     masks: Path | None = None,
     fill: bool = False,
     references: Path | None = None,
+    generative: bool = False,
     frames_dir: Path | None = None,
 ) -> Path:
     meta = json.loads((export / "meta.json").read_text(encoding="utf-8"))
@@ -167,6 +170,37 @@ def build(
             )
             for t in (quick, refined)
         ]
+        if generative and len(refined.positions):
+            # Generated texture for the refined tier (algorithm A-5, D-4.5): realistic but
+            # invented, so class `generated` with low confidence; the quick tier stays plane-mean.
+            gen, gen_s = generative_colours(
+                planes,
+                gaussians.positions[obs].astype(np.float64),
+                gaussians.colors[obs],
+                gaussians.opacity[obs].astype(np.float64),
+                refined,
+                lama_inpainter(),
+            )
+            tiers[1].colors[:] = gen
+            tiers[1].cls[:] = GENERATED
+            tiers[1].confidence[:] = GENERATED_CONFIDENCE
+            lo, hi = refined.positions.min(0), refined.positions.max(0)
+            manifest.setdefault("regions", []).append(
+                {
+                    "id": "r_fill_generated",
+                    "bounds": {"min": [float(v) for v in lo], "max": [float(v) for v in hi]},
+                    "class": "generated",
+                    "confidence": GENERATED_CONFIDENCE,
+                    "sources": [
+                        {
+                            "kind": "model",
+                            "model": "LaMa big-lama (Carve/LaMa-ONNX lama_fp32)",
+                            "version": "sha256:1faef530",
+                        }
+                    ],
+                }
+            )
+            print(f"generated texture for {len(refined.positions)} fill elements in {gen_s:.1f} s")
         add_fill_layer(manifest, entries, tiers[0], tiers[1])
         if len(refined.positions):
             lo, hi = refined.positions.min(0), refined.positions.max(0)
@@ -209,8 +243,20 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--fill", action="store_true", help="experimental plane-completion fill (A-3)")
     p.add_argument("--references", type=Path, help="owner reference photos + .info.json (A-4)")
     p.add_argument("--frames", type=Path, help="video frames (PNG) matching camera.json poses")
+    p.add_argument("--generative", action="store_true", help="LaMa texture for --fill (A-5)")
     a = p.parse_args(argv)
-    path = build(a.export, a.out, a.camera, a.masks, a.fill, a.references, a.frames)
+    if a.generative and not a.fill:
+        p.error("--generative needs --fill")
+    path = build(
+        a.export,
+        a.out,
+        camera=a.camera,
+        masks=a.masks,
+        fill=a.fill,
+        references=a.references,
+        frames_dir=a.frames,
+        generative=a.generative,
+    )
     doc = read_wreel(path)
     layer = doc.manifest["scene"]["layers"][0]
     print(

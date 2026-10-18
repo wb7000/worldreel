@@ -31,7 +31,10 @@ def test_only_hole_elements_are_recoloured_and_mapping_is_per_plane() -> None:
 
     colours, _ = generative_colours(planes, pts, cols, np.ones(len(pts)), tier, fake)
     assert calls and all(c > 0 for c in calls)
-    assert np.all(colours == (0, 255, 0))  # every fill element sits in a hole cell
+    green = np.all(colours == (0, 255, 0), axis=1)
+    centre = (np.abs(tier.positions[:, 0]) < 0.12) & (np.abs(tier.positions[:, 2]) < 0.12)
+    assert green[centre].all()  # the hole interior goes to the model
+    assert not green.all()  # pinhole gaps between samples are interpolated, not generated
 
 
 @pytest.mark.skipif(not LAMA_MODEL.is_file(), reason="LaMa model not downloaded (docs/MODELS.md)")
