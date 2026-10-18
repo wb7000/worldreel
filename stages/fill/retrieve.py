@@ -494,3 +494,71 @@ def colours_from(
         img = cand if rad == 0 else cv2.blur(cand, (2 * rad + 1, 2 * rad + 1))
         colours[sel] = img[q[sel], u[sel]]
     return vis, colours
+
+
+# ---- applying verified references to a splat world ------------------------------------------
+
+RETRIEVED_CONFIDENCE = 0.5
+
+
+def apply_references(
+    candidates: list[Candidate],
+    frames: list[FrameView],
+    observed_world: F64,
+    observed_colors: U8,
+    targets_world: F64,
+    target_size: float,
+    *,
+    log: Callable[[str], None] = print,
+) -> tuple[npt.NDArray[np.bool_], U8, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Filter, verify and use candidates. Returns (recoloured mask over targets, their colours,
+    region records, credits). Candidates with people (metadata or a detected face) are dropped
+    before verification; failed verifications are logged and never used."""
+    recoloured = np.zeros(len(targets_world), bool)
+    colours = np.zeros((len(targets_world), 3), np.uint8)
+    regions: list[dict[str, Any]] = []
+    credits: list[dict[str, Any]] = []
+    for n, cand in enumerate(candidates):
+        if cand.image is None:
+            log(f"reference {cand.url}: no image data, skipped")
+            continue
+        if mentions_people(cand.metadata_text) or has_face(cand.image):
+            log(f"reference {cand.url}: people / private-place filter, skipped")
+            continue
+        v = verify(cand.image, frames, observed_world, observed_colors=observed_colors)
+        if not v.ok:
+            log(f"reference {cand.url}: rejected ({v.reason})")
+            continue
+        vis, col = colours_from(cand.image, v, targets_world, observed_world, footprint=target_size)
+        new = vis & ~recoloured
+        colours[new] = col[new]
+        recoloured |= new
+        log(f"reference {cand.url}: verified ({v.inliers} inliers), recoloured {int(new.sum())}")
+        if not new.any():
+            continue
+        lo, hi = targets_world[new].min(0), targets_world[new].max(0)
+        source: dict[str, Any] = {
+            "kind": "user" if cand.source == "user" else "retrieval",
+            "url": cand.url,
+            "license": cand.license,
+            "verified": "geometric",
+        }
+        regions.append(
+            {
+                "id": f"r_reference_{n}",
+                "bounds": {"min": [float(x) for x in lo], "max": [float(x) for x in hi]},
+                "class": "retrieved",
+                "confidence": RETRIEVED_CONFIDENCE,
+                "sources": [source],
+            }
+        )
+        credits.append(
+            {
+                "url": cand.url,
+                "license": cand.license,
+                "attribution": cand.attribution,
+                "landing_url": cand.landing_url,
+                "source": cand.source,
+            }
+        )
+    return recoloured, colours, regions, credits

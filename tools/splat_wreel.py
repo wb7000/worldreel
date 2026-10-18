@@ -17,8 +17,10 @@ import numpy as np
 
 from eval.geometry import quat_to_matrix
 from formats.common import load_or_create_signing_key
-from formats.wreel import read_wreel, write_wreel
+from formats.wreel import PROVENANCE_CLASSES, read_wreel, write_wreel
+from pipeline.io import read_rgb
 from stages.fill.planes import drop_seen_through, progressive_fill
+from stages.fill.retrieve import RETRIEVED_CONFIDENCE, FrameView, apply_references, user_candidates
 from stages.package.confidence import OBSERVED, relabel_gaussians, views_from_camera_json
 from stages.package.follow import follow_cameras
 from stages.package.gaussians import (
@@ -30,6 +32,8 @@ from stages.package.gaussians import (
     wreel_with_gaussians,
 )
 
+RETRIEVED = PROVENANCE_CLASSES.index("retrieved")
+
 
 def build(
     export: Path,
@@ -37,6 +41,8 @@ def build(
     camera: Path | None = None,
     masks: Path | None = None,
     fill: bool = False,
+    references: Path | None = None,
+    frames_dir: Path | None = None,
 ) -> Path:
     meta = json.loads((export / "meta.json").read_text(encoding="utf-8"))
     with np.load(export / "splats.npz") as npz:
@@ -78,6 +84,39 @@ def build(
         print(f"confidence map: {report}")
     else:
         print("confidence map: no camera.json given, keeping constant labels (baseline)")
+    if references is not None:
+        # Owner-provided reference photos (algorithm A-4, D-4.4): verified geometrically against
+        # the video frames before any use; recolour low-confidence Gaussians they can see.
+        if camera is None or frames_dir is None:
+            raise SystemExit("--references needs --camera and --frames")
+        cam_ref = json.loads(camera.read_text(encoding="utf-8"))
+        frame_files = sorted(frames_dir.glob("*.png"))
+        reg = [i for i, pose in enumerate(cam_ref["poses"]) if pose.get("registered", True)]
+        views_ref = views_from_camera_json(cam_ref)
+        frame_views = [
+            FrameView(read_rgb(frame_files[i]), v.r, v.t, v.k)
+            for i, v in zip(reg, views_ref, strict=True)
+            if i < len(frame_files)
+        ]
+        fg_mask = gaussians.confidence != np.float32(BACKGROUND_CONFIDENCE)
+        obs_mask = fg_mask & (gaussians.cls == OBSERVED)
+        target = np.nonzero(fg_mask & (gaussians.cls != OBSERVED))[0]
+        size = float(np.median(gaussians.scales[target].max(axis=1))) * 2 if len(target) else 0.0
+        mask, cols, ref_regions, ref_credits = apply_references(
+            user_candidates(references),
+            frame_views,
+            gaussians.positions[obs_mask].astype(np.float64),
+            gaussians.colors[obs_mask],
+            gaussians.positions[target].astype(np.float64),
+            size,
+        )
+        hit = target[mask]
+        gaussians.colors[hit] = cols[mask]
+        gaussians.cls[hit] = RETRIEVED
+        gaussians.confidence[hit] = RETRIEVED_CONFIDENCE
+        print(f"references: {len(ref_regions)} verified, {len(hit)} Gaussians recoloured")
+    else:
+        ref_regions, ref_credits = [], []
     people = []
     for actor in template.manifest.get("actors", []):
         tr = template.track(actor["track"]["path"])
@@ -152,6 +191,9 @@ def build(
             f"(complete={quick.complete}); "
             f"refined {len(refined.positions)} in {refined.seconds:.1f} s"
         )
+    if ref_regions:
+        manifest.setdefault("regions", []).extend(ref_regions)
+        manifest.setdefault("extensions", {})["org.worldreel.credits"] = ref_credits
     manifest["generation"]["seeds"]["splat"] = int(meta["seed"])
     manifest["title"] = manifest["title"] + " (Gaussian splats)"
     write_wreel(out, manifest, entries, load_or_create_signing_key())
@@ -165,8 +207,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--camera", type=Path, help="camera.json of the run (enables the A-1 map)")
     p.add_argument("--masks", type=Path, help="actors masks.npz (people pixels are not evidence)")
     p.add_argument("--fill", action="store_true", help="experimental plane-completion fill (A-3)")
+    p.add_argument("--references", type=Path, help="owner reference photos + .info.json (A-4)")
+    p.add_argument("--frames", type=Path, help="video frames (PNG) matching camera.json poses")
     a = p.parse_args(argv)
-    path = build(a.export, a.out, a.camera, a.masks, a.fill)
+    path = build(a.export, a.out, a.camera, a.masks, a.fill, a.references, a.frames)
     doc = read_wreel(path)
     layer = doc.manifest["scene"]["layers"][0]
     print(

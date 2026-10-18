@@ -740,3 +740,34 @@ Without a camera.json the builder keeps the old constant labels and says so.
   0.996 / 0.993 → still below the 0.8 bar on two of three scenes. A-3 stays experimental and
   opt-in. Where the reconstruction is accurate (13v2) the fill is accurate; the fill does not add
   error of its own, it inherits the reconstruction's.
+
+
+### D-4.4 Licensed reference images with geometric verification (A-4) (2026-10-18)
+- APIs verified from official docs before use: Openverse `GET /v1/images/` (`q`, `license`,
+  `category`, `mature`; results `url`, `license`, `license_version`, `foreign_landing_url`,
+  `attribution`), MediaWiki geosearch generator + `imageinfo/extmetadata` on Commons
+  (`LicenseShortName`, `LicenseUrl`, `Categories`), Wikimedia User-Agent policy (contact
+  required). Network retrieval is implemented but **off**: it refuses to run without a contact
+  string, which the owner has not given; it is only for public outdoor places, never homes. The
+  clients are tested offline against responses built from the documented fields.
+- Licences: CC0, PDM, CC BY, CC BY-SA only. ND refused (a reconstruction is a derivative), NC
+  refused (non-commercial use cannot be guaranteed), unknown / multi-licensed refused.
+- People filter: metadata words (people, portrait, selfie, crowd, interior, home, ...) and the
+  YuNet face detector (MIT, OpenCV model zoo; OpenCV 5 dropped the Haar cascades and HOG people
+  detector from the main module, so they were not available). Missing model = hard error.
+- Verification: SIFT vs every registered frame → 2D-3D through the observed geometry's depth in
+  the best frame → PnP RANSAC over a focal grid → >= 40 inliers, ratio >= 0.25, median <= 2 px,
+  confirmed in a second frame (>= 20), >= 5 % of inliers off the dominant plane, colour
+  agreement >= 0.3. Results in docs/ALGORITHMS.md A-4: 12/12 accepted, 24/24 rejected.
+- Use: accepted photos recolour low-confidence Gaussians they see (colour averaged over each
+  element's projected footprint — single pixels carried texture noise, 23 vs 15 error), class
+  `retrieved`, confidence 0.5; one region per photo with `sources: [{kind: user|retrieval, url,
+  license, verified: geometric}]`; attribution in `extensions["org.worldreel.credits"]`.
+  Colour vs plane-mean baseline on fill elements: better on 12v2 (13.2 vs 26.7) and 13v2
+  (14.4 vs 15.1), worse on 11v2 (19.5 vs 16.6, where the fill itself is off-surface).
+- Acceptance check (brief Phase 4: "retrieved images carry source/licence records"): synthetic
+  seed 13v2 world built with 4 true + 1 wrong CC0 reference → 4 verified, 1 rejected, 18,469
+  Gaussians recoloured, 4 `retrieved` regions with url + licence + `verified: geometric`, file
+  valid. `tools/splat_wreel.py --camera ... --frames ... --references DIR`.
+- Open: no real-photo test yet (needs a public outdoor clip and photos of it); thresholds are
+  in-sample; face detector not yet measured on real faces.

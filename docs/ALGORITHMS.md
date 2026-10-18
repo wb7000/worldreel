@@ -15,7 +15,7 @@ Register of algorithms WorldReel creates or adopts where no ready-made method fi
 ## Register
 | ID | Problem | Status | Baseline | Design note |
 |---|---|---|---|---|
-| A-4 | Licensed reference images, geometrically verified, to colour unseen regions | experimental | no retrieval (fill colour = plane mean, A-3) | below |
+| A-4 | Licensed reference images, geometrically verified, to colour unseen regions | adopted, provisional (D-4.4) | no retrieval (fill colour = plane mean, A-3) | below |
 | A-3 | Time-boxed progressive fill of holes in planar surfaces | experimental — failed adoption bar (D-4.3) | gradient only (mock fill: flat grey `guessed` floor behind the first camera) | below |
 | A-2 | Follow camera that stays in seen space | adopted (D-4.2; synthetic GT check open) | third-person offset behind the actor (actor frame) | below |
 | A-1 | Per-Gaussian confidence for splat reconstructions (honest seen / inferred / guessed) | adopted (D-4.1) | constant: foreground 0.9 observed, background 0.6 | below |
@@ -258,3 +258,10 @@ values are unreliable — such files are skipped).
 the same scene (positives) and of other scenes (negatives). Report: acceptance of positives,
 rejection of negatives, pose error of accepted images vs ground truth, and colour error of
 recoloured elements vs the plane-mean baseline.
+
+**Result (D-4.4).** Two checks were added after the first run accepted 2 of 24 wrong-scene images
+(identical procedural ground texture across synthetic seeds — a stand-in for repeating real
+pavement): >= 5 % of PnP inliers off the dominant plane, and colour agreement >= 0.3 between the
+photo and projected observed points. With them: 12 / 12 true references accepted, 24 / 24 wrong
+ones rejected on seeds 11v2/12v2/13v2; pose error 0.14–0.86 m, 0.7–1.9°. Thresholds were chosen
+on these same scenes (in-sample) — provisional until validated on real photos.
