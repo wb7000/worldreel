@@ -863,3 +863,24 @@ third-person; stems export separately. Order (each builds on the previous):
    left/right balance), plus player unit tests of listener placement.
 Not in this phase: voices, dubbing, diarization (no dialogue source yet); subtitles stay a slot.
 Branch: `phase-5-audio` from main eee6fab.
+
+### D-5.1 Procedural footsteps (A-6): measured (2026-10-18)
+- `stages/audio/synth.py`: generated footsteps (heel + toe transients x surface response,
+  footwear shaping, rain/wet splash), deterministic per seed, numpy + scipy only — no sample
+  library, nothing to license. WAV via the standard-library `wave` module.
+- Measurement `eval/footsteps.py`: 7 surfaces x {dry, rain} x 3 seeded variants. The first
+  measure (4 scalar features: centroid, decay, share > 3 kHz, onset count) could not separate the
+  conditions — too coarse; replaced by the spectral-temporal profile (energy in 9 octave bands
+  63 Hz–16 kHz + decay to −10/−20 dB). Criterion unchanged from the design note: a condition is
+  distinguishable when its nearest other condition is farther than twice its own variant spread.
+- Iterations (all measured): splash scaled to the impact energy (a fixed splash made every wet
+  surface alike); stone given a ringing resonance, concrete a crisp slap (they were one design);
+  hard surfaces splash, soft ones (sand, dirt, grass) squelch; variant randomness narrowed from
+  ±20–50 % to a realistic ±3–10 % (it was blurring every condition); sand made fine-grained
+  (1–4 kHz) instead of low (it overlapped dirt).
+- Result: **11 / 14 conditions distinguishable** (wood, stone, gravel, grass, dirt in both
+  weathers; concrete dry; gravel rain). Not met: concrete/rain (margin 2.0, bar > 2), sand/dry
+  (1.0), sand/rain (1.3). Rain lengthens the tail on 7/7 surfaces and raises high-band energy on
+  6/7 (sand, already bright, gains a low squelch instead). Sand is the weak spot; recorded, tuning
+  stopped to avoid fitting the test.
+- Clips for listening are written by `python -m eval.footsteps --wav-dir DIR`.
