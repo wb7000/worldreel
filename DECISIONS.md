@@ -884,3 +884,17 @@ Branch: `phase-5-audio` from main eee6fab.
   6/7 (sand, already bright, gains a low squelch instead). Sand is the weak spot; recorded, tuning
   stopped to avoid fitting the test.
 - Clips for listening are written by `python -m eval.footsteps --wav-dir DIR`.
+
+### D-5.2 Footstep events from actor tracks (2026-10-18)
+- `stages/audio/events.py`: a step each time the horizontal distance walked reaches one stride;
+  cadence 1.8 steps/s at 1.4 m/s, rising to 3/s when running (approximate human gait — an
+  assumption, not measured here); scene units → metres via the actor's height (1.75 m assumed,
+  as in packaging). Standing still (< 0.2 m/s) makes no steps.
+- Events use the spec's open attribute map: `surface`, `weather`, `wet`, `footwear`, `weight`,
+  `speed` (bucketed to 0.5 m/s, min 0.5, and 10 kg so similar steps share clips) and `clip` (path
+  of the generated WAV in the `.wreel`, `audio/fx/step_<hash>_<variant>.wav`, 3 variants used in
+  turn). No schema change. Scene-wide surface/weather from package config `audio`.
+- Bug found by the validator: when speed dropped between track samples, a step could land before
+  its segment (t = −0.235 s); positions are now clamped into the segment (+ test).
+- End to end (synthetic 2-walker scene, gravel + rain): 9 footsteps (4 + 5 over 2.5 s, as the
+  cadence predicts), 4 clips (159 kB), file valid.

@@ -6,6 +6,7 @@ implementation also serves the mock pipeline.
 
 from __future__ import annotations
 
+import json
 import math
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,6 +28,7 @@ from pipeline.io import (
     write_json,
 )
 from pipeline.stage import Impl, StageContext, StageError
+from stages.audio.events import footstep_audio
 from stages.package.actors import package_actors
 
 TOOL_VERSION = "0.2.0"
@@ -53,7 +55,7 @@ def _subsample(c: PointCloud, step: int) -> PointCloud:
 
 class PackageStage:
     name: ClassVar[str] = "package"
-    version: ClassVar[str] = "0.5.0"
+    version: ClassVar[str] = "0.6.0"
     impl: ClassVar[Impl] = "real"
     depends_on: ClassVar[tuple[str, ...]] = (
         "frames",
@@ -92,6 +94,15 @@ class PackageStage:
         if actor_report["tracks"]:
             ctx.log.info("actors: %s", actor_report)
             write_json(ctx.out / "actors_report.json", actor_report)
+
+        # Event-driven footsteps (algorithm A-6, D-5.2): generated clips, scene-wide surface and
+        # weather from config `audio` (e.g. {"surface": "gravel", "weather": "rain"}).
+        tracks = {a["id"]: json.loads(entries[a["track"]["path"]]) for a in actors}
+        steps, step_entries, step_report = footstep_audio(actors, tracks, ctx.config.get("audio"))
+        entries.update(step_entries)
+        audio["events"] = sorted(audio["events"] + steps, key=lambda e: e["t"])
+        if steps:
+            ctx.log.info("footsteps: %s", step_report)
 
         k = cam["intrinsics"]
         fov_y = math.degrees(2 * math.atan((k["height"] / 2) / k["fy"]))

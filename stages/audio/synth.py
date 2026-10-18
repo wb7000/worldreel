@@ -227,3 +227,18 @@ def write_wav(path: Path, x: npt.NDArray[np.floating[Any]], rate: int = SAMPLE_R
         w.setsampwidth(2)
         w.setframerate(rate)
         w.writeframes(pcm.tobytes())
+
+
+def wav_bytes(x: npt.NDArray[np.floating[Any]], rate: int = SAMPLE_RATE) -> bytes:
+    """The same 16-bit PCM WAV as `write_wav`, in memory (for `.wreel` entries)."""
+    import io
+
+    a = np.asarray(x, np.float64)
+    pcm = (np.clip(a, -1.0, 1.0) * 32767.0).round().astype("<i2")
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1 if a.ndim == 1 else a.shape[1])
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(pcm.tobytes())
+    return buf.getvalue()
