@@ -1,0 +1,17 @@
+{
+  "about": "A-10 v3 emotion test set (D-8.3). Hand-written intended emotion per line ('gold director'), so the voice model is the only variable. Lines are original; characters are the sample script's designed voices. ser = the IEMOCAP class an emotion recogniser should hear (neutral / angry / happy / sad), null when the emotion has no IEMOCAP class.",
+  "lines": [
+    {"id": "lottery_win", "cid": "C03", "text": "I won. I actually won! Mira, look at the numbers, every single one!", "emotion": "excited", "intensity": 0.95, "ser": "happy", "tags": ["laugh"]},
+    {"id": "gamble_lost", "cid": "C02", "text": "It's gone. All of it. I put everything on one number and it's gone.", "emotion": "despair", "intensity": 0.85, "ser": "sad", "tags": ["sigh"]},
+    {"id": "comedy", "cid": "C03", "text": "It's an expensive camera in a haunted chapel. Totally fine. Absolutely nothing to worry about.", "emotion": "comic_sarcastic", "intensity": 0.7, "ser": null, "tags": ["chuckle"]},
+    {"id": "crying", "cid": "C04", "text": "He waited fifty years. Fifty years, and nobody even came to look for him.", "emotion": "crying", "intensity": 0.9, "ser": "sad", "tags": ["cry"]},
+    {"id": "anger", "cid": "C02", "text": "You brought them here? In this rain? To this door? After everything I told you!", "emotion": "angry", "intensity": 0.9, "ser": "angry", "tags": ["angry"]},
+    {"id": "fear", "cid": "C03", "text": "The water's coming up. Fast. Mira, we have to go, now!", "emotion": "afraid", "intensity": 0.95, "ser": null, "tags": ["gasp"]},
+    {"id": "whisper", "cid": "C01", "text": "Don't move. Something is down there, at the bottom of the steps.", "emotion": "whisper_tense", "intensity": 0.6, "ser": null, "tags": ["whisper"]},
+    {"id": "tender", "cid": "C02", "text": "Your grandmother kept this for me. Now you keep it.", "emotion": "tender", "intensity": 0.5, "ser": "sad", "tags": []},
+    {"id": "joy_laugh", "cid": "C04", "text": "A lantern, Grandfather? Of course it's a lantern. It was always going to be a lantern.", "emotion": "joyful", "intensity": 0.75, "ser": "happy", "tags": ["laugh"]},
+    {"id": "calm_info", "cid": "C01", "text": "This survey is from nineteen sixty-two. It shows a chapel here, and a passage under it.", "emotion": "neutral", "intensity": 0.2, "ser": "neutral", "tags": []},
+    {"id": "dry", "cid": "C02", "text": "They said a team. I see one wet woman with a paper map.", "emotion": "dry_humour", "intensity": 0.4, "ser": "neutral", "tags": []},
+    {"id": "shock", "cid": "C01", "text": "Rafi? Is that... is that him? Oh no. Oh no, no.", "emotion": "shocked_grief", "intensity": 0.85, "ser": "sad", "tags": ["gasp"]}
+  ]
+}

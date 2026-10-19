@@ -1503,3 +1503,26 @@ Voice identity and distinctness now pass (they failed at 0.71 / 0.84 with descri
 voices, D-8.2). The pitch-spread criterion is **not met**: Chatterbox's exaggeration changes pace
 and energy more than pitch; the metric is not changed after the fact. Pending: the owner's
 listening test (A-10: decides together with the metrics).
+
+### D-8.3 Owner: "improved but still robotic" → voice-acting bake-off (2026-10-20, plan)
+Owner's listening test of D-8.2b: better, still robotic. Requirement (saved): voices must act —
+emotion depends on the situation (a lottery winner vs someone who just lost a gamble), with
+comedy, laughing, crying, anger, fear, whispering; pitch and delivery change with it. One
+intensity knob (Chatterbox exaggeration) cannot express *which* emotion.
+Split into two problems, each judged on its own:
+1. **Actor** — which open TTS can perform a given emotion while keeping the designed voice?
+   Bake-off on `eval/emotion_lines.json`: 12 original lines with hand-written intended emotion
+   (incl. the owner's lottery / gamble examples), so the TTS is the only variable.
+   Candidates checked: Chatterbox 0.1.7 (MIT; designed reference + exaggeration); Dia-1.6B-0626
+   (Apache-2.0 per model card; designed reference audio + transcript, nonverbal tags such as
+   (laughs) (sighs) (gasps); ~10 GB); Maya1 (Apache-2.0, 3.3 B Llama, 17 inline emotion tags,
+   voice by description — its card makes no voice-consistency promise; SNAC 24 kHz decoder MIT).
+   Excluded: IndexTTS2 (emotion / timbre disentangled, but the bilibili Model Use License
+   restricts use — not a standard open licence; owner's call), Orpheus (gated).
+   Scored: speech-emotion recognition (SpeechBrain `emotion-recognition-wav2vec2-IEMOCAP`,
+   Apache-2.0, 4 classes) against the intended class on the 9 lines that have one; ECAPA nearest
+   designed reference; owner's blind A/B/C listening (`listen/` folder, key hidden in report).
+   Adoption bar (set now): SER agreement ≥ 0.60 (chance 0.25), nearest-reference accuracy
+   ≥ 0.90 (C is expected to fail it — it does not use references), and the owner's preference.
+2. **Director** (after the actor is chosen) — an open LLM reads each scene and writes per-line
+   emotion into the `.wsl` manner notes, editable by the owner; compared against hand labels.
