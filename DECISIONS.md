@@ -992,3 +992,33 @@ Branch: `phase-5-audio` from main eee6fab.
   tension 6 / 8 / 10, as intended).
 - Objective checks are not a listening test: 20 s clips in `data/listen/` (git-ignored) go to the
   owner; Phase 5 is not closed or pushed until the owner is happy with how it sounds.
+
+### D-5.end Phase 5 close-out (2026-10-19)
+Final checks on `phase-5-audio`: pytest 218 passed (1 skipped: LaMa model not downloaded); ruff +
+format clean; mypy clean (113 files); `formats validate` sample OK; player vitest 35 passed;
+player type-check and build OK. **Owner's listening test of the redesigned mix: "sounds fine".**
+
+Acceptance (brief §Phase 5):
+- **Footsteps change with surface and weather** — met: generated footsteps for 7 surfaces x
+  dry/rain, 10/14 conditions measurably distinct by the pre-set criterion (sand and wet concrete /
+  gravel are the weak spots); rain lengthens every step and changes its spectrum; steps are
+  triggered from actor tracks at a speed-dependent cadence.
+- **First-person audio differs from third-person** — met: the player's listener is the view's
+  eye (character's head vs camera); own steps +3.1 dB louder through the character's ears,
+  others' steps 1.6–1.7 dB / 13–15° different (walker scene, D-5.4); unit-tested.
+- **Stems export separately** — met: ambience, music, foley as separate tracks; export tool
+  writes one WAV per layer + a loudness-normalised mix (BS.1770, pyloudnorm MIT).
+Also: mood music follows tension (louder, heavier, tempo 86 → 120 bpm); dialogue ducking
+(tested with a synthetic burst); harshness checks guard against the "bees" regression (D-5.5).
+
+Not done (no source yet): dialogue / voices, dubbing, diarization, subtitles content; live
+tension changes in the player only affect visuals (music is pre-rendered from the mood curve).
+
+Owner's manual steps:
+1. Listen with headphones in the player ("Sound" button) to hear first- vs third-person
+   positioning; short looping test scenes restart their sound at each loop.
+2. Scene surface / weather / mood are set in the package config, e.g.
+   `[stage.package] audio = {surface = "gravel", weather = "rain", mood = [...]}`.
+3. Listening clips are in `data/listen/` (git-ignored) — delete when done.
+4. Still open from Phase 4: a ground-level Vasai Fort clip for a real retrieval match; your 14
+   fort photos are in `data/inbox/` (they show other visitors — keep them local).
