@@ -11,8 +11,8 @@ data:
 training:
   epochs: 2
   lr: 2.0e-4
-  batch_size: 4
-  gradient_accumulation_steps: 4
+  batch_size: 1  # 4 ran out of memory on a T4: logits of 4 x 3072 x 151,936 vocab (D-7.5)
+  gradient_accumulation_steps: 16  # effective batch 16
   seed: 7
   quantization: none
   gradient_checkpointing: true
