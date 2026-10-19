@@ -29,7 +29,7 @@ from pipeline.io import (
 )
 from pipeline.stage import Impl, StageContext, StageError
 from stages.audio.events import footstep_audio
-from stages.audio.stems import render_stems, stem_tracks
+from stages.audio.stems import DEFAULT_TARGET_LUFS, render_stems, stem_tracks
 from stages.package.actors import package_actors
 
 TOOL_VERSION = "0.2.0"
@@ -214,7 +214,17 @@ class PackageStage:
                 *actor_presets,
             ],
             "regions": regions,
-            "audio": {"tracks": audio["tracks"], "events": audio["events"], "mood": audio["mood"]},
+            "audio": {
+                "tracks": audio["tracks"],
+                "events": audio["events"],
+                "mood": audio["mood"],
+                "mix": {
+                    "ducking": True,
+                    "loudness_target_lufs": float(
+                        audio_cfg.get("loudness_lufs", DEFAULT_TARGET_LUFS)
+                    ),
+                },
+            },
             "interaction": {"rules": [], "branches": []},
             "files": {},
         }

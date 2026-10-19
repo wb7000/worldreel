@@ -15,11 +15,11 @@ import json
 from pathlib import Path
 
 from formats.wreel import read_wreel
-from stages.audio.stems import mixdown
+from stages.audio.stems import DEFAULT_TARGET_LUFS, mix_report, mixdown
 from stages.audio.synth import SAMPLE_RATE, wav_samples, write_wav
 
 
-def export(world: Path, out: Path) -> list[dict[str, object]]:
+def export(world: Path, out: Path, target_lufs: float | None = None) -> list[dict[str, object]]:
     w = read_wreel(world)
     out.mkdir(parents=True, exist_ok=True)
     stems = {}
@@ -38,8 +38,23 @@ def export(world: Path, out: Path) -> list[dict[str, object]]:
             }
         )
     if stems:
-        write_wav(out / "mix.wav", mixdown(stems))
-        listing.append({"file": "mix.wav", "layer": "mix", "license": "derived", "seconds": None})
+        mix_cfg = w.manifest["audio"].get("mix", {})
+        target = (
+            target_lufs
+            if target_lufs is not None
+            else mix_cfg.get("loudness_target_lufs", DEFAULT_TARGET_LUFS)
+        )
+        mix = mixdown(stems, float(target), bool(mix_cfg.get("ducking", True)))
+        write_wav(out / "mix.wav", mix)
+        listing.append(
+            {
+                "file": "mix.wav",
+                "layer": "mix",
+                "license": "derived",
+                "seconds": None,
+                **mix_report(stems, mix, float(target)),
+            }
+        )
     (out / "stems.json").write_text(json.dumps(listing, indent=2), encoding="utf-8")
     return listing
 
@@ -48,8 +63,9 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="python -m tools.export_stems")
     p.add_argument("world", type=Path)
     p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--target", type=float, help="mix loudness in LUFS (default: the scene's)")
     a = p.parse_args(argv)
-    for row in export(a.world, a.out):
+    for row in export(a.world, a.out, a.target):
         print(row)
     return 0
 

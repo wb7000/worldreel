@@ -6,7 +6,15 @@ from pathlib import Path
 import numpy as np
 
 from stages.audio.beds import ambience, music, tension_curve
-from stages.audio.stems import MIX_GAINS, mixdown, render_stems, stem_tracks
+from stages.audio.stems import (
+    DEFAULT_TARGET_LUFS,
+    MIX_GAINS,
+    duck,
+    loudness_lufs,
+    mixdown,
+    render_stems,
+    stem_tracks,
+)
 from stages.audio.synth import SAMPLE_RATE, footstep, wav_bytes, wav_samples
 
 
@@ -57,10 +65,13 @@ def test_stems_are_separate_tracks_and_the_mix_is_their_weighted_sum() -> None:
     assert {t["layer"] for t in tracks} == {"ambience", "music", "foley"}
     assert all(t["license"] == "synthetic" and t["path"] in entries for t in tracks)
     back = {t["layer"]: wav_samples(entries[t["path"]]) for t in tracks}
-    expected = sum(MIX_GAINS[k] * back[k].astype(np.float64) for k in back)
-    mix = mixdown(back)
-    scale = 0.99 / np.abs(expected).max() if np.abs(expected).max() > 0.99 else 1.0
-    assert np.abs(mix - expected * scale).max() < 1e-5
+    expected = np.sum([MIX_GAINS[k] * back[k].astype(np.float64) for k in back], axis=0)
+    mix = mixdown(back).astype(np.float64)
+    scale = float(mix @ expected / (expected @ expected))
+    assert np.abs(mix - scale * expected).max() < 1e-4  # same mix, only rescaled
+    hit_target = abs(loudness_lufs(mix) - DEFAULT_TARGET_LUFS) < 0.5
+    peak_limited = abs(np.abs(mix).max() - 0.99) < 1e-3
+    assert hit_target or peak_limited
     # The footsteps land at their event times in the foley stem.
     foley = back["foley"]
     assert np.abs(foley[: int(0.45 * SAMPLE_RATE)]).max() < 1e-4
@@ -85,3 +96,26 @@ def test_export_writes_one_file_per_layer_plus_mix(tmp_path: Path) -> None:
     assert names == ["ambience.wav", "mix.wav", "music.wav"]
     listing = json.loads((tmp_path / "stems" / "stems.json").read_text(encoding="utf-8"))
     assert len(listing) == 3 and all((tmp_path / "stems" / r["file"]).is_file() for r in listing)
+
+
+def test_music_ducks_under_dialogue_and_recovers() -> None:
+    n = 6 * SAMPLE_RATE
+    bed = np.full(n, 0.5, np.float32)
+    key = np.zeros(n, np.float32)
+    rng = np.random.default_rng(0)
+    key[2 * SAMPLE_RATE : 3 * SAMPLE_RATE] = (
+        rng.standard_normal(SAMPLE_RATE).astype(np.float32) * 0.2
+    )
+    out = duck(bed, key, depth_db=10.0)
+    before = out[int(1.5 * SAMPLE_RATE)]
+    during = out[int(2.8 * SAMPLE_RATE)]
+    after = out[int(5.5 * SAMPLE_RATE)]
+    assert abs(before - 0.5) < 1e-6
+    assert abs(20 * np.log10(during / 0.5) + 10.0) < 0.5  # ~10 dB down while dialogue plays
+    assert abs(after - 0.5) < 0.01  # recovered
+
+
+def test_mix_hits_the_loudness_target() -> None:
+    stems = render_stems(10.0, [], [{"t": 0.0, "tension": 5}], {})
+    for target in (-23.0, -16.0):
+        assert abs(loudness_lufs(mixdown(stems, target)) - target) < 0.5
