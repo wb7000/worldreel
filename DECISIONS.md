@@ -1022,3 +1022,30 @@ Owner's manual steps:
 3. Listening clips are in `data/listen/` (git-ignored) — delete when done.
 4. Still open from Phase 4: a ground-level Vasai Fort clip for a real retrieval match; your 14
    fort photos are in `data/inbox/` (they show other visitors — keep them local).
+
+## Phase 6: `.wedit` export and flat MP4 (2026-10-19, in progress)
+
+### D-6.0 Plan, tools and order
+Brief acceptance: a `.wedit` opens in at least one common editor with stems, layers and timeline
+intact. Facts checked before planning:
+- Editor: the owner's laptop (Iris Xe) is too weak for DaVinci Resolve; the owner installed
+  **Shotcut 26.9.27** (official download page: current version, Windows 10 build 1809+, no
+  hardware requirement listed) at `D:\Shotcut`. It ships `melt.exe` 7.41.0 (MLT command-line
+  renderer) and `ffmpeg.exe`. Shotcut's feature page: it creates / loads / renders **MLT XML**
+  projects and *exports* CMX3600 EDL; OpenTimelineIO import is not listed.
+- OpenTimelineIO 0.18.1 (PyPI JSON: Apache-2.0, Python 3.9–3.13). Installed adapters:
+  `otio_json`, `otioz`, `otiod` only — EDL / FCPXML / MLT adapters are not built in (not used).
+Decisions:
+1. **6.1 Spec first:** `.wedit` 1.1 adds timeline format `"mlt"` (MLT XML, what Shotcut opens).
+   OTIO stays the reference timeline; both are written.
+2. **6.2 Offline renderer** (Python, CPU, numpy): points, Gaussian splats and actor avatars along
+   a camera path → RGB frames + depth + per-actor masks (the layers the spec asks for). The
+   browser player cannot write files, and a CPU renderer is testable and runs anywhere.
+3. **6.3 Flat MP4:** frames + loudness-normalised mix → H.264/AAC via ffmpeg; the AI label is
+   written to the file metadata and burned in small in a corner (spec §3: SHOULD).
+4. **6.4 `.wedit` bundle:** video, stems (from the `.wreel`), layers (16-bit PNG depth with its
+   scale in the manifest — monocular scenes have no metric unit; PNG masks), `main.otio`,
+   `main.mlt`, signed `wedit.json`, `PROVENANCE.txt`.
+5. **6.5 Verification:** schema + signature validation; OTIO read-back; `melt` renders the MLT
+   timeline headless and the result is checked (duration, every audio stem present, frames);
+   then the owner opens it once in Shotcut.
