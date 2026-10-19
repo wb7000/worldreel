@@ -76,3 +76,13 @@ def test_reference_set_minimises_the_closest_pair_and_guard_refuses_others(tmp_p
         check_reference(str(bad), record)
     calm, tense = chatterbox_params(2, ("neutral",)), chatterbox_params(9, ("afraid",))
     assert calm[0] < 0.5 < tense[0] and tense[1] == 0.3
+
+
+def test_take_guard_rejects_garbled_and_overlong_takes() -> None:
+    from stages.generate.voices import take_ok, word_error_rate
+
+    line = "It's gone. All of it. (sighs) I put everything on one number."
+    assert word_error_rate(line, "its gone all of it i put everything on one number") < 0.2
+    assert take_ok(line, "It's gone, all of it. I put everything on one number.", 4.0)[0]
+    assert not take_ok(line, "It's gone. Uh, the the river, river, river", 4.0)[0]  # garbled
+    assert not take_ok(line, "It's gone. All of it. I put everything on one number.", 22.1)[0]

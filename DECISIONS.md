@@ -1541,3 +1541,20 @@ not a specific emotion); B and C are heard as "happy" on the joyful lines, but l
 (B 6 / 12) and produce overlong clips (B: three lines of ~22 s; C: anger 24.8 s for a 5 s line)
 — likely rambling or garbage. Not adopted; the owner's blind listening (folder `listen/`,
 key in `report.json`) decides the direction.
+
+### D-8.3c Owner's blind picks → plan "route the emotion, keep the voice" (2026-10-20)
+Owner (blind X/Y/Z, unblinded afterwards): "robotic, but these have human emotions":
+anger → A Chatterbox, calm → A, comedy → A, lost gamble → A, fear → B Dia, shock → B Dia,
+joy with laugh → C Maya1, whisper → C Maya1 (A 4, B 2, C 2; no pick for lottery, crying, tender,
+dry). "Some broken sounds" = the four overlong clips (Dia gamble / anger / tender ≈ 22 s,
+Maya1 anger 24.8 s). The owner's ears and the SER disagree on most picks (SER unreliable here).
+Next round, same 12 lines:
+- **D Chatterbox Turbo** (ResembleAI/chatterbox-turbo, MIT, ~350 M, native tags `[laugh]`
+  `[chuckle]` `[cough]` "and more"; keeps the designed reference; watermarked; no exaggeration);
+- **B→VC, C→VC**: Dia / Maya1 acting converted to the designed voice with `ChatterboxVC`
+  (in chatterbox-tts 0.1.7, re-synthesises from speech tokens, watermarked) — measured: voice
+  cosine to the reference before / after, and pitch spread before / after (does VC keep acting?);
+- **take guard** for every system: 3 seeds per line; Whisper `small.en` (openai-whisper, MIT)
+  transcribes; keep the take with the lowest word error; reject if WER > 0.30 or length >
+  max(2.5x expected, expected + 3 s) with expected = words / 2.5 per s.
+- the owner listens again (blind); routing per emotion is then fixed from the picks.

@@ -270,3 +270,32 @@ def check_reference(path: str, record: dict[str, dict[str, str]]) -> None:
         raise UndesignedReferenceError(
             f"{path} is not a designed synthetic voice; refusing to use it"
         )
+
+
+# --------------------------------------------------------------------------- take guard (D-8.3c)
+
+
+def _words(text: str) -> list[str]:
+    text = re.sub(r"\[[a-z_ ]+\]|\([a-z ]+\)|<[a-z_]+>", " ", text.lower())  # nonverbal tags
+    return re.findall(r"[a-z0-9']+", text)
+
+
+def word_error_rate(reference: str, hypothesis: str) -> float:
+    ref, hyp = _words(reference), _words(hypothesis)
+    if not ref:
+        return 0.0 if not hyp else 1.0
+    prev = list(range(len(hyp) + 1))
+    for i, r in enumerate(ref, start=1):
+        cur = [i] + [0] * len(hyp)
+        for j, h in enumerate(hyp, start=1):
+            cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (r != h))
+        prev = cur
+    return prev[-1] / len(ref)
+
+
+def take_ok(text: str, transcript: str, seconds: float) -> tuple[bool, float]:
+    """A take is usable if Whisper hears the words (WER <= 0.30) and it is not overlong
+    (<= max(2.5x expected, expected + 3 s), expected = words / 2.5 per second)."""
+    wer = word_error_rate(text, transcript)
+    expected = len(_words(text)) / 2.5
+    return wer <= 0.30 and seconds <= max(2.5 * expected, expected + 3.0), round(wer, 3)
