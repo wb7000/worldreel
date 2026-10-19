@@ -40,6 +40,9 @@ verification before the next. Full acceptance criteria are in `docs/MASTER_PROMP
 - Point lighting, camera collision for follow cameras, audio playback, more rule types.
 - Network streaming (HTTP range requests / spatial chunks) for large `.wreel` files.
 - Signing-key trust list. (`.wscript` tokens measured in D-7.3.)
+- Script model: larger base (Qwen2.5-1.5B/3B), length control (stop after N lines),
+  training scripts that contain sound / POV / tension / state-change lines, summaries that do not
+  leak later scenes into a continuation prompt (D-7.5b).
 - `.wscript` for films longer than ~1 h: window the scene summaries (near scenes in full, far
   ones grouped); location-bound world state (lighting per place) in the continuity tracker.
 

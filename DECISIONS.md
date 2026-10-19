@@ -1139,7 +1139,7 @@ Owner's manual steps:
 
 ---
 
-## Phase 7: Script brain and character bible (2026-10-19, in progress)
+## Phase 7: Script brain and character bible (2026-10-19)
 
 ### D-7.0 Plan and order
 Brief acceptance: a 10-minute script loads scene by scene with a continuity state; character
@@ -1305,3 +1305,67 @@ Findings:
 - **Pass marks (set now):** on the held-out plays the fine-tuned model beats the base model on
   all three metrics, and reaches syntax ≥ 0.90 and reference validity ≥ 0.90. The Lantern Keeper
   is reported without a pass mark (out of domain).
+
+### D-7.5b Script model trained and evaluated (2026-10-19, measured on Kaggle 1x T4)
+Runs: (1) aborted at Soup's "Start training? [Y/n]" (no TTY) → `soup train --yes` (option read
+in `commands/train.py`); (2) GPU out of memory with batch 4 x 3,072 tokens (the logits over the
+151,936-token vocabulary alone need ~5 GB) → batch 1 x 16 accumulation; (3) completed.
+Environment: Python 3.12.3 (uv, Kaggle has 3.13), torch 2.14.1+cu130, transformers 5.20.1,
+peft 0.21.2, soup-cli 0.76.1. Qwen's chat template has no `{% generation %}` markers, so Soup
+masks the prompt with its documented fallback (per-turn token delta, `data/loss_mask.py`): the
+prompt is excluded, the assistant role tokens are trained with the answer.
+Training: LoRA r 16 / alpha 32 (1.08 M trainable of 495 M), 2 epochs, 172 steps, lr 2e-4, seed 7,
+data version eef6f378e9979935 (1,374 train + 43 Soup-held validation rows); 1,332 s. Train loss
+2.73 → 2.56; Soup validation loss 2.394 (epoch 1) → 2.384 (epoch 2). Adapter 4.3 MB
+(`runs/kaggle/script_sft/out/adapter/`, git-ignored, not published).
+
+| | base | fine-tuned | pass mark |
+|---|---|---|---|
+| held-out plays (97): syntax validity | 0.423 | **0.959** | ≥ 0.90, > base ✔ |
+| held-out plays: reference validity | 0.392 | **0.959** | ≥ 0.90, > base ✔ |
+| held-out plays: loss of the true lines (perplexity) | 2.923 (18.6) | **2.710 (15.0)** | < base ✔ |
+| Uncle Vanya (val, 39): loss | 2.848 | 2.651 | — |
+| The Lantern Keeper (out of domain, 20): syntax / refs | 0.00 / 0.00 | 0.90 / 0.85 | reported only |
+| The Lantern Keeper: loss | 2.985 | 2.758 | reported only |
+
+**Pass marks met** (set in D-7.5 before training). What the numbers do not show:
+- Base failures are mostly a second `@scene` header (38 of 56): it restarts the scene.
+- All 4 fine-tuned test failures are answers cut by the 320-token limit mid-line ("C0", "C02:"):
+  it does not stop. It does **not** follow "the next 8 lines": exactly 8 lines in 4 / 97 answers
+  (median 5, mean 8.7; base 0 / 97, median 15). Line count was not a pre-set metric.
+- The text is fluent but flat and repetitive (0.5 B model); the scene summaries in the prompt
+  leak later events into its continuations (e.g. it names Rafi in scene 1 of the sample script).
+- Sound / POV / tension / state-change lines never occur in the plays, so the model never writes
+  them; teaching those needs scripts that have them (Phase 8 / ROADMAP).
+Status: **experimental** — format-faithful continuation works; story quality and length control
+do not. Larger models (Qwen2.5-1.5B/3B) and length-aware prompts are the next lever (ROADMAP).
+
+### D-7.end Phase 7 close-out (2026-10-19)
+Final checks on `phase-7-script`: pytest 260 passed (1 skipped: LaMa model not downloaded); ruff +
+format clean; mypy clean (137 files); player vitest 35 passed.
+
+Acceptance (brief §Phase 15, Phase 7):
+- **A 10-minute script loads scene by scene with a continuity state** — met: "The Lantern Keeper"
+  (10.91 pages by the page convention, 7.15 min of dialogue speech), every scene loads with its
+  full start state and only its own text (D-7.2); continuity is machine-checked (A-7, adopted:
+  100 % of moved / edited / phantom errors caught, 88.5 % of dropped changes, misses explained).
+- **Character distinctness checks pass** — met: the sample cast (min distance 0.405 appearance /
+  0.418 voice ≥ 0.20); the sampler (A-8, adopted) keeps casts of up to 20 distinct where
+  independent seeds fail 26–100 % (D-7.4). In identity-parameter space; rendered faces / voices
+  must be re-checked in Phase 8.
+- **`.wscript` tooling, character bible with seeds** — `.wscript` 1.1 (state changes, offscreen,
+  identity), propagate / check / screenplay render / runtime, token measurement (D-7.3: scene
+  context 919 tokens vs 3,306 for the whole script; IDs cost +8 % tokens, no saving claimed).
+- **Fine-tuned script model** — met its pre-set marks (D-7.5b: held-out plays syntax 0.96 / refs
+  0.96 vs base 0.42 / 0.39, lower loss), with Soup verified; status experimental (no length
+  control, flat writing, no sound / POV / state lines).
+
+Owner's manual steps:
+1. Read the sample script: `eval/scripts/lantern_keeper.wscript/scenes/S001.wsl` … `S010.wsl`, or
+   as a screenplay: `python -c "from stages.generate.screenplay import render; from formats.wscript
+   import read_wscript; print(render(read_wscript(__import__('pathlib').Path('eval/scripts/lantern_keeper.wscript'))))"`.
+2. Example model outputs: `runs/kaggle/script_sft/out/samples.jsonl` (gold, base, fine-tuned).
+3. `runs/kaggle/script_sft/py312` (182 MB) is a copy of a Python environment downloaded by the
+   first run's fetch by mistake; git-ignored — delete when you like.
+4. Converted plays and the training set live in git-ignored `data/plays/` and as the private
+   Kaggle dataset `worldreel-data-scriptsft`.

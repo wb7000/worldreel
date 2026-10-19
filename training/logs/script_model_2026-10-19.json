@@ -1,0 +1,114 @@
+{
+  "experiment": "script_model_sft_2026-10-19",
+  "config": "training/configs/script_model.yaml",
+  "soup_config_used": "# Script model (D-7.5): LoRA SFT of Qwen2.5-0.5B-Instruct with Soup (soup-cli 0.76.1).\n# Paths are filled in by training/kaggle/jobs/script_sft.py. Keys checked in Soup's schema.py.\nbase: Qwen/Qwen2.5-0.5B-Instruct\ntask: sft\ndata:\n  train: /kaggle/working/sft/train.jsonl\n  format: chatml\n  val_split: 0.03\n  max_length: 3072\n  train_on_responses_only: true\ntraining:\n  epochs: 2\n  lr: 2.0e-4\n  batch_size: 1  # 4 ran out of memory on a T4: logits of 4 x 3072 x 151,936 vocab (D-7.5)\n  gradient_accumulation_steps: 16  # effective batch 16\n  seed: 7\n  quantization: none\n  gradient_checkpointing: true\n  lora:\n    r: 16\n    alpha: 32\noutput: /kaggle/working/adapter\n",
+  "data_version": "eef6f378e9979935",
+  "data_manifest": {
+    "version": "eef6f378e9979935",
+    "seed": 7,
+    "stride": {
+      "train": 8,
+      "val": 24,
+      "test": 24
+    },
+    "sources": {
+      "train": [
+        "pg1754: The sea-gull",
+        "pg2542: A Doll's House : a play",
+        "pg3790: Major Barbara",
+        "pg3825: Pygmalion",
+        "pg4093: Hedda Gabler",
+        "pg790: Lady Windermere's Fan",
+        "pg844: The Importance of Being Earnest: A Trivial Comedy for Serious People",
+        "pg854: A Woman of No Importance",
+        "pg885: An ideal husband"
+      ],
+      "val": [
+        "pg1756: Uncle Vanya: Scenes from Country Life in Four Acts"
+      ],
+      "test": [
+        "pg3618: Arms and the Man",
+        "pg8121: Ghosts"
+      ]
+    },
+    "ood": "The Lantern Keeper (eval/scripts/lantern_keeper.wscript)",
+    "counts": {
+      "train": 1417,
+      "val": 39,
+      "test": 97,
+      "ood": 20
+    }
+  },
+  "hardware": "Kaggle 1x Tesla T4 (14.6 GB usable)",
+  "environment": "3.12.3 2.14.1+cu130 True 5.20.1 0.21.2 (python torch cuda transformers peft); soup-cli 0.76.1",
+  "seed": 7,
+  "train_runtime_s": 1332,
+  "train_loss_first_last": [
+    2.73,
+    2.558
+  ],
+  "soup_val_loss_epochs": [
+    2.394,
+    2.384
+  ],
+  "metrics": {
+    "test": {
+      "n": 97,
+      "base": {
+        "loss": 2.9228,
+        "perplexity": 18.59,
+        "seconds": 728.9,
+        "syntax": 0.4227,
+        "refs": 0.3918
+      },
+      "tuned": {
+        "loss": 2.7098,
+        "perplexity": 15.03,
+        "seconds": 909.3,
+        "syntax": 0.9588,
+        "refs": 0.9588
+      }
+    },
+    "ood": {
+      "n": 20,
+      "base": {
+        "loss": 2.985,
+        "perplexity": 19.79,
+        "seconds": 167.9,
+        "syntax": 0.0,
+        "refs": 0.0
+      },
+      "tuned": {
+        "loss": 2.7576,
+        "perplexity": 15.76,
+        "seconds": 99.0,
+        "syntax": 0.9,
+        "refs": 0.85
+      }
+    },
+    "val": {
+      "n": 39,
+      "base": {
+        "loss": 2.8476,
+        "perplexity": 17.25,
+        "seconds": 6.1
+      },
+      "tuned": {
+        "loss": 2.6508,
+        "perplexity": 14.17,
+        "seconds": 6.3
+      }
+    }
+  },
+  "line_count_exactly_8": {
+    "test": {
+      "base": "0/97",
+      "tuned": "4/97"
+    },
+    "ood": {
+      "base": "0/20",
+      "tuned": "2/20"
+    }
+  },
+  "decision": "DECISIONS.md D-7.5b"
+}
