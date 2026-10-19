@@ -7,9 +7,10 @@ import shutil
 import subprocess
 import sys
 import zipfile
+from pathlib import Path
 
 SOUP = "soup-cli[train]==0.76.1"
-ENV = WORK / "py312"
+ENV = Path("/tmp/py312")  # outside /kaggle/working: not part of the outputs
 PY = ENV / "bin" / "python"
 report: dict[str, object] = {}
 
@@ -61,7 +62,7 @@ cfg = cfg.replace("TRAIN_JSONL", str(data / "train.jsonl")).replace(
 (WORK / "soup.yaml").write_text(cfg, encoding="utf-8")
 shutil.copy(WORK / "soup.yaml", OUT / "soup.yaml")
 soup = ENV / "bin" / "soup"
-if sh([str(soup), "train", "--config", str(WORK / "soup.yaml")], "soup_train") != 0:
+if sh([str(soup), "train", "--config", str(WORK / "soup.yaml"), "--yes"], "soup_train") != 0:
     raise SystemExit("soup train failed")
 
 # 4. find the adapter Soup wrote and keep a copy (small: LoRA r=16)
