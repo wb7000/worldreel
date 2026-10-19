@@ -151,6 +151,7 @@ def guess_media_type(path: str) -> str:
         "png": "image/png",
         "exr": "image/x-exr",
         "otio": "application/json",
+        "mlt": "application/xml",
         "vtt": "text/vtt",
     }.get(suffix, "application/octet-stream")
 

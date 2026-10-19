@@ -1,7 +1,7 @@
 # `.wedit` — WorldReel edit bundle
 
-**Format version: 1.0** · Status: draft for Phase 1 (container + manifest only; media production is
-Phase 6) · Schema: `spec/schemas/wedit-manifest-1.schema.json`
+**Format version: 1.1** · Status: 1.0 drafted in Phase 1 (container + manifest); 1.1 in Phase 6
+(media production; adds the `mlt` timeline format) · Schema: `spec/schemas/wedit-manifest-1.schema.json`
 
 Common video editors cannot open `.wreel`. A `.wedit` is a **bundle of standard files** an editor
 can import directly, plus a small manifest that ties them back to the world they came from.
@@ -31,7 +31,9 @@ name.wedit/
   layers/depth/000001.exr     # image sequences, one folder per layer
   layers/mask_a1/000001.png
   layers/normals/000001.exr
-  timeline/main.otio          # OpenTimelineIO; EDL / FCPXML MAY be added alongside
+  timeline/main.otio          # OpenTimelineIO (reference timeline)
+  timeline/main.mlt           # MLT XML (since 1.1): opens directly in MLT-based editors (Shotcut)
+                              # EDL / FCPXML MAY be added alongside
   script/script.wscript       # optional reference copy
   PROVENANCE.txt              # plain-text copy of the AI label, for people opening the folder
 ```
@@ -54,7 +56,8 @@ name.wedit/
   "render_layers": [ { "id": "depth", "kind": "depth", "path": "layers/depth/",
                        "pattern": "%06d.exr", "encoding": "linear-metres" } ],
                        // kind: depth | mask | normals | albedo | confidence
-  "timeline": [ { "format": "otio", "path": "timeline/main.otio" } ],  // otio | edl | fcpxml
+  "timeline": [ { "format": "otio", "path": "timeline/main.otio" },
+                { "format": "mlt", "path": "timeline/main.mlt" } ],  // otio | edl | fcpxml | mlt (1.1)
   "script": { "path": "script/script.wscript" },
   "characters": [ { "id": "C01", "name": "..." } ],
   "changes": [],                         // round-trip change records, §4
@@ -85,3 +88,6 @@ preserve records they do not understand.
 
 ## 5. Versioning
 As `.wreel` §13.
+
+- **1.1** (Phase 6): timeline format `mlt` (MLT XML). A 1.0 reader reports it as an unknown
+  value; 1.0 bundles remain valid 1.1 bundles.

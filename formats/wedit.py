@@ -30,8 +30,8 @@ from formats.common import (
 )
 
 FORMAT = "wedit"
-SUPPORTED_VERSION = (1, 0)
-FORMAT_VERSION = "1.0"
+SUPPORTED_VERSION = (1, 1)
+FORMAT_VERSION = "1.1"  # 1.1: timeline format "mlt" (D-6.1)
 MANIFEST = "wedit.json"
 SIGNATURE = "signature.json"
 PROVENANCE_TXT = "PROVENANCE.txt"

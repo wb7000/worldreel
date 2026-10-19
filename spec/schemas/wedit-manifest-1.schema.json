@@ -69,7 +69,7 @@
       "items": {
         "type": "object", "additionalProperties": false, "required": ["format", "path"],
         "properties": {
-          "format": { "enum": ["otio", "edl", "fcpxml"] },
+          "format": { "enum": ["otio", "edl", "fcpxml", "mlt"] },
           "path": { "$ref": "wreel-manifest-1.schema.json#/$defs/path" }
         }
       }
