@@ -15,6 +15,8 @@ Register of algorithms WorldReel creates or adopts where no ready-made method fi
 ## Register
 | ID | Problem | Status | Baseline | Design note |
 |---|---|---|---|---|
+| A-10 | Script-driven emotional delivery for synthetic voices | design | one fixed (flat) description per character | below |
+| A-9 | Procedural places from location descriptions | planned | — | (8.4) |
 | A-8 | Identity-distinctness sampling for the character bible | adopted (D-7.4) | independent random seeds per character | below |
 | A-7 | Continuity tracking across `.wscript` scenes | adopted (D-7.2) | none (continuity stored, never checked) | below |
 | A-6 | Procedural, event-driven footstep sounds | experimental | one fixed footstep sound for every event | below |
@@ -413,3 +415,40 @@ casts that fail the threshold, baseline vs sampler; ablation K=1 (= baseline).
 
 **Known limits.** Distance in parameter space is not perceptual distance; once Phase 8 renders
 faces and voices, the check must also run on face / speaker embeddings of the output.
+
+---
+
+## A-10 Script-driven emotional delivery for synthetic voices (design note, 2026-10-20)
+
+**Problem.** The first generated voices (D-8.1) were stable and distinct but, in the owner's
+words, "sounds like robot, doesn't have emotions". Brief §7 asks for an `emotion` attribute on
+sound events. A description-controlled TTS (Parler-TTS) reads delivery from its text description,
+so a fixed description per character gives the same flat delivery for every line.
+
+**Prior art.** Expressive / emotional TTS conditions on emotion labels or reference audio; Parler
+descriptions include expressiveness ("expressive and animated", "monotone") per its model card.
+Reference audio would mean cloning — not allowed. Nothing ready-made maps a screenplay to
+per-line descriptions; own design.
+
+**Idea.** Description = identity part (fixed per character: gender, pitch, speed, timbre) +
+delivery part (per line), from what the script says:
+- tension 0–10 at that line (`%` lines / scene tension) → expressiveness: ≤ 2 "calm, slightly
+  expressive", 3–5 "expressive and animated", 6–8 "very expressive, tense", ≥ 9 "urgent, very
+  expressive and animated" (never "monotone");
+- manner note → emotion words (whisper / quietly / under the breath / barely audible → "speaks
+  softly, almost whispering"; dry → "dry, deadpan"; gently / careful → "gentle, warm";
+  smiling / laughs → "cheerful"; angry / shouting → "angry, loud"; ...);
+- line cues: "!" → "excited"; questions → "questioning"; a small lexicon (fear: "no, no", "please",
+  "fast", "come on"; grief: "dead", "died", "fifty years"; warmth: "thank you", "family");
+- emotion also goes into the dialogue sound event's `emotion` attribute (brief §7).
+Seed stays fixed per character so the identity part dominates.
+
+**Measurement (thresholds set before generating).** All 101 lines of the sample script, twice:
+flat (D-8.1 descriptions) and A-10. Expressiveness = per-line pitch spread (standard deviation of
+f0 in semitones over voiced frames). Pass: mean spread ≥ 1.25x flat, **and** voice identity still
+meets D-8.0 (nearest-centroid ECAPA accuracy ≥ 0.95, centroid cosine between characters < 0.60),
+**and** the owner's listening test. Pitch spread is a proxy, not "emotion"; the listening test
+decides.
+
+**Known limits.** The lexicon is crude and English-only; the TTS may ignore some words; emotion
+words may pull the voice away from its identity (that is why identity is re-measured).
