@@ -1448,3 +1448,35 @@ in the job's `*_freeze.txt`). Two sample-script characters (C01 Mira, C02 Ade).
   (threshold 0.363) — the face metric separates them clearly on the source portraits.
 - **FLUX.1-schnell** not used: gated download (needs the owner's Hugging Face account and accepted
   terms) and no T4 measurement.
+
+### D-8.2 Voices with Parler-TTS descriptions only: FAILED (2026-10-20, measured)
+Owner's listening test of D-8.1 clips: "fine for now but sounds like robot, no emotions — in
+future this should not happen" → A-10 (per-line delivery from tension / manner / cues).
+Job `gen_voices.py`: all 101 lines of the sample script, flat (one description per character)
+and A-10, Parler-TTS on the T4 (1,220 s for 661.5 s of audio, 4.66 GB peak). ECAPA embeddings
+computed on the laptop CPU instead (the job's `from_hparams(..., revision=...)` is not a
+SpeechBrain argument — my error; fixed by pinning with `huggingface_hub.snapshot_download`
+revision 0f99f2d0ebe89ac095bcc5903c4dd8f72b367286, 4 m 43 s for 202 clips).
+
+| | flat | A-10 | threshold (D-8.0 / A-10) |
+|---|---|---|---|
+| voice identity (nearest-centroid accuracy) | 0.743 | 0.713 | ≥ 0.95 ✗ |
+| max centroid cosine between characters | 0.771 (C01-C04 0.771, C02-C03 0.771) | 0.843 | < 0.60 ✗ |
+| pitch spread, mean (semitones) | 3.77 | 3.95 (1.05x) | ≥ 1.25x flat ✗ |
+
+Cause: without its (real-person) named speakers, Parler draws a new voice per generation — the
+same line in the same character's description gives cosine 0.33 between the flat and A-10
+renders; a fixed seed does not hold the voice. Emotion words change prosody only a little
+(afraid 3.46 → 4.13, soft 3.96 → 4.36, sad 3.91 → 4.25 semitones). Parler also warns that no
+attention mask is passed (pad = eos); not the cause of the drift, noted. **Description-only
+Parler voices are rejected for dialogue.**
+
+**Next (A-10 v2): design a voice once, speak with it.** Parler designs one synthetic reference
+clip per character from the identity description (several candidates; the set with the largest
+minimum ECAPA distance between characters is kept — A-8's idea applied to voices). Chatterbox
+(Resemble AI, MIT per model card ResembleAI/chatterbox 5bb1f6ee… and PyPI chatterbox-tts 0.1.7;
+every output carries Resemble's Perth watermark) speaks every line from that reference, with
+`exaggeration` / `cfg_weight` from the delivery (README: defaults 0.5 / 0.5; expressive ≈ 0.7+ /
+0.3). Safety: a reference must be a clip our designer generated — the speaker refuses any
+reference whose SHA-256 is not in the designed-voices record, so real voices cannot be cloned
+through this path. Thresholds unchanged; baseline = Chatterbox at constant 0.5 / 0.5.

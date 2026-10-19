@@ -200,3 +200,73 @@ def centroid_cosines(emb: np.ndarray, labels: list[str]) -> dict[str, float]:
         for i, a in enumerate(keys)
         for b in keys[i + 1 :]
     }
+
+
+# --------------------------------------------------------------------------- A-10 v2 (D-8.2)
+# Design a synthetic voice once per character (Parler, description only), then speak every line
+# from that reference with Chatterbox, whose emotion intensity comes from the delivery.
+
+REFERENCE_TEXT = (
+    "The morning was quiet and grey. I walked along the old wall, counting the stones, "
+    "and listening to the sea below."
+)
+REFERENCE_CANDIDATES = 4
+
+
+def chatterbox_params(tension: int, emotions: tuple[str, ...]) -> tuple[float, float]:
+    """(exaggeration, cfg_weight) for one line. README: 0.5 / 0.5 default; expressive ~0.7+ /
+    ~0.3 (higher exaggeration speeds speech up, lower cfg slows it down again)."""
+    ex = 0.35 + 0.06 * tension
+    if any(e in emotions for e in ("afraid", "excited", "angry", "urgent")):
+        ex += 0.1
+    if any(e in emotions for e in ("softly", "gentle", "tender", "dry", "tired")):
+        ex -= 0.1
+    ex = float(min(max(ex, 0.25), 0.95))
+    cfg = 0.5 if ex < 0.6 else 0.3
+    if "sad" in emotions:
+        cfg = 0.3  # slower, more deliberate
+    return round(ex, 3), cfg
+
+
+def best_reference_set(cands: dict[str, np.ndarray]) -> tuple[dict[str, int], float]:
+    """Pick one candidate reference per character (each `cands[cid]` is K x D embeddings) so that
+    the largest cosine between any two characters is as small as possible (exhaustive; K^n
+    combinations, fine for small casts)."""
+    from itertools import product
+
+    cids = sorted(cands)
+    normed = {c: v / np.linalg.norm(v, axis=1, keepdims=True) for c, v in cands.items()}
+    best: tuple[int, ...] = ()
+    best_cos = 2.0
+    for combo in product(*(range(len(normed[c])) for c in cids)):
+        worst = max(
+            (
+                float(normed[a][i] @ normed[b][j])
+                for (a, i), (b, j) in (
+                    ((cids[x], combo[x]), (cids[y], combo[y]))
+                    for x in range(len(cids))
+                    for y in range(x + 1, len(cids))
+                )
+            ),
+            default=-1.0,
+        )
+        if worst < best_cos:
+            best, best_cos = combo, worst
+    return dict(zip(cids, best, strict=True)), round(best_cos, 4)
+
+
+class UndesignedReferenceError(RuntimeError):
+    """A reference clip that our voice designer did not make (would allow cloning a real voice)."""
+
+
+def check_reference(path: str, record: dict[str, dict[str, str]]) -> None:
+    """Safety guard (D-8.2): only clips listed in the designed-voices record, with a matching
+    SHA-256, may be used as a speaking reference."""
+    import hashlib
+    from pathlib import Path
+
+    digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    if not any(v["sha256"] == digest for v in record.values()):
+        raise UndesignedReferenceError(
+            f"{path} is not a designed synthetic voice; refusing to use it"
+        )

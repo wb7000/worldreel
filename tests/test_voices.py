@@ -48,3 +48,31 @@ def test_voice_identity_metrics() -> None:
     assert all(v < 0.6 for v in centroid_cosines(emb, labels).values())
     mixed = rng.normal(size=(30, 64))  # one voice for everyone = collapse
     assert nearest_centroid_accuracy(mixed, labels) < 0.6
+
+
+def test_reference_set_minimises_the_closest_pair_and_guard_refuses_others(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    import hashlib
+
+    import pytest
+
+    from stages.generate.voices import (
+        UndesignedReferenceError,
+        best_reference_set,
+        chatterbox_params,
+        check_reference,
+    )
+
+    e = np.eye(4)
+    cands = {"A": np.stack([e[0], e[1]]), "B": np.stack([e[0], e[2]])}  # A0 == B0: avoid that pair
+    choice, worst = best_reference_set(cands)
+    assert worst == 0.0 and not (choice["A"] == 0 and choice["B"] == 0)
+    ok = tmp_path / "ok.wav"
+    ok.write_bytes(b"designed")
+    record = {"A": {"file": "ok.wav", "sha256": hashlib.sha256(b"designed").hexdigest()}}
+    check_reference(str(ok), record)
+    bad = tmp_path / "someone.wav"
+    bad.write_bytes(b"a real person's recording")
+    with pytest.raises(UndesignedReferenceError):
+        check_reference(str(bad), record)
+    calm, tense = chatterbox_params(2, ("neutral",)), chatterbox_params(9, ("afraid",))
+    assert calm[0] < 0.5 < tense[0] and tense[1] == 0.3
