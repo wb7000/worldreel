@@ -1425,3 +1425,26 @@ and model versions in the manifest):**
 Order: 8.1 environment check job on the T4 (TTS, portrait model, ECAPA, SFace: install, memory,
 seconds per item); 8.2 voices + voice metrics; 8.3 portraits + avatars + face metrics;
 8.4 places (A-9) + blocking + camera; 8.5 assemble `.wreel`, R1; 8.6 R2; 8.7 R3; close-out.
+
+### D-8.1 Generation models checked on the T4 (2026-10-20, measured)
+Job `training/kaggle/jobs/gen_env.py`; each tool in its own uv Python 3.12 env (versions pinned
+in the job's `*_freeze.txt`). Two sample-script characters (C01 Mira, C02 Ade).
+- **Parler-TTS Mini v1** (revision 0392b9451a60; parler-tts 0.2.2 from git d108732, which pins
+  transformers 4.46.1; torch 2.14.1): loads in 27 s, 4.07 GB peak, 44.1 kHz; 3.8 s of speech in
+  7.7 s (≈ 2x real time). Voices come only from descriptions written from the voice vector
+  (e.g. C02: "A male speaker with a low-pitched voice speaks slowly in a breathy voice …");
+  the model's 34 *named* speakers are real recorded people and are **not used** (brief: synthetic
+  voices only, no cloning). Seed fixed per character. Median pitch (own autocorrelation
+  estimate): C01 186–205 Hz over 3 lines, C02 113–128 Hz — stable per character, far apart.
+- **SpeechBrain ECAPA** (speechbrain 1.1.2): install ok; failed at loading the WAVs —
+  `torchaudio.load` now needs `torchcodec` → read with soundfile instead (fixed, re-run with 8.2).
+- **Kandinsky 2.2** prior 9fc51ad5732a + decoder 9ae140d347fe (Apache-2.0; diffusers 0.41.0, fp16):
+  loads in 118 s, ~10 s per 512x512 portrait (50 steps). Both portraits photorealistic and match
+  the request (dark-haired woman; white-haired elderly man). Bug: the prompt carried voice words
+  ("quick", "low voice") from the style request → prompts now use appearance words only.
+- **SFace** (`face_recognition_sface_2021dec.onnx`, 38,696,353 bytes, SHA-256 0ba9fbfa…7c34e79,
+  OpenCV Zoo, Apache-2.0; OpenCV 5.0 `FaceRecognizerSF`, CPU) + YuNet on the portraits: same face
+  mirrored 0.94–0.95, same face shrunk to 96 px 0.80–0.92, the two characters 0.14–0.30
+  (threshold 0.363) — the face metric separates them clearly on the source portraits.
+- **FLUX.1-schnell** not used: gated download (needs the owner's Hugging Face account and accepted
+  terms) and no T4 measurement.

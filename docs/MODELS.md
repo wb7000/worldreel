@@ -18,4 +18,9 @@ Rules:
 
 | generate (script model) | Qwen2.5-0.5B-Instruct + own LoRA adapter (r 16, `training/configs/script_model.yaml`) | `Qwen/Qwen2.5-0.5B-Instruct` revision 7ae557604adf67be50417f59c2c2f167def9a775; adapter trained 2026-10-19, data eef6f378e9979935 | Apache-2.0 (model card + LICENSE); adapter trained only on public-domain plays | https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct | 1x T4: train 22 min (batch 1 x 16, 3,072 tokens); inference fp16 | 2026-10-19, Kaggle (D-7.5b) | experimental |
 
+| generate (voices) | Parler-TTS Mini v1 | `parler-tts/parler-tts-mini-v1` revision 0392b9451a60; parler-tts 0.2.2 (git d108732) | Apache-2.0 (model card) | https://huggingface.co/parler-tts/parler-tts-mini-v1 | 1x T4: 4.07 GB peak, ~2x real time | 2026-10-20, Kaggle (D-8.1) | candidate (named speakers never used) |
+| generate (portraits) | Kandinsky 2.2 prior + decoder | `kandinsky-community/kandinsky-2-2-prior` 9fc51ad5732a, `-decoder` 9ae140d347fe; diffusers 0.41.0 | Apache-2.0 (model cards) | https://huggingface.co/kandinsky-community/kandinsky-2-2-decoder | 1x T4 fp16: ~10 s / 512x512 | 2026-10-20, Kaggle (D-8.1) | candidate |
+| eval (voice identity) | SpeechBrain ECAPA-TDNN speaker embeddings | `speechbrain/spkrec-ecapa-voxceleb` 0f99f2d0ebe8; speechbrain 1.1.2 | Apache-2.0 (model card) | https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb | GPU or CPU | 2026-10-20, install only (D-8.1) | candidate |
+| eval (face identity) | SFace (OpenCV Zoo) | `face_recognition_sface_2021dec.onnx`, 38,696,353 bytes, SHA-256 0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79 | Apache-2.0 (directory licence) | https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface | CPU, OpenCV 5.0 | 2026-10-20, laptop (D-8.1) | candidate |
+
 Status values: `candidate`, `in-use`, `rejected` (say why in `DECISIONS.md`).

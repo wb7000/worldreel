@@ -133,7 +133,7 @@ run(
     spk_py,
     "spk",
     """
-    import json, sys, glob, time, torch, torchaudio
+    import json, sys, glob, time, torch, torchaudio, soundfile as sf
     from speechbrain.inference.speaker import EncoderClassifier
     out = sys.argv[2]
     t0 = time.time()
@@ -141,7 +141,8 @@ run(
                                          savedir="/tmp/ecapa", run_opts={"device": "cuda"})
     files = sorted(glob.glob(f"{out}/voice_*.wav")); embs = {}
     for f in files:
-        wav, sr = torchaudio.load(f)
+        x, sr = sf.read(f, dtype="float32")  # torchaudio.load needs torchcodec (D-8.1)
+        wav = torch.from_numpy(x if x.ndim == 1 else x.mean(1)).unsqueeze(0)
         wav = torchaudio.functional.resample(wav, sr, 16000)
         embs[f.split("/")[-1]] = torch.nn.functional.normalize(enc.encode_batch(wav).squeeze(), dim=0)
     names = list(embs); cos = [[round(float(embs[a] @ embs[b]), 3) for b in names] for a in names]
@@ -152,8 +153,17 @@ run(
 
 # 3. Portraits: Kandinsky 2.2 prior + decoder (fp16)
 img_py = env("img", ["diffusers", "transformers", "accelerate", "safetensors"])
+VOICE_WORDS = {"quick", "fast", "slow", "calm", "raspy", "gravelly", "breathy", "clear", "low voice",
+               "deep voice", "high voice"}  # fmt: skip
+
+
+def look(requested: str) -> str:
+    """The appearance part of a style request (voice words would leak into the image)."""
+    return ", ".join(w.strip() for w in requested.split(",") if w.strip() not in VOICE_WORDS)
+
+
 prompts = {
-    cid: f"studio portrait photo of a {c['identity']['requested']}, {c['description']}, "
+    cid: f"studio portrait photo of a {look(c['identity']['requested'])}, {c['description']}, "
     "head and shoulders, facing the camera, neutral grey background, soft light"
     for cid, c in people.items()
 }
