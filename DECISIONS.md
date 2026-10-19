@@ -1480,3 +1480,26 @@ every output carries Resemble's Perth watermark) speaks every line from that ref
 0.3). Safety: a reference must be a clip our designer generated — the speaker refuses any
 reference whose SHA-256 is not in the designed-voices record, so real voices cannot be cloned
 through this path. Thresholds unchanged; baseline = Chatterbox at constant 0.5 / 0.5.
+
+### D-8.2b A-10 v2 — designed voices spoken by Chatterbox (2026-10-20, measured)
+Two failed runs first: (1) Chatterbox's Perth watermarker was `None` — resemble-perth 1.0.1 imports
+`pkg_resources`, the uv env had no setuptools, and its `except ImportError` hid it → setuptools<81
+installed (80.10.2) and the job now **stops if the watermarker is missing**; (2) the job mounted
+the previous code version (Kaggle had not processed the upload yet) → the runner now waits for
+the dataset to be ready before starting a job.
+Run 3 (T4): designer = Parler, 4 candidates per character on a fixed calm sentence; best set
+(C01 #3, C02 #0, C03 #0, C04 #3) has max ECAPA cosine 0.290 between characters. Speaker =
+Chatterbox 0.1.7 (24 kHz, watermark on), every line from its character's designed reference;
+the guard checked every reference's SHA-256 against `designed_voices.json`. 202 clips, 781 s for
+704.7 s of audio, 3.76 GB peak.
+
+| | constant (0.5 / 0.5) | A-10 delivery | threshold |
+|---|---|---|---|
+| voice identity (nearest-centroid accuracy) | 1.000 | **0.990** | ≥ 0.95 ✔ |
+| max centroid cosine between characters | 0.386 | **0.460** | < 0.60 ✔ |
+| pitch spread, mean (semitones) | 2.81 | 2.97 (1.06x) | ≥ 1.25x ✗ |
+
+Voice identity and distinctness now pass (they failed at 0.71 / 0.84 with description-only
+voices, D-8.2). The pitch-spread criterion is **not met**: Chatterbox's exaggeration changes pace
+and energy more than pitch; the metric is not changed after the fact. Pending: the owner's
+listening test (A-10: decides together with the metrics).
