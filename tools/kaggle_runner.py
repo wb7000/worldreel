@@ -86,6 +86,22 @@ def _upload(folder: Path, slug: str, title: str, message: str) -> None:
     else:
         kaggle("datasets", "create", "-p", str(folder))
     print(f"uploaded {user}/{slug} ({'new version' if exists else 'created, private'})")
+    _wait_ready(f"{user}/{slug}")
+
+
+def _wait_ready(ref: str, timeout_s: float = 600.0) -> None:
+    """Wait until Kaggle has processed the upload: a job started earlier can mount the previous
+    version (happened in D-8.2). Assumption: `datasets status` reports the newest version."""
+    deadline = time.time() + timeout_s
+    time.sleep(10)
+    while time.time() < deadline:
+        state = kaggle("datasets", "status", ref).strip().lower()
+        if "ready" in state:
+            time.sleep(30)  # margin for the version to reach the kernel mounts
+            print(f"{ref}: ready")
+            return
+        time.sleep(15)
+    print(f"{ref}: not ready after {timeout_s:.0f}s (status: {state!r})")
 
 
 def push_code(message: str) -> None:
