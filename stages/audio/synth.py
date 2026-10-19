@@ -242,3 +242,14 @@ def wav_bytes(x: npt.NDArray[np.floating[Any]], rate: int = SAMPLE_RATE) -> byte
         w.setframerate(rate)
         w.writeframes(pcm.tobytes())
     return buf.getvalue()
+
+
+def wav_samples(data: bytes) -> F32:
+    """16-bit PCM WAV bytes -> float32 samples (mono, or the first channel), for re-mixing."""
+    import io
+
+    with wave.open(io.BytesIO(data)) as w:
+        if w.getsampwidth() != 2:
+            raise ValueError("only 16-bit PCM is supported")
+        raw = np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(np.float32) / 32767.0
+        return np.asarray(raw.reshape(-1, w.getnchannels())[:, 0], np.float32)

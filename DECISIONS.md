@@ -898,3 +898,29 @@ Branch: `phase-5-audio` from main eee6fab.
   its segment (t = −0.235 s); positions are now clamped into the segment (+ test).
 - End to end (synthetic 2-walker scene, gravel + rain): 9 footsteps (4 + 5 over 2.5 s, as the
   cadence predicts), 4 clips (159 kB), file valid.
+
+### D-5.3 Layers, stems and mood music (2026-10-19)
+- `stages/audio/beds.py`: generated ambience (wind with tension-deeper gusts; rain = droplets +
+  hiss) and mood music (own procedural scheme: major pad crossfading to minor, drone and high
+  shimmer growing with tension, a pulse from tension 3 whose tempo rises 60 → 140 bpm).
+  `stages/audio/stems.py`: foley = footstep clips placed at event times; each non-empty layer is
+  a separate mono WAV track (`audio/stems/<layer>.wav`, licence `synthetic`, non-positional);
+  dialogue/effects have no source yet, so no track. Mood can be set per scene in package config.
+- `tools/export_stems.py`: one WAV per layer + `mix.wav` (fixed gains) + `stems.json`. Walker
+  scene: ambience, foley, music, mix — **"stems export separately" met**.
+- Mood measurement `eval/mood.py` (20 s per tension, measured from the audio; tempo from the
+  onset envelope's autocorrelation, independent of the generator):
+
+| tension | 0 | 2 | 4 | 6 | 8 | 10 |
+|---|---|---|---|---|---|---|
+| level (dBFS) | −20.7 | −20.7 | −21.0 | −20.4 | −19.0 | −17.7 |
+| centroid (Hz) | 316 | 316 | 308 | 336 | 411 | 447 |
+| tempo (bpm), measured / intended | – / none | – / none | – / 71 | 94.0 / 94.3 | 117.5 / 117.1 | 139.7 / 140 |
+
+  Louder, brighter and faster with tension; weak spot at 4 (pulse too quiet to detect, 0.3 dB dip).
+- Fixed along the way (all measured): per-render peak normalisation made the music *quieter* as
+  tension added layers → fixed gains; a 55 Hz drone made it *darker* → drone an octave up plus a
+  high shimmer; linear major→minor crossfade lost ~3 dB halfway → equal-power; the tension
+  smoothing was an O(n·k) convolution (minutes for 20 s) → running sum (0.02 s); the tempo
+  detector reported 144 bpm for pulse-free pads (window aliasing on the 55 Hz chord pattern) →
+  energy low-passed at 8 Hz before sampling.

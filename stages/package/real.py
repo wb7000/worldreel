@@ -29,6 +29,7 @@ from pipeline.io import (
 )
 from pipeline.stage import Impl, StageContext, StageError
 from stages.audio.events import footstep_audio
+from stages.audio.stems import render_stems, stem_tracks
 from stages.package.actors import package_actors
 
 TOOL_VERSION = "0.2.0"
@@ -55,7 +56,7 @@ def _subsample(c: PointCloud, step: int) -> PointCloud:
 
 class PackageStage:
     name: ClassVar[str] = "package"
-    version: ClassVar[str] = "0.6.0"
+    version: ClassVar[str] = "0.7.0"
     impl: ClassVar[Impl] = "real"
     depends_on: ClassVar[tuple[str, ...]] = (
         "frames",
@@ -98,7 +99,8 @@ class PackageStage:
         # Event-driven footsteps (algorithm A-6, D-5.2): generated clips, scene-wide surface and
         # weather from config `audio` (e.g. {"surface": "gravel", "weather": "rain"}).
         tracks = {a["id"]: json.loads(entries[a["track"]["path"]]) for a in actors}
-        steps, step_entries, step_report = footstep_audio(actors, tracks, ctx.config.get("audio"))
+        audio_defaults = {k: v for k, v in (ctx.config.get("audio") or {}).items() if k != "mood"}
+        steps, step_entries, step_report = footstep_audio(actors, tracks, audio_defaults)
         entries.update(step_entries)
         audio["events"] = sorted(audio["events"] + steps, key=lambda e: e["t"])
         if steps:
@@ -107,6 +109,21 @@ class PackageStage:
         k = cam["intrinsics"]
         fov_y = math.degrees(2 * math.atan((k["height"] / 2) / k["fy"]))
         duration = max(float(frames["duration"]), max((p["t"] for p in cam["poses"]), default=0.0))
+        # Layered stems (D-5.3): ambience, mood music, foley; separate tracks, generated audio.
+        audio_cfg = dict(ctx.config.get("audio") or {})
+        if audio_cfg.get("mood"):
+            audio["mood"] = audio_cfg["mood"]
+        stems = render_stems(
+            duration,
+            audio["events"],
+            audio["mood"],
+            step_entries,
+            weather=str(audio_cfg.get("weather", "dry")),
+            seed=ctx.seed,
+        )
+        stem_list, stem_entries = stem_tracks(stems)
+        entries.update(stem_entries)
+        audio["tracks"] = audio["tracks"] + stem_list
         item = ctx.item
         manifest: dict[str, Any] = {
             "format": "wreel",
