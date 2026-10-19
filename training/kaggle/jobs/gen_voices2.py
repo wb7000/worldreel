@@ -144,7 +144,8 @@ for n, ln in enumerate(lines):
                       "seed": ln.seed + n})  # fmt: skip
 save_json("lines.json", [{**ln.__dict__, "chatterbox": chatterbox_params(ln.tension, ln.emotions)}
                          for ln in lines])  # fmt: skip
-cb = env("cb", "3.11", ["chatterbox-tts==0.1.7", "soundfile"])
+# setuptools: resemble-perth imports pkg_resources and silently drops its watermarker without it
+cb = env("cb", "3.11", ["chatterbox-tts==0.1.7", "soundfile", "setuptools<81"])
 run(
     cb,
     "speak",
@@ -153,6 +154,9 @@ run(
     from chatterbox.tts import ChatterboxTTS
     a = json.load(open(sys.argv[1])); out = sys.argv[2]
     allowed = {v["sha256"] for v in a["designed"].values()}
+    import perth
+    if perth.PerthImplicitWatermarker is None:  # never generate unwatermarked speech
+        raise SystemExit("Perth watermarker unavailable")
     model = ChatterboxTTS.from_pretrained(device="cuda")
     t0, total = time.time(), 0.0
     for it in a["items"]:
