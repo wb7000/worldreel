@@ -1,0 +1,561 @@
+{
+  "format": "wscript",
+  "format_version": "1.1",
+  "title": "The Lantern Keeper",
+  "language": "en",
+  "dictionary": {
+    "characters": {
+      "C01": {
+        "name": "Mira",
+        "description": "archivist in her thirties, careful, stubborn",
+        "voice": "warm, quick"
+      },
+      "C02": {
+        "name": "Ade",
+        "description": "fort caretaker, seventy-four, wiry, slow to smile",
+        "voice": "low, dry"
+      },
+      "C03": {
+        "name": "Tomas",
+        "description": "drone pilot in his twenties, talks when nervous",
+        "voice": "light, fast"
+      },
+      "C04": {
+        "name": "Lena",
+        "description": "Ade's granddaughter, nineteen, direct",
+        "voice": "clear, steady"
+      }
+    },
+    "locations": {
+      "L01": {
+        "name": "the fort gate",
+        "description": "stone arch, iron chain, monsoon path"
+      },
+      "L02": {
+        "name": "the rampart",
+        "description": "sea wall walk, wet battlements"
+      },
+      "L03": {
+        "name": "the chapel ruin",
+        "description": "roofless nave, fig roots, low arch"
+      },
+      "L04": {
+        "name": "Ade's hut",
+        "description": "one whitewashed room, oil lamp"
+      },
+      "L05": {
+        "name": "the passage",
+        "description": "steps into the hill, iron gate, channel"
+      }
+    },
+    "props": {
+      "P01": {
+        "name": "lantern",
+        "description": "brass storm lantern, cracked glass"
+      },
+      "P02": {
+        "name": "iron key",
+        "description": "long, rusted, on a leather loop"
+      },
+      "P03": {
+        "name": "drone",
+        "description": "small scanning drone with a red light"
+      },
+      "P04": {
+        "name": "green raincoat",
+        "description": "Mira's, too thin for the monsoon"
+      },
+      "P05": {
+        "name": "survey map",
+        "description": "1962 fort survey, folded and soft"
+      },
+      "P06": {
+        "name": "photograph",
+        "description": "two young men with lanterns, 1962"
+      },
+      "P07": {
+        "name": "tablet",
+        "description": "Lena's tablet, cracked corner"
+      }
+    },
+    "text": {}
+  },
+  "scenes": [
+    {
+      "id": "S001",
+      "title": "Locked Gate",
+      "summary": "Mira arrives in the monsoon; Ade warns her off the walls and the 1962 survey shows a forgotten passage.",
+      "location": "L01",
+      "time_of_day": "dusk",
+      "tension": 3,
+      "continuity": {
+        "characters": {
+          "C01": {
+            "location": "L01",
+            "wearing": [
+              "P04"
+            ],
+            "holding": [
+              "P05"
+            ],
+            "state": "soaked"
+          },
+          "C02": {
+            "location": "L01",
+            "holding": [
+              "P01",
+              "P02"
+            ]
+          },
+          "C03": {
+            "location": "L02",
+            "holding": [
+              "P03"
+            ]
+          },
+          "C04": {
+            "location": "L04",
+            "holding": [
+              "P07"
+            ]
+          }
+        },
+        "lighting": "dusk_overcast",
+        "weather": "heavy_rain",
+        "time": "dusk"
+      },
+      "path": "scenes/S001.wsl",
+      "sha256": "58cfcd6c87305ee6e6b86bd6bc23d7d796268099f6eda6c239089f4d39cd4790"
+    },
+    {
+      "id": "S002",
+      "title": "Signal Lost",
+      "summary": "Tomas loses the drone over the chapel ruin; its last frame shows a doorway.",
+      "location": "L02",
+      "time_of_day": "dusk",
+      "tension": 4,
+      "continuity": {
+        "characters": {
+          "C01": {
+            "location": "L04",
+            "wearing": [
+              "P04"
+            ],
+            "holding": [
+              "P05"
+            ],
+            "state": "soaked"
+          },
+          "C02": {
+            "location": "L04",
+            "holding": [
+              "P01",
+              "P02"
+            ]
+          },
+          "C03": {
+            "location": "L02",
+            "holding": [
+              "P03"
+            ]
+          },
+          "C04": {
+            "location": "L04",
+            "holding": [
+              "P07"
+            ]
+          }
+        },
+        "lighting": "dusk_overcast",
+        "weather": "heavy_rain",
+        "time": "dusk"
+      },
+      "path": "scenes/S002.wsl",
+      "sha256": "060b574934942232a5c7085930d61a9b54b7727ba438dd5b2217b87587bc1fc2"
+    },
+    {
+      "id": "S003",
+      "title": "Tea and Rules",
+      "summary": "In Ade's hut Lena recognises the doorway as the way down; Ade refuses, then goes out alone.",
+      "location": "L04",
+      "time_of_day": "night",
+      "tension": 3,
+      "continuity": {
+        "characters": {
+          "C01": {
+            "location": "L04",
+            "wearing": [
+              "P04"
+            ],
+            "holding": [
+              "P05"
+            ],
+            "state": "soaked"
+          },
+          "C02": {
+            "location": "L04",
+            "holding": [
+              "P01",
+              "P02"
+            ]
+          },
+          "C03": {
+            "location": "L04",
+            "holding": []
+          },
+          "C04": {
+            "location": "L04",
+            "holding": [
+              "P07"
+            ]
+          }
+        },
+        "lighting": "dusk_overcast",
+        "weather": "heavy_rain",
+        "time": "dusk"
+      },
+      "path": "scenes/S003.wsl",
+      "sha256": "1be86359bedc43eb7112e4727ad2ef8573a875219fc86ce8caafaaa9f1f319cc"
+    },
+    {
+      "id": "S004",
+      "title": "The Photograph",
+      "summary": "Lena shows a 1962 photograph of Ade and his lost brother; the three set off for the chapel.",
+      "location": "L04",
+      "time_of_day": "night",
+      "tension": 4,
+      "continuity": {
+        "characters": {
+          "C01": {
+            "location": "L04",
+            "wearing": [
+              "P04"
+            ],
+            "holding": [
+              "P05"
+            ],
+            "state": "soaked"
+          },
+          "C02": {
+            "location": "L01",
+            "holding": [
+              "P02",
+              "P01"
+            ]
+          },
+          "C03": {
+            "location": "L04",
+            "holding": []
+          },
+          "C04": {
+            "location": "L04",
+            "holding": [
+              "P07"
+            ]
+          }
+        },
+        "lighting": "oil_lamp",
+        "weather": "steady_rain",
+        "time": "night"
+      },
+      "path": "scenes/S004.wsl",
+      "sha256": "b02963e31e63183319635f3b94ab4ba91f61b2168fd1454e8fb4e49c30b7d416"
+    },
+    {
+      "id": "S005",
+      "title": "The Open Arch",
+      "summary": "They find the drone by a broken arch; Ade arrives and sees the photograph.",
+      "location": "L03",
+      "time_of_day": "night",
+      "tension": 6,
+      "continuity": {
+        "characters": {
+          "C01": {
+            "location": "L03",
+            "wearing": [
+              "P04"
+            ],
+            "holding": [
+              "P05",
+              "P06"
+            ],
+            "state": "soaked"
+          },
+          "C02": {
+            "location": "L01",
+            "holding": [
+              "P02",
+              "P01"
+            ]
+          },
+          "C03": {
+            "location": "L03",
+            "holding": []
+          },
+          "C04": {
+            "location": "L03",
+            "holding": [
+              "P07"
+            ]
+          }
+        },
+        "lighting": "oil_lamp",
+        "weather": "steady_rain",
+        "time": "night"
+      },
+      "path": "scenes/S005.wsl",
+      "sha256": "cb727ad77927c897ffe0a083d76dfa6c4f7ccb8bf9cf89136c42f048620d1200"
+    },
+    {
+      "id": "S006",
+      "title": "Brothers",
+      "summary": "Ade tells how his brother Rafi drowned in the passage and gives Mira the key for dawn.",
+      "location": "L03",
+      "time_of_day": "night",
+      "tension": 5,
+      "continuity": {
+        "characters": {
+          "C01": {
+            "location": "L03",
+            "wearing": [
+              "P04"
+            ],
+            "holding": [
+              "P05",
+              "P06"
+            ],
+            "state": "soaked"
+          },
+          "C02": {
+            "location": "L03",
+            "holding": [
+              "P02",
+              "P01"
+            ]
+          },
+          "C03": {
+            "location": "L03",
+            "holding": [
+              "P03"
+            ]
+          },
+          "C04": {
+            "location": "L03",
+            "holding": [
+              "P07"
+            ]
+          }
+        },
+        "lighting": "oil_lamp",
+        "weather": "steady_rain",
+        "time": "night"
+      },
+      "path": "scenes/S006.wsl",
+      "sha256": "c7579b2abdb39cd2abdcf9e65f240716cde143d458f8e11afb8778c6181f2273"
+    },
+    {
+      "id": "S007",
+      "title": "Low Tide",
+      "summary": "The drone footage shows the channel runs under the planned drainage; they wait for low tide.",
+      "location": "L04",
+      "time_of_day": "night",
+      "tension": 4,
+      "continuity": {
+        "characters": {
+          "C01": {
+            "location": "L04",
+            "wearing": [
+              "P04"
+            ],
+            "holding": [
+              "P05",
+              "P06",
+              "P02"
+            ],
+            "state": "soaked"
+          },
+          "C02": {
+            "location": "L04",
+            "holding": [
+              "P01"
+            ]
+          },
+          "C03": {
+            "location": "L04",
+            "holding": [
+              "P03"
+            ]
+          },
+          "C04": {
+            "location": "L04",
+            "holding": [
+              "P07"
+            ]
+          }
+        },
+        "lighting": "oil_lamp",
+        "weather": "steady_rain",
+        "time": "night"
+      },
+      "path": "scenes/S007.wsl",
+      "sha256": "77b1cd37a76ce36bbdcf6ce5e01e0f70ba51300ee3c96378a029890732021671"
+    },
+    {
+      "id": "S008",
+      "title": "Forty-One Steps",
+      "summary": "Mira, Ade and Tomas open the gate, scan the passage and find Rafi's remains before the tide returns.",
+      "location": "L05",
+      "time_of_day": "dawn",
+      "tension": 7,
+      "continuity": {
+        "characters": {
+          "C01": {
+            "location": "L05",
+            "wearing": [
+              "P04"
+            ],
+            "holding": [
+              "P05",
+              "P02"
+            ],
+            "state": "soaked"
+          },
+          "C02": {
+            "location": "L05",
+            "holding": [
+              "P01",
+              "P06"
+            ]
+          },
+          "C03": {
+            "location": "L05",
+            "holding": [
+              "P03"
+            ]
+          },
+          "C04": {
+            "location": "L03",
+            "holding": [
+              "P07"
+            ]
+          }
+        },
+        "lighting": "grey_dawn",
+        "weather": "drizzle",
+        "time": "dawn",
+        "offscreen": [
+          "C01.location",
+          "C02.location",
+          "C03.location",
+          "C04.location",
+          "world.time",
+          "world.lighting",
+          "world.weather"
+        ]
+      },
+      "path": "scenes/S008.wsl",
+      "sha256": "9bad57f0089db61826d3b39c37cf88e469c184eafc853476601b07a16cb4d2a4"
+    },
+    {
+      "id": "S009",
+      "title": "Surface",
+      "summary": "Back at the chapel at sunrise; the scan goes to the restoration office and Ade gives the photograph to Lena.",
+      "location": "L03",
+      "time_of_day": "dawn",
+      "tension": 5,
+      "continuity": {
+        "characters": {
+          "C01": {
+            "location": "L03",
+            "wearing": [
+              "P04"
+            ],
+            "holding": [
+              "P05"
+            ],
+            "state": "soaked"
+          },
+          "C02": {
+            "location": "L03",
+            "holding": [
+              "P01",
+              "P06"
+            ]
+          },
+          "C03": {
+            "location": "L03",
+            "holding": [
+              "P03"
+            ]
+          },
+          "C04": {
+            "location": "L03",
+            "holding": [
+              "P07"
+            ]
+          }
+        },
+        "lighting": "grey_dawn",
+        "weather": "drizzle",
+        "time": "dawn"
+      },
+      "path": "scenes/S009.wsl",
+      "sha256": "78c60759a1194ed4b53db6b9e0a41317eefa1fdf4425a26bc97fff8a92c59a87"
+    },
+    {
+      "id": "S010",
+      "title": "The Model",
+      "summary": "Two days later on the rampart the fort is a 3D model; Ade puts out the lantern and joins the restoration.",
+      "location": "L02",
+      "time_of_day": "morning",
+      "tension": 2,
+      "continuity": {
+        "characters": {
+          "C01": {
+            "location": "L02",
+            "wearing": [
+              "P04"
+            ],
+            "holding": [
+              "P05"
+            ],
+            "state": "soaked"
+          },
+          "C02": {
+            "location": "L02",
+            "holding": [
+              "P01"
+            ]
+          },
+          "C03": {
+            "location": "L02",
+            "holding": [
+              "P03"
+            ]
+          },
+          "C04": {
+            "location": "L02",
+            "holding": [
+              "P07",
+              "P06"
+            ]
+          }
+        },
+        "lighting": "morning_sun",
+        "weather": "clear",
+        "time": "morning",
+        "offscreen": [
+          "C01.location",
+          "C02.location",
+          "C03.location",
+          "C04.location",
+          "world.time",
+          "world.lighting",
+          "world.weather"
+        ]
+      },
+      "path": "scenes/S010.wsl",
+      "sha256": "b6d378039ecda70957ac1dc6e376c4e29c0ee90b6b68c762f59ddbc85a4461c8"
+    }
+  ]
+}

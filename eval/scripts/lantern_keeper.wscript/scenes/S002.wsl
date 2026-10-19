@@ -1,0 +1,17 @@
+@scene S002 loc=L02 time=dusk tension=4
+~ wind gusts=strong
+> third C03
+! On top of {L02}, {C03} crouches behind a battlement, thumbs on the controller. The {P03} hums above him like an angry insect.
+C03: Log, day one. Light is almost gone. Wind from the sea, maybe forty kilometres an hour.
+! The {P03} dips, recovers, and slides toward the dark mass of the chapel roof.
+% 5
+~ drone_motor pitch=rising
+C03 (under his breath): No, no, no. Not the trees.
+! The signal bar drops to zero. The {P03} vanishes behind the broken bell tower.
+= C03 holding-=P03
+> first C03
+! On the controller screen: a frozen frame of a doorway, half buried in vines, and the words SIGNAL LOST.
+C03: Okay. That's fine. It's an expensive camera in a haunted chapel. Totally fine.
+! He stands, slips on the wet stone, and catches himself on the parapet.
+C03: Mira is going to kill me.
+= C03 location=L04

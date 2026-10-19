@@ -1177,3 +1177,33 @@ never measured (D-1.6).
   (authors write the first state and the changes; later start states are filled in).
 - Tests: every check fires on a hand-made violation; no issue on the clean script; round trip
   of `=` lines is byte-exact. Detection rate on a long script: next, with the 10-minute script.
+
+### D-7.2 The 10-minute script and continuity measured (2026-10-19)
+- **Script:** "The Lantern Keeper", original, written for this project
+  (`tools/make_sample_wscript.py` → `eval/scripts/lantern_keeper.wscript`, directory form, committed
+  as text). 10 scenes, 4 characters, 5 locations, 7 props, dusk → night → dawn → two days later
+  (two declared `offscreen` time jumps). Only scene 1's state is hand-written; the rest is
+  filled in by `propagate`. Validates with 0 errors, 0 warnings.
+- **Runtime definition (set before measuring):** 1 screenplay page ≈ 1 minute, on a rendered
+  page in the common US layout (55 lines, action 60 / dialogue 35 / parenthetical 25 characters
+  wide; `stages/generate/screenplay.py`); acceptance band 9–11 pages, and dialogue alone ≥ 4 min
+  at 150 words per minute. First draft measured 11.69 pages (over the band) → 6 non-plot lines
+  cut. Final: **10.91 pages; 1,073 dialogue words = 7.15 min of speech.** The band was not changed.
+- **Scene-by-scene loading:** every scene loads with its full continuity state (all 4 characters)
+  and only its own text plus 9 one-line summaries (tested; token sizes in D-7.3).
+- **Continuity (A-7), seeded errors, 200 trials per kind, seed 0** (full checker / in-scene checks
+  only / scene-boundary check only):
+
+  | Corruption | Full | In-scene only | Boundary only |
+  |---|---|---|---|
+  | wrong location in a move | 1.000 | 0.055 | 1.000 |
+  | edited start state | 1.000 | 0.810 | 0.880 |
+  | phantom prop pick-up | 1.000 | 0.860 | 0.760 |
+  | dropped `=` line | 0.885 | 0.230 | 0.795 |
+
+  First run: phantom 0.815, dropped 0.835. Every miss was inspected: most were "picks up what he
+  already holds", then only a warning → made an **error** (a pick-up that cannot happen). Remaining
+  misses (11.5 % of dropped lines) are undetectable by design: changes in the last scene (nothing
+  follows) and weather / lighting changes just before a declared time jump (`offscreen` covers
+  them). Clean script: 0 issues (no false alarm). Both halves are needed (ablation).
+  A-7 status: **adopted** (beats the no-check baseline, which catches nothing).

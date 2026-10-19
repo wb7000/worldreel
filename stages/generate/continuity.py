@@ -3,7 +3,8 @@
 A scene's `continuity` is the world state at its start. Replaying the scene's `=` lines gives
 the state at its end, which must equal the next scene's start state except for paths the next
 scene declares as `offscreen` (time jumps). While replaying, speakers must be at the scene's
-location and a prop can be worn or held by one character at a time.
+location, a prop can be worn or held by one character at a time, and nobody picks up what
+they already have or puts down what they do not have.
 """
 
 from __future__ import annotations
@@ -79,7 +80,7 @@ def replay(
                             if value in items:
                                 issues.append(
                                     Issue(
-                                        "warning",
+                                        "error",  # a pick-up that cannot happen (D-7.2)
                                         "prop_already_had",
                                         f"{target} already has {value} ({key})",
                                         line,

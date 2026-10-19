@@ -1,0 +1,33 @@
+@scene S008 loc=L05 time=dawn tension=7
+~ water flow=steady
+~ drip interval=irregular
+> first C01
+! Stone steps lead down into the hill. Grey dawn light reaches the first ten steps and gives up. {C02} goes first with the {P01}. {C01} follows, the {P02} in her fist. {C03} brings up the rear with the {P03} on a short tether.
+C02: Count the steps. Forty-one to the gate. Rafi made me count them.
+C01: Thirty-nine. Forty. Forty-one.
+! An iron gate, orange with rust, across the passage. Beyond it, the sound of moving water.
+! {C01} fits the {P02} into the lock. It does not turn.
+C01: It's rusted solid.
+C02: Turn it toward you first. Then away. It was always stubborn.
+~ lock_click
+! The lock gives. The gate swings in with a scream of metal. {C01} leaves the {P02} in the lock.
+= C01 holding-=P02
+% 8
+C03: Drone's up. Scanning. Stay behind it, the scanner hates people.
+! The {P03} drifts ahead, a small red light painting the walls. Water runs knee deep along the floor, toward the north.
+C02: The bend. This is where I lost the light.
+! The passage turns. The light of the {P03} finds a ledge above the waterline. On the ledge, something wrapped in rotten canvas, and a rusted lantern beside it.
+C03 (very quiet): Mira.
+! {C01} raises her hand to stop him. {C02} has already seen.
+C02: Rafi.
+% 9
+~ water flow=rising
+C03: Water's coming up. Fast. The tide must have turned early.
+C01: Ade, we have to go. We know where he is now. We can bring him out properly.
+C02: Fifty years. Fifty years he has been waiting at the bend.
+C01: And he can wait one more day, with people who know his name. Please.
+! {C02} touches the canvas once. Then he turns and starts back toward the gate.
+= C01 location=L03
+= C02 location=L03
+= C03 location=L03
+! They climb, the water loud behind them.

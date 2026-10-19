@@ -1,0 +1,26 @@
+@scene S004 loc=L04 time=night tension=4
+> wide
+! {C04} kneels by a tin trunk under the bed and pulls out a cloth bundle.
+C04: He doesn't know I have this. It was my grandmother's.
+= C04 holding+=P06
+! Inside the cloth: the {P06}, brown at the edges. Two young men stand in front of a low arched doorway, holding lanterns.
+C04: That's him. The one on the left. Nineteen sixty-two.
+C01: The year of the survey.
+C04: The other one is his brother. Nobody talks about his brother.
+C03 (careful): What happened to him?
+C04: He went down that doorway to measure it. The rains came early that year. The passage flooded.
+% 6
+! {C01} looks from the {P06} to the frozen frame on the controller. The same arch.
+C01: So when your grandfather says the chapel is closed...
+C04: He means he closed it.
+! {C04} hands the {P06} to {C01}.
+= C04 holding-=P06
+= C01 holding+=P06
+C04: If you're going down there, take this. He should see that you know.
+C03: We're actually going down there?
+C01: Tomas, check what the drone recorded before the signal dropped. Lena, does the old path still reach the chapel?
+C04: The west steps. They're slippery, but they hold. I'll show you.
+= C01 location=L03
+= C03 location=L03
+= C04 location=L03
+! They pull on their coats and go out into the dark.

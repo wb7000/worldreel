@@ -1,0 +1,24 @@
+@scene S001 loc=L01 time=dusk tension=3
+~ rain intensity=heavy
+> wide
+! Monsoon rain hammers the stone arch of {L01}. {C01} hurries up the path, the {P05} folded under her coat.
+! {C02} waits under the arch, the {P01} swinging from one hand, the {P02} from the other.
+C01: Mr. Ade? I'm Mira, from the archive. They said you'd be expecting me.
+C02: They said a team. I see one wet woman with a paper map.
+C01: The team is a drone and the boy who flies it. He went ahead to the rampart.
+C02 (dry): Then he has already broken the first rule.
+C01: Which is?
+C02: Nobody walks the walls after dark. The stones move when they are wet.
+> over C01
+C01: We have four days before the restoration crews start pulling those stones apart. Every night counts.
+C02: Every night counts for the stones too. They have stood four hundred years because people listened to them.
+! {C01} unfolds the {P05}, shielding it from the rain with her body.
+C01: This survey is from 1962. It shows a chapel here, and a passage under it that nobody has drawn since.
+% 4
+C02: Then nobody has needed it since.
+C01: Or nobody was allowed to look.
+! A long pause. {C02} turns the {P02} over in his fingers.
+C02: Come. The hut is dry. My granddaughter makes tea that could wake the dead, which is the only kind of company this place gets.
+= C01 location=L04
+= C02 location=L04
+! They leave the gate to the rain.

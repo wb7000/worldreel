@@ -1,0 +1,24 @@
+@scene S005 loc=L03 time=night tension=6
+~ rain intensity=heavy
+~ thunder distance=far
+> third C01
+! The chapel has no roof. Rain falls straight into the nave and runs between the flagstones toward the east wall.
+! Phone torches sweep over broken pews. {C03} spots the {P03} wedged in a fig tree's roots beside a low arch.
+C03: There! It's alive. Look, the light's still blinking.
+= C03 holding+=P03
+C03: Ninety minutes of footage. And it went inside. It flew right through the doorway before it hit the roots.
+C04: Through? That arch has been bricked up since before I was born.
+! {C01} crouches at the arch. The lower bricks have fallen in. Cold air breathes out of the gap.
+C01: Not anymore.
+% 7
+~ footsteps surface=stone
+= C02 location=L03
+! A swinging light on the steps behind them. {C02} stands in the doorway of the nave, the {P01} raised.
+C02: Lena.
+C04: Grandfather, I can explain.
+C02: You brought them here. In this rain. To this door.
+! {C01} steps forward and holds out the {P06}.
+C01: She brought me this. I think you should be the one to tell me what it is.
+! {C02} looks at the {P06} for a long time. The {P01} trembles in his hand.
+C02 (barely audible): Where did you find that?
+C04: Grandmother kept it. She kept it for you.

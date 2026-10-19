@@ -1,0 +1,24 @@
+@scene S010 loc=L02 time=morning tension=2
+~ sea distance=far
+~ birds
+> wide
+! Morning on {L02}, two days later. The sea is flat and silver. The restoration crews' trucks are parked at the gate, engines off.
+! {C03} holds out the {P07} of {C04}. On the screen, the fort turns slowly in three dimensions, the passage a blue thread under the hill.
+C03: That's it. Every wall, every step. You can walk through it at night now and nobody gets wet.
+C04: Can you put a light at the bend?
+C03: Easy.
+! A small light appears in the model, deep under the hill.
+C02: A lantern. Make it a lantern.
+C03 (smiling): Done.
+% 3
+C01: The office called. The drainage goes on the south side. And they want you on the restoration team, Ade. Someone who knows where the stones move.
+C02: I am seventy-four years old.
+C01: That's why.
+! {C02} laughs, for the first time. He opens the glass of the {P01} and blows out the flame.
+= C02 holding-=P01
+! He sets the {P01} on the battlement, facing the sea.
+% 2
+C04: Grandfather? Will you show me the steps? Properly. Forty-one.
+C02: Forty-one. Come. Before the crews start.
+> wide
+! They walk along the wall, the old man and his granddaughter, the fort whole around them.

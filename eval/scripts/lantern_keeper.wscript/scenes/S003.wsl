@@ -1,0 +1,29 @@
+@scene S003 loc=L04 time=night tension=3
+= world time=night lighting=oil_lamp weather=steady_rain
+~ rain intensity=steady
+> wide
+! A one-room hut of whitewashed stone. {C04} pours tea from a dented pot. {C01} dries the {P05} by the lamp. {C02} hangs the {P01} on a nail by the door.
+= C02 holding-=P01
+C04: Grandfather says you want to scan the whole fort. Every stone.
+C01: Every stone, every beam, every crack. If the restoration goes wrong, the scan is all that's left.
+! The door bangs open. {C03} stumbles in, soaked to the skin, holding the empty controller.
+C03: Before anyone says anything, the wind was not in the forecast.
+C01: Tomas. Where is the drone?
+C03: Technically? In the chapel. Or on it. The last picture shows a door.
+% 5
+! {C02} sets down his cup very slowly.
+C02: The chapel is closed.
+C03: The door looked pretty open to me.
+C04: Show me.
+! {C03} hands the controller to {C04}. She zooms into the frozen frame.
+C04: That's not the chapel door. The chapel door is on the east side. This one goes down.
+> over C04
+C01 (quietly): The passage on the survey.
+C02: Tomorrow. In daylight. With the key, and with me.
+C03: The battery dies in six hours. After that the tracker is gone, and so is everything it recorded.
+! Silence. Rain on the roof. {C02} looks at the {P01} on its nail.
+C02: Then I will fetch it myself. Alone.
+C01: Not alone.
+C02: Lena, keep them here. I need to check the gate chain before anyone goes anywhere.
+! He takes the {P01} from its nail and steps out into the rain.
+= C02 holding+=P01 location=L01

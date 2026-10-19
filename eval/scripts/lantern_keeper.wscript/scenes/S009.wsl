@@ -1,0 +1,19 @@
+@scene S009 loc=L03 time=dawn tension=5
+> wide
+! {C04} waits at the top of the steps, wrapped in a blanket. The rain has thinned to a mist. They come up out of the ground one by one, soaked to the waist.
+C04: You were gone forty minutes. I almost came down.
+C02: Good that you didn't.
+! {C02} sits on the chapel step. {C04} sits beside him without asking.
+C04: Did you find him?
+C02: We found him.
+! She puts her head on his shoulder. He lets her.
+= world weather=clearing lighting=sunrise
+% 4
+C03: I got all of it. The channel, the bend, the ledge. Every centimetre.
+C01: Send it to the restoration office before they wake up. With the drainage plan crossed out.
+C01 (to Ade): They'll want to bring him up with the right people. A priest, maybe. Family.
+C02: Family is here.
+! {C02} takes the {P06} out of his shirt and gives it to {C04}.
+= C02 holding-=P06
+= C04 holding+=P06
+C02: Your grandmother kept this for me. Now you keep it.

@@ -1,0 +1,24 @@
+@scene S006 loc=L03 time=night tension=5
+> over C02
+! {C02} lowers himself onto a broken pew. The {P01} rests on his knee.
+C02: His name was Rafi. He was better at everything. Faster up the walls, better with numbers. The surveyor hired him, not me.
+C02: That night the man went home early. Rafi said one more measurement, just to the first bend. I held the lantern at the top of the steps.
+C01: And the water came.
+C02: It came from below, not above. That is what nobody believed. The sea comes into this hill through a channel older than the fort.
+! {C03} glances at the screen of the {P03}, then at {C01}.
+C03: Mira. The footage. There's water moving in there, even now. You can see a current.
+% 6
+C02: I bricked the arch myself. I told the village the chapel was unsafe, and after a while it was true.
+! A gust of wind. The arch breathes out again, colder.
+C01 (gently): The scan could map it. All of it, without anyone going down. If there's a channel, the restoration has to know before they start drilling.
+C02: And Rafi?
+C01: If he's down there, we'll know where. And you can stop going down in your head every time it rains.
+! {C02} is quiet. Then he takes the {P02} from his belt and holds it out to {C01}.
+= C02 holding-=P02
+= C01 holding+=P02
+C02: The iron gate at the bottom of the steps. This opens it. Not tonight. At low tide, at dawn.
+= C01 location=L04
+= C02 location=L04
+= C03 location=L04
+= C04 location=L04
+! They climb back up the west steps together, {C02} last, holding the {P01} high.

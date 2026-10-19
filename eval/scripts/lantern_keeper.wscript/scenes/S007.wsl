@@ -1,0 +1,18 @@
+@scene S007 loc=L04 time=night tension=4
+= world weather=light_rain
+~ rain intensity=light
+> wide
+! The hut, after midnight. The {P05} is spread across the table, weighted with teacups. {C03} has the {P03} plugged into a laptop.
+C03: The drone got about forty metres in before the roots. The passage drops, then turns north. Toward the sea.
+! {C01} draws a pencil line on the {P05}, following his numbers.
+C01: The turn is right under the rampart. Where the crews want to put the new drainage.
+C04: So if they drill there...
+C01: They hit the channel, and the sea comes up the hill. The same thing as nineteen sixty-two, only faster.
+% 5
+! {C02} sits apart by the door. {C01} slides the {P06} across the table to him.
+= C01 holding-=P06
+= C02 holding+=P06
+! He turns it over in his hands, again and again.
+C02: He would have liked you. He liked people who drew lines on maps.
+C01: Then help me draw this one right.
+C02: Low tide is at five forty. Sleep two hours. All of you.
