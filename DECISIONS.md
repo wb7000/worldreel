@@ -1099,3 +1099,15 @@ service. Fix: `mlt_service=qimage` (Shotcut's `qt6/producer_qimage.yml`: "%" in 
 sequence, `begin` = starting number) with `begin=0` as a property. Measured with melt, each layer
 rendered alone (others hidden): depth, mask_p1 and mask_p2 load, no load errors; main picture and
 stem gains unchanged (PSNR 39.4 dB, gains 1.00 / 1.00 / 1.00).
+
+### D-6.8 Layers covered the main picture in Shotcut; main is now V1, layers hidden above (2026-10-19)
+Owner's third check: the depth layer showed instead of the main picture, without the owner hiding
+anything. Evidence: melt rendering Shotcut's own autosave of the project gave PSNR 4.6 dB against
+`main.mp4` (my file: 39.4 dB). The one change that mattered: Shotcut sets `disable=1` on the bottom
+video track's blend (its V1 is the opaque base); re-enabling it restored main (25.9 dB, single PNG
+frame). In that state blends that all composite onto track 0 do not show either.
+Fix: main is V1; depth and masks sit above it, hidden (`hide="video"`, the eye button in
+Shotcut); each video blend composites onto the video track below (`a_track` = previous video
+track). Measured with melt, both as written and with Shotcut's V1 `disable` applied: layers hidden →
+output identical to main; depth un-hidden → depth on top (26.3 dB vs the 8-bit depth, 6.0 vs
+main). Full render unchanged: PSNR 39.4 dB, stem gains 1.00 / 1.00 / 1.00.

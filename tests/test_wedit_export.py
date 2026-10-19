@@ -81,13 +81,21 @@ def test_mlt_paths_resolve_from_the_timeline_folder(bundle: Path) -> None:
                 assert props["mlt_service"] == "qimage" and "?" not in props["resource"]
                 path = path.replace("%06d", "000000")
             assert (bundle / "timeline" / path).resolve().exists(), path
-    hides = {t.get("producer"): t.get("hide") for t in root.iter("track")}
+    hides = {t.get("producer", ""): t.get("hide") for t in root.iter("track")}
     assert hides["pl_main"] == "audio"  # stems carry the sound
     # Shotcut's project markers: without them it opens the file as one clip, not a timeline.
     tractor = root.find("tractor")
     assert tractor is not None
     assert any(p.get("name") == "shotcut" and p.text == "1" for p in tractor.findall("property"))
-    assert next(iter(hides)) == "background"
+    order = list(hides)
+    assert order[:2] == ["background", "pl_main"]  # main is V1: Shotcut disables V1's blend
+    assert all(hides[t] == "video" for t in order if t.startswith(("pl_depth", "pl_mask")))
+    blends = [
+        {p.get("name"): p.text for p in tr.findall("property")}
+        for tr in tractor.findall("transition")
+    ]
+    chain = [(b["a_track"], b["b_track"]) for b in blends if b["mlt_service"] == "qtblend"]
+    assert chain == [(str(k), str(k + 1)) for k in range(len(chain))]  # onto the track below
     kinds = {
         pl.get("id"): {p.get("name") for p in pl.findall("property")}
         for pl in root.iter("playlist")

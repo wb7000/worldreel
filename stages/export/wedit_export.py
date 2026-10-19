@@ -120,8 +120,8 @@ def _mlt_xml(
     stems: list[dict[str, Any]],
     layers: list[dict[str, Any]],
 ) -> str:
-    """MLT XML in Shotcut's project layout (D-6.6): `background` track, layer tracks under the
-    main picture (which covers them; hide or move it to see a layer), audio tracks mixed in.
+    """MLT XML in Shotcut's project layout (D-6.6): `background` track, main picture as V1,
+    hidden layer tracks above it (show one with its eye button), audio tracks mixed in.
     Property names are Shotcut's (src/shotcut_mlt_properties.h); without `shotcut` on the tractor
     Shotcut opens the file as a single clip instead of a timeline."""
     out = frames - 1
@@ -140,9 +140,11 @@ def _mlt_xml(
         lines.extend([f'    <property name="{k}">{v}</property>' for k, v in props.items()])
         lines.append("  </producer>")
 
-    def transition(tid: str, service: str, b_track: int, props: dict[str, str]) -> None:
+    def transition(
+        tid: str, service: str, a_track: int, b_track: int, props: dict[str, str]
+    ) -> None:
         lines.append(f'    <transition id="{tid}">')
-        lines.append('      <property name="a_track">0</property>')
+        lines.append(f'      <property name="a_track">{a_track}</property>')
         lines.append(f'      <property name="b_track">{b_track}</property>')
         lines.append(f'      <property name="mlt_service">{service}</property>')
         lines.extend([f'      <property name="{k}">{v}</property>' for k, v in props.items()])
@@ -177,12 +179,13 @@ def _mlt_xml(
         producer(f"p_{s['id']}", {"resource": f"../{s['path']}"})
 
     # (playlist id, producer, Shotcut track kind, track name, hide). Video tracks first, bottom
-    # to top; the main clip's own mixed sound is muted because the stems are the timeline's audio,
-    # otherwise the mix and the stems would play together (D-6.5).
-    playlists = [
-        (f"pl_{layer['id']}", f"p_{layer['id']}", "video", layer["id"], "") for layer in layers
+    # to top. Main is the bottom track (V1): Shotcut disables V1's blend, so V1 must be the opaque
+    # base (D-6.8). Layers above it are hidden (eye off in Shotcut). The main clip's own mixed sound
+    # is muted because the stems are the timeline's audio, otherwise both would play (D-6.5).
+    playlists = [("pl_main", "p_main", "video", "main", "audio")]
+    playlists += [
+        (f"pl_{layer['id']}", f"p_{layer['id']}", "video", layer["id"], "video") for layer in layers
     ]
-    playlists.append(("pl_main", "p_main", "video", "main", "audio"))
     playlists += [(f"pl_{s['id']}", f"p_{s['id']}", "audio", s["layer"], "video") for s in stems]
     lines.append('  <playlist id="background">')
     lines.append(f'    <entry producer="black" in="0" out="{out}"/>')
@@ -201,10 +204,12 @@ def _mlt_xml(
         attr = f' hide="{hide}"' if hide else ""
         lines.append(f'      <track producer="{plid}"{attr}/>')
     lines.append("    </multitrack>")
+    below = 0  # each video track blends onto the video track under it (D-6.8)
     for k, (_, _, kind, _, _) in enumerate(playlists, start=1):
-        transition(f"mix{k}", "mix", k, {"always_active": "1", "sum": "1"})
+        transition(f"mix{k}", "mix", 0, k, {"always_active": "1", "sum": "1"})
         if kind == "video":
-            transition(f"blend{k}", "qtblend", k, {"always_active": "1"})
+            transition(f"blend{k}", "qtblend", below, k, {"always_active": "1"})
+            below = k
     lines.append("  </tractor>")
     lines.append("</mlt>")
     return "\n".join(lines) + "\n"
