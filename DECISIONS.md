@@ -968,3 +968,27 @@ Branch: `phase-5-audio` from main eee6fab.
   (The own-step direction differs by 180°: through one's own eyes the step is just behind / below
   the head, from the follow camera it is ahead. With a source almost directly below, azimuth is
   not very meaningful; the level difference is the robust number.)
+
+### D-5.5 "Like a thousand bees": owner's listening test failed; sound redesigned (2026-10-19)
+- The owner listened in the player and described the result as "a thousand bees screaming". Not
+  pushed. Measured per stem (walker scene, rain, tension 1→9): ambience 35 % of energy above
+  4 kHz (rain: ~400 bright 2–12 kHz clicks/s + hiss to 9 kHz), footsteps 44 % above 4 kHz (bright
+  gravel grains + spray), mix 25 % above 4 kHz; the music was pure-sine chords whose crossfade
+  sounded a major and a minor third together.
+- Targets fixed before the redesign: energy above 4 kHz ≤ 5 % music, ≤ 10 % ambience, ≤ 20 %
+  footsteps, ≤ 10 % mix; music roughness ≤ 0.15.
+- Roughness measure (`synth.harshness`), corrected twice on reference sounds: a share-of-flutter
+  version scored a steady sine 0.999; a full-band depth version rated a smooth low chord as rough
+  (its waveform repeats at 27.5–55 Hz — heard as pitch). Final: depth of 15–100 Hz loudness flutter
+  within 1–8 kHz (steady 2 kHz sine 0.001, 80 % 30 Hz tremolo 0.56, noise 0.074).
+- Redesign: soft rain (low-passed wash + ~60 dull drops/s); footsteps low-passed at 6 kHz, gravel
+  grains and spray at 1.5–5 kHz; music = warm detuned pad (band-limited saw voices, low-passed
+  900 Hz) with a third that *glides* major→minor, a low drone and a soft heartbeat-like pulse
+  (60 → 120 bpm) — no pure sines, no high beeps.
+- Result (20 s, rain + gravel, tension 1→9): above 4 kHz — ambience 0.3 %, footsteps 13 %, music
+  0 %, mix 3 % (was 25 %); music roughness 0. All targets met. Trade-offs: footstep conditions
+  distinguishable 10/14 (was 11/14; gravel in rain dropped); music is now *darker* with tension
+  (heavier low pulse) instead of brighter — tempo still tracks tension (86 / 103 / 120 bpm at
+  tension 6 / 8 / 10, as intended).
+- Objective checks are not a listening test: 20 s clips in `data/listen/` (git-ignored) go to the
+  owner; Phase 5 is not closed or pushed until the owner is happy with how it sounds.

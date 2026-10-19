@@ -95,7 +95,7 @@ def _impact(surface: str, footwear: str, weight: float, rng: np.random.Generator
         )
         x = body + _filt(_burst(rng, length, 0.006), "highpass", 2000.0) * 0.3 + thump * 0.4
     elif surface == "gravel":  # crunchy: many bright grains
-        x = grains((36, 44), 0.12, (2500.0, 9000.0), 1.0) + thump * 0.3
+        x = grains((36, 44), 0.12, (1500.0, 5000.0), 1.0) + thump * 0.3
     elif surface == "grass":  # soft swish, no click
         x = _filt(_burst(rng, length, 0.07), "bandpass", (300.0, 3000.0)) * 0.6
     elif surface == "sand":  # fine-grained soft "shh" (1-4 kHz grains), almost no body
@@ -121,7 +121,7 @@ def _splash(rng: np.random.Generator, length_s: float, soft: bool) -> F64:
     """Water. Hard surfaces splash: a long spray tail (150-250 ms) plus a low squelch. Soft ground
     (sand, dirt, grass) soaks the water up and squelches instead: mostly a longer low-mid squelch
     with little spray. A single spray for every surface made wet sand and wet dirt alike (D-5.1)."""
-    spray = _filt(_burst(rng, length_s, rng.uniform(0.18, 0.22)), "bandpass", (2500.0, 7000.0))
+    spray = _filt(_burst(rng, length_s, rng.uniform(0.18, 0.22)), "bandpass", (1500.0, 4500.0))
     if soft:
         squelch = _filt(_burst(rng, length_s, rng.uniform(0.12, 0.14)), "bandpass", (200.0, 700.0))
         return squelch * 1.0 + spray * 0.15
@@ -158,6 +158,9 @@ def footstep(attributes: dict[str, Any], seed: int = 0) -> F32:
         sp *= 0.7 * rms_heel / rms_sp
         start = int(0.01 * SAMPLE_RATE)
         out[start : start + len(sp)] += sp[: len(out) - start]
+    # Cap the highs at 6 kHz: the first version had 44 % of its energy above 4 kHz and was heard
+    # as hiss / buzzing in the player (D-5.5).
+    out = _filt(out, "lowpass", 6000.0, order=4)
     level = float(np.clip(0.35 * (weight / 70.0) ** 0.5 * (0.7 + 0.3 * speed / 1.4), 0.1, 0.9))
     peak = float(np.abs(out).max()) or 1.0
     fade = np.ones(len(out))
@@ -253,3 +256,30 @@ def wav_samples(data: bytes) -> F32:
             raise ValueError("only 16-bit PCM is supported")
         raw = np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(np.float32) / 32767.0
         return np.asarray(raw.reshape(-1, w.getnchannels())[:, 0], np.float32)
+
+
+def harshness(x: npt.NDArray[np.floating[Any]]) -> dict[str, float]:
+    """Objective proxies for unpleasant sound (D-5.5).
+
+    `hf_share`: energy above 4 kHz. `roughness`: depth of 15-100 Hz loudness flutter (RMS of the
+    band-passed envelope / its mean) *within 1-8 kHz*, where buzzing is heard; 0 when that band
+    holds < 1 % of the energy. History: a share-of-fluctuation version scored a steady sine 0.999;
+    a full-band depth version rated a smooth low chord as rough because its waveform repeats at
+    27.5-55 Hz (heard as a deep pitch, not buzz). Both checked on reference sounds."""
+    a = np.asarray(x, np.float64)
+    spec = np.abs(np.fft.rfft(a)) ** 2
+    f = np.fft.rfftfreq(len(a), 1 / SAMPLE_RATE)
+    total = float(spec.sum()) or 1.0
+    band_energy = float(spec[(f >= 1000.0) & (f <= 8000.0)].sum()) / total
+    rough = 0.0
+    if band_energy >= 0.01:
+        b = _filt(a, "bandpass", (1000.0, 8000.0), order=4)
+        win = int(0.002 * SAMPLE_RATE)  # 500 Hz envelope rate
+        frames = len(b) // win
+        env = np.sqrt((b[: frames * win].reshape(frames, win) ** 2).mean(1))
+        mean = float(env.mean()) or 1.0
+        m = np.fft.rfft(env - env.mean())
+        mf = np.fft.rfftfreq(len(env), win / SAMPLE_RATE)
+        m[(mf < 15.0) | (mf > 100.0)] = 0.0
+        rough = float(np.sqrt((np.fft.irfft(m, n=len(env)) ** 2).mean()) / mean)
+    return {"hf_share": float(spec[f >= 4000.0].sum() / total), "roughness": rough}

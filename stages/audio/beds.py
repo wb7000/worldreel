@@ -68,49 +68,68 @@ def ambience(
     wind = _lowpass(rng.standard_normal(n), 400.0) * (0.15 + 0.25 * gust * (0.3 + tension / 10))
     out = wind
     if weather == "rain":
-        hiss = _bandpass(rng.standard_normal(n), 800.0, 9000.0) * 0.06
+        # Soft rain: a low-passed noise wash plus sparse, dull drops. (The first version used
+        # ~400 bright 2-12 kHz clicks per second and hiss up to 9 kHz: heard as harsh buzzing,
+        # 35 % of its energy above 4 kHz, D-5.5.)
+        wash = _lowpass(_lowpass(rng.standard_normal(n), 1500.0), 3500.0) * 0.25
         drops = np.zeros(n)
-        count = int(duration * 400)  # ~400 audible droplets per second
-        for i in rng.integers(0, max(n - 200, 1), count):
-            drops[i : i + 64] += (
-                rng.uniform(0.1, 0.5) * np.exp(-np.arange(64) / 8.0) * rng.choice([-1, 1])
+        for i in rng.integers(0, max(n - 600, 1), int(duration * 60)):
+            drops[i : i + 512] += (
+                rng.uniform(0.2, 0.6) * np.exp(-np.arange(512) / 60.0) * rng.standard_normal(512)
             )
-        out = out + hiss + _bandpass(drops, 2000.0, 12000.0) * 0.5
+        out = out + wash + _lowpass(drops, 2500.0) * 0.4
     peak = float(np.abs(out).max()) or 1.0
     return np.asarray(out / peak * 0.5, np.float32)
 
 
+def _warm_tone(freq: F64 | float, t: F64, rng: np.random.Generator, voices: int = 3) -> F64:
+    """Soft, slightly detuned band-limited sawtooth (6 harmonics, 1/k), several voices: a warm
+    chorus with slow (< 1 Hz) movement instead of the buzzing of pure-sine clusters (D-5.5)."""
+    out = np.zeros(len(t))
+    for v in range(voices):
+        detune = 1.0 + (v - (voices - 1) / 2) * 0.0015
+        phase = 2 * np.pi * np.cumsum(np.broadcast_to(freq, t.shape) * detune) / SAMPLE_RATE
+        phase = phase + rng.uniform(0, 6.28)
+        for k in range(1, 7):
+            out += np.sin(k * phase) / k
+    return out / voices
+
+
 def music(duration: float, mood: list[dict[str, Any]], seed: int = 0) -> F32:
-    """Fixed layer gains (no per-render normalising: that made the music quieter as tension added
-    layers, D-5.3); peak <= 0.32 + 0.1 + 0.1 + 0.35 < 1 by construction."""
+    """Warm pad + heartbeat pulse driven by tension (D-5.5 redesign; D-5.3 was pure sines that
+    buzzed). Chord: root, fifth, octave and a third that *glides* from major (5/4) to minor (6/5)
+    as tension rises — one voice, so no two thirds beat against each other. All low-passed at
+    900 Hz. Pulse: a soft low double thump (heartbeat-like) from tension 4, 60 -> 120 bpm."""
     rng = np.random.default_rng(seed)
     n = int(duration * SAMPLE_RATE)
     t = np.arange(n) / SAMPLE_RATE
     tension = tension_curve(mood, duration)
     tense = np.clip((tension - 3.0) / 7.0, 0.0, 1.0)  # 0 calm .. 1 intense
     root = 110.0  # A2
-    major = [1.0, 5 / 4, 3 / 2, 2.0]
-    minor = [1.0, 6 / 5, 3 / 2, 2.0]
-    pad_major = sum(np.sin(2 * np.pi * root * 2 * r * t + rng.uniform(0, 6.28)) for r in major)
-    pad_minor = sum(np.sin(2 * np.pi * root * 2 * r * t + rng.uniform(0, 6.28)) for r in minor)
-    breath = 0.8 + 0.2 * np.sin(2 * np.pi * 0.1 * t)
-    # Equal-power crossfade (linear weights lost ~3 dB halfway between the chords, D-5.3).
+    third = root * (1.25 + (1.2 - 1.25) * tense)
     pad = (
-        (np.cos(tense * np.pi / 2) * pad_major + np.sin(tense * np.pi / 2) * pad_minor)
-        * 0.08
-        * breath
+        _warm_tone(root, t, rng)
+        + _warm_tone(root * 1.5, t, rng) * 0.8
+        + _warm_tone(root * 2.0, t, rng) * 0.6
+        + _warm_tone(third, t, rng) * 0.7
     )
-    drone = np.sin(2 * np.pi * root * t) * 0.1 * tense  # A2, grows with tension
-    shimmer = sum(np.sin(2 * np.pi * root * 8 * r * t + rng.uniform(0, 6.28)) for r in minor)
-    shimmer = shimmer * 0.025 * tense  # high partials: brighter when tense
-    # Pulse: phase accumulates with a tension-dependent tempo (60 -> 140 bpm).
-    bpm = 60.0 + 80.0 * tense
+    pad = (
+        _lowpass(_lowpass(pad, 900.0), 900.0) * 0.07 * (0.85 + 0.15 * np.sin(2 * np.pi * 0.08 * t))
+    )
+    drone = _lowpass(_warm_tone(root / 2, t, rng), 300.0) * 0.12 * tense
+    bpm = 60.0 + 60.0 * tense
     phase = np.cumsum(bpm / 60.0 / SAMPLE_RATE)
     beat_pos = phase - np.floor(phase)
-    since_beat = beat_pos / (bpm / 60.0)  # seconds since the last beat
-    click = np.exp(-since_beat * 30.0) * np.sin(2 * np.pi * (300.0 + 900.0 * tense) * since_beat)
-    pulse = click * np.clip((tension - 3.0) / 4.0, 0.0, 1.0) * 0.35
-    out = pad + drone + shimmer + pulse
+    since = beat_pos / (bpm / 60.0)
+    second = np.clip(since - 0.22, 0.0, None)
+
+    def thump(s: F64) -> F64:
+        return (
+            np.exp(-s * 18.0) * np.sin(2 * np.pi * (48.0 + 20.0 * np.exp(-s * 30.0)) * s) * (s > 0)
+        )
+
+    pulse = (thump(since) + 0.6 * thump(second)) * np.clip((tension - 3.5) / 4.0, 0.0, 1.0) * 0.45
+    out = pad + drone + pulse
     return np.asarray(np.clip(out, -1.0, 1.0), np.float32)
 
 

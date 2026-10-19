@@ -26,8 +26,8 @@ def test_rain_makes_the_tail_longer_and_changes_the_spectrum() -> None:
 def test_surfaces_differ_in_spectral_profile() -> None:
     wood = profile(footstep({"surface": "wood"}, seed=0))[:9]
     gravel = profile(footstep({"surface": "gravel"}, seed=0))[:9]
-    # wood is low and resonant, gravel is bright and crunchy: 8 kHz band far apart
-    assert gravel[7] - wood[7] > 20.0
+    # wood is low and resonant, gravel is crunchy (grains 1.5-5 kHz since D-5.5): 4 kHz band apart
+    assert gravel[6] - wood[6] > 20.0
 
 
 def test_unknown_attributes_fall_back_to_defaults() -> None:

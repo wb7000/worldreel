@@ -40,17 +40,48 @@ def test_beds_are_deterministic_bounded_and_rain_adds_highs() -> None:
     assert high_share(rain) > 10 * high_share(dry)
 
 
-def test_music_gets_louder_and_brighter_from_calm_to_intense() -> None:
+def test_music_gets_louder_and_heavier_from_calm_to_intense() -> None:
+    """D-5.5 design: tension adds a low heartbeat-like pulse and a drone (heavier, not brighter)."""
     calm = music(10.0, [{"t": 0.0, "tension": 1}]).astype(np.float64)
     tense = music(10.0, [{"t": 0.0, "tension": 10}]).astype(np.float64)
     assert np.sqrt((tense**2).mean()) > np.sqrt((calm**2).mean())
 
-    def centroid(x: np.ndarray) -> float:
+    def low_share(x: np.ndarray) -> float:
         spec = np.abs(np.fft.rfft(x)) ** 2
         f = np.fft.rfftfreq(len(x), 1 / SAMPLE_RATE)
-        return float((f * spec).sum() / spec.sum())
+        return float(spec[f < 100].sum() / spec.sum())
 
-    assert centroid(tense) > centroid(calm) + 50
+    assert low_share(tense) > low_share(calm) + 0.1
+
+
+def test_layers_are_not_harsh() -> None:
+    """D-5.5 targets, set before the redesign: energy above 4 kHz and 1-8 kHz flutter."""
+    from stages.audio.events import footstep_audio
+    from stages.audio.synth import harshness
+
+    t = np.arange(0, 10.0001, 0.1)
+    tracks = {"p1": {"times": t.tolist(), "positions": [[1.4 * x, 0.0, 0.0] for x in t]}}
+    events, clips, _ = footstep_audio(
+        [{"id": "p1", "eye_height": 1.62}], tracks, {"surface": "gravel", "weather": "rain"}
+    )
+    mood = [{"t": 0.0, "tension": 1}, {"t": 5.0, "tension": 9}]
+    stems = render_stems(10.0, events, mood, clips, "rain")
+    assert harshness(stems["ambience"])["hf_share"] <= 0.10
+    assert harshness(stems["foley"])["hf_share"] <= 0.20
+    m = harshness(stems["music"])
+    assert m["hf_share"] <= 0.05 and m["roughness"] <= 0.15
+    assert harshness(mixdown(stems))["hf_share"] <= 0.10
+
+
+def test_harshness_measure_on_reference_sounds() -> None:
+    from stages.audio.synth import harshness
+
+    t = np.arange(3 * SAMPLE_RATE) / SAMPLE_RATE
+    steady = np.sin(2 * np.pi * 2000 * t)
+    tremolo = steady * (1 + 0.8 * np.sin(2 * np.pi * 30 * t))
+    assert harshness(steady)["roughness"] < 0.05
+    assert harshness(tremolo)["roughness"] > 0.4
+    assert harshness(np.sin(2 * np.pi * 220 * t))["roughness"] == 0.0  # nothing in 1-8 kHz
 
 
 def test_stems_are_separate_tracks_and_the_mix_is_their_weighted_sum() -> None:
