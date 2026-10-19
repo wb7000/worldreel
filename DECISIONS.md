@@ -1274,3 +1274,34 @@ Findings:
   2026): distinct — min appearance 0.405, min voice 0.418; no tampering.
 - Still open, by design: faces and voices are not rendered yet, so the distance is in parameter
   space, not perceptual; Phase 8 must repeat the check on face / speaker embeddings of the output.
+
+### D-7.5 Script model: Soup verified, data, task and pass marks (2026-10-19, set before training)
+- **Soup is real** (closes D-0.8): PyPI `soup-cli` 0.76.1, Apache-2.0, repo
+  github.com/MakazhanAlpamys/Soup. README: `pip install "soup-cli[train]"`, `soup train --config
+  soup.yaml`, Python 3.10–3.12 only, Qwen 2.5 supported, layer streaming opt-in and BETA. Every
+  config key used is checked in `src/soup_cli/config/schema.py` at commit 64c12ca (base, task,
+  data.train/format/val_split/max_length/train_on_responses_only, training.epochs/lr/batch_size/
+  gradient_accumulation_steps/seed/quantization/gradient_checkpointing, lora.r/alpha). Kaggle
+  runs Python 3.13 (D-3b), so the job builds a Python 3.12 environment with `uv` for Soup.
+  Layer streaming is not needed (0.5 B model, 16 GB T4) and is not used or claimed.
+- **Model:** Qwen/Qwen2.5-0.5B-Instruct, revision 7ae5576…, Apache-2.0 (model card + LICENSE).
+- **Data:** 13 Project Gutenberg plays, public domain in the US (authors died 1900–1950;
+  translations by William Archer, R. Farquharson Sharp and others, published before 1929); raw text
+  and conversions stay in git-ignored `data/plays/`, uploaded only as a private Kaggle dataset,
+  Gutenberg header / licence stripped, never redistributed. `tools/plays_to_wscript.py`
+  converts 12 (An Enemy of the People uses title-case speaker names → skipped; Pygmalion's text
+  labels only Acts I–II, so II–V are one scene; Hedda Gabler has one false speaker "Mrs"):
+  ~12,200 dialogue lines, ~3,000 directions; every converted play validates and passes the
+  continuity tracker. Converting found a **tracker bug**: a character entering in a later scene
+  had `None` vs empty prop lists → false `continuity_break`; fixed (missing list = empty).
+- **Task:** scene continuation — the `load_context` prompt (dictionary, continuity, summaries,
+  last ≤ 24 lines of the scene) → the next 8 `.wsl` lines (`stages/generate/script_model.py`).
+  Split by play: test = Ghosts + Arms and the Man (97 prompts), val = Uncle Vanya (39), train =
+  the other 9 (1,417); out-of-domain test = The Lantern Keeper (20 prompts, modern, with sound /
+  POV / state lines the plays never have). Data version `manifest.json` (seed 7).
+- **Metrics** (greedy decoding, ≤ 320 new tokens, same system prompt for both models):
+  syntax validity (every line parses, ≥ 1 line), reference validity (only the script's IDs),
+  and teacher-forced loss on the true next lines. Scorer checked: gold lines score 1.0 / 1.0.
+- **Pass marks (set now):** on the held-out plays the fine-tuned model beats the base model on
+  all three metrics, and reaches syntax ≥ 0.90 and reference validity ≥ 0.90. The Lantern Keeper
+  is reported without a pass mark (out of domain).

@@ -51,5 +51,5 @@ files = ["formats", "pipeline", "stages", "tools", "eval", "training", "tests"]
 exclude = ['tools/blender/gen_scene\.py', 'training/kaggle/']
 
 [[tool.mypy.overrides]]
-module = ["cv2", "cv2.*", "torch", "torch.*", "gsplat", "gsplat.*", "transformers", "transformers.*", "sam2", "sam2.*", "onnxruntime", "onnxruntime.*", "pyloudnorm", "pyloudnorm.*", "numba", "numba.*", "opentimelineio", "opentimelineio.*"]
+module = ["cv2", "cv2.*", "torch", "torch.*", "gsplat", "gsplat.*", "transformers", "transformers.*", "sam2", "sam2.*", "onnxruntime", "onnxruntime.*", "pyloudnorm", "pyloudnorm.*", "numba", "numba.*", "opentimelineio", "opentimelineio.*", "peft", "peft.*"]
 ignore_missing_imports = true

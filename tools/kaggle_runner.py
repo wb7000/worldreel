@@ -4,6 +4,8 @@ through configuration, not code changes).
     python -m tools.kaggle_runner push-code                  # code → private dataset
     python -m tools.kaggle_runner push-scene <scene dir>     # a synthetic scene → private dataset
     python -m tools.kaggle_runner push-video <id> --name N --config <toml>  # an ingested video
+    python -m tools.kaggle_runner push-data <folder> --name N  # any prepared data folder
+    python -m tools.kaggle_runner run <job.py> --scene data:N  # attach it to a job
     python -m tools.kaggle_runner run <job.py> [--scene NAME] [--wait]
     python -m tools.kaggle_runner status <job.py>
     python -m tools.kaggle_runner fetch <job.py>            # outputs → runs/kaggle/<job>/
@@ -107,6 +109,15 @@ def push_scene(scene: Path, name: str) -> None:
         _upload(Path(tmp), f"worldreel-scene-{name}", f"WorldReel scene {name}", "scene upload")
 
 
+def push_data(folder: Path, name: str) -> None:
+    """A prepared data folder (e.g. a training set built from data/) as one private dataset."""
+    with tempfile.TemporaryDirectory() as tmp:
+        archive = Path(tmp) / "data.zip"
+        shutil.make_archive(str(archive.with_suffix("")), "zip", folder)
+        print(f"data archive: {archive.stat().st_size / 1e6:.1f} MB")
+        _upload(Path(tmp), f"worldreel-data-{name}", f"WorldReel data {name}", "data upload")
+
+
 def push_video(store_root: Path, file_id: str, name: str, config: Path) -> None:
     """Upload one ingested video (by data id) and the pipeline config to run on it, as a
     PRIVATE dataset. Only the video file, its manifest row and the config are uploaded."""
@@ -191,6 +202,8 @@ def _push(job: Path, scenes: list[str], any_gpu: bool) -> None:
             + [
                 f"{user}/worldreel-video-{s[6:]}"
                 if s.startswith("video:")
+                else f"{user}/worldreel-data-{s[5:]}"
+                if s.startswith("data:")
                 else f"{user}/worldreel-scene-{s}"
                 for s in scenes
             ],
@@ -229,6 +242,9 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("push-code")
     c.add_argument("-m", "--message", default="code update")
+    d = sub.add_parser("push-data")
+    d.add_argument("folder", type=Path)
+    d.add_argument("--name", required=True)
     s = sub.add_parser("push-scene")
     s.add_argument("scene", type=Path)
     s.add_argument("--name", required=True)
@@ -256,6 +272,8 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
     if a.cmd == "push-code":
         push_code(a.message)
+    elif a.cmd == "push-data":
+        push_data(a.folder, a.name)
     elif a.cmd == "push-scene":
         push_scene(a.scene, a.name)
     elif a.cmd == "push-video":

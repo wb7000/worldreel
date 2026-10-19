@@ -1,0 +1,22 @@
+# Script model (D-7.5): LoRA SFT of Qwen2.5-0.5B-Instruct with Soup (soup-cli 0.76.1).
+# Paths are filled in by training/kaggle/jobs/script_sft.py. Keys checked in Soup's schema.py.
+base: Qwen/Qwen2.5-0.5B-Instruct
+task: sft
+data:
+  train: TRAIN_JSONL
+  format: chatml
+  val_split: 0.03
+  max_length: 3072
+  train_on_responses_only: true
+training:
+  epochs: 2
+  lr: 2.0e-4
+  batch_size: 4
+  gradient_accumulation_steps: 4
+  seed: 7
+  quantization: none
+  gradient_checkpointing: true
+  lora:
+    r: 16
+    alpha: 32
+output: OUTPUT_DIR

@@ -132,7 +132,12 @@ def _paths(state: dict[str, Any]) -> dict[str, Any]:
 
 def diff(end: dict[str, Any], start: dict[str, Any]) -> dict[str, tuple[Any, Any]]:
     a, b = _paths(end), _paths(start)
-    return {p: (a.get(p), b.get(p)) for p in sorted(set(a) | set(b)) if a.get(p) != b.get(p)}
+
+    def get(d: dict[str, Any], p: str) -> Any:
+        # A character not yet in the state has no props: missing lists equal empty ones (D-7.5).
+        return d.get(p, () if p.endswith((".wearing", ".holding")) else None)
+
+    return {p: (get(a, p), get(b, p)) for p in sorted(set(a) | set(b)) if get(a, p) != get(b, p)}
 
 
 def check(script: Script) -> tuple[Report, dict[str, list[Issue]]]:
