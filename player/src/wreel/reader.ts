@@ -38,6 +38,8 @@ export interface OpenedWreel {
   tracks: Map<string, Track>;
   /** Load the finest LOD of every layer. Resolves to the number of layers that improved. */
   refine(): Promise<number>;
+  /** Audio entries (stems and event clips), hash-checked, by path. */
+  loadAudio(): Promise<Map<string, Uint8Array>>;
 }
 
 const REQUIRED_KEYS = [
@@ -200,5 +202,14 @@ export async function openWreel(data: Uint8Array): Promise<OpenedWreel> {
     return targets.length;
   }
 
-  return { manifest, signature, warnings, layers, actorGeometry, tracks, refine };
+  async function loadAudio(): Promise<Map<string, Uint8Array>> {
+    const paths = new Set<string>(manifest.audio.tracks.map((t) => t.path));
+    for (const e of manifest.audio.events) {
+      const clip = e.attributes?.["clip"];
+      if (typeof clip === "string" && manifest.files[clip]) paths.add(clip);
+    }
+    return paths.size ? extract(data, manifest, paths) : new Map();
+  }
+
+  return { manifest, signature, warnings, layers, actorGeometry, tracks, refine, loadAudio };
 }

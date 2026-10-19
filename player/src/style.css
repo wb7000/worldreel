@@ -205,6 +205,12 @@ body {
   padding: 5px 0;
 }
 
+.transport #sound {
+  width: auto;
+  padding: 5px 12px;
+  white-space: nowrap;
+}
+
 #scrub {
   flex: 1;
   accent-color: var(--accent);

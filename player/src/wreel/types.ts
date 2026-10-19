@@ -101,7 +101,12 @@ export interface Manifest {
   cameras: Camera[];
   pov_presets: PovPreset[];
   regions: { id: string; class: ProvenanceClass; confidence: number }[];
-  audio: { tracks: unknown[]; events: unknown[]; mood: { t: number; tension: number }[] };
+  audio: {
+    tracks: AudioTrack[];
+    events: AudioEvent[];
+    mood: { t: number; tension: number }[];
+    mix?: { ducking?: boolean; loudness_target_lufs?: number };
+  };
   interaction: { rules: Rule[] };
   files: Record<string, FileEntry>;
 }
@@ -110,4 +115,25 @@ export interface Track {
   times: number[];
   positions: Vec3[];
   rotations: Quat[];
+}
+
+/** Spec §11 audio track: one stem per layer (dialogue, foley, ambience, effects, music, description). */
+export interface AudioTrack {
+  id: string;
+  layer: string;
+  path: string;
+  media_type: string;
+  start: number;
+  license: string;
+  positional?: boolean;
+  actor_id?: string;
+}
+
+/** Spec §11 sound event; `attributes.clip` names the generated sound (Phase 5 engine). */
+export interface AudioEvent {
+  t: number;
+  type: string;
+  actor_id?: string;
+  position?: [number, number, number];
+  attributes?: Record<string, string | number | boolean>;
 }

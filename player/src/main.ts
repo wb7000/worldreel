@@ -1,5 +1,6 @@
 /** WorldReel player entry point: load a .wreel, render it, and drive the viewer menu. */
 
+import { AudioEngine } from "./audio";
 import { CameraDirector, type FreeInput } from "./cameras";
 import { perspective, poseMatrix, viewMatrix, type Vec3 } from "./math";
 import { createRenderer, type DrawItem, type Renderer } from "./render/renderer";
@@ -99,6 +100,30 @@ function togglePlay(): void {
   const btn = $<HTMLButtonElement>("play");
   btn.textContent = player.playing ? "❚❚" : "▶";
   btn.setAttribute("aria-label", player.playing ? "Pause" : "Play");
+  if (audio) {
+    if (player.playing) audio.play(player.time);
+    else audio.stop();
+  }
+}
+
+/** Sound needs a user gesture before the browser allows it, hence a button. */
+let audio: AudioEngine | null = null;
+async function toggleSound(): Promise<void> {
+  if (!player) return;
+  const btn = $<HTMLButtonElement>("sound");
+  if (audio) {
+    audio.stop();
+    audio = null;
+    btn.textContent = "🔈 Sound off";
+    btn.setAttribute("aria-pressed", "false");
+    return;
+  }
+  btn.textContent = "🔈 Loading…";
+  const { manifest } = player.wreel;
+  audio = await AudioEngine.create(manifest.audio.tracks, manifest.audio.events, await player.wreel.loadAudio());
+  if (player.playing) audio.play(player.time);
+  btn.textContent = "🔊 Sound on";
+  btn.setAttribute("aria-pressed", "true");
 }
 
 function selectPreset(preset: PovPreset): void {
@@ -266,7 +291,10 @@ function frame(now: number): void {
   const prev = player.time;
   if (player.playing) {
     player.time += dt;
-    if (player.time > duration) player.time = 0;
+    if (player.time > duration) {
+      player.time = 0;
+      audio?.play(0); // loop: restart the stems from the top
+    }
   }
   if (director.preset.mode === "interactive") {
     for (const effect of player.rules.step(prev, player.time)) {
@@ -281,6 +309,7 @@ function frame(now: number): void {
   }
 
   const cam = director.update(player.time, dt, input);
+  audio?.update(player.time, cam);
   input.dragX = input.dragY = input.wheel = 0;
 
   const aspect = canvas.width / Math.max(1, canvas.height);
@@ -366,7 +395,15 @@ function main(): void {
   window.addEventListener("resize", resize);
   $<HTMLButtonElement>("play").addEventListener("click", togglePlay);
   $<HTMLInputElement>("scrub").addEventListener("input", (e) => {
-    if (player) player.time = Number((e.target as HTMLInputElement).value);
+    if (!player) return;
+    player.time = Number((e.target as HTMLInputElement).value);
+    if (audio && player.playing) audio.play(player.time);
+  });
+  $<HTMLButtonElement>("sound").addEventListener("click", () => {
+    toggleSound().catch((err: unknown) => {
+      console.error(err);
+      showMessage(err instanceof Error ? err.message : String(err));
+    });
   });
   $<HTMLSelectElement>("fog").addEventListener("change", (e) => {
     if (player) player.fogStrength = Number((e.target as HTMLSelectElement).value);

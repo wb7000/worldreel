@@ -939,3 +939,32 @@ Branch: `phase-5-audio` from main eee6fab.
   of the fort on Commons, and flare / haze in the owner's photos.
 - Still needed for a real-world positive: a continuous ground-level clip of one spot (for 3D),
   ideally a spot that open-licensed photos also show.
+
+### D-5.4 Mixing, loudness and player audio; first vs third person (2026-10-19)
+- Loudness: ITU-R BS.1770-4 integrated loudness via `pyloudnorm` 0.2.0 (MIT, licence read from
+  the installed package; reference check: a 1 kHz sine at −6 dBFS peak reads −9.07 LUFS). The mix
+  is normalised to the scene's `audio.mix.loudness_target_lufs` (default −16, the spec's example
+  value — not a claim about any platform's recommendation) and peak-limited to 0.99; tested at −23
+  and −16 LUFS within 0.5 LU. `tools/export_stems.py --target` writes other targets (phone,
+  headphones, speakers) on demand.
+- Ducking: music and ambience drop ~10 dB under dialogue (50 ms attack, 500 ms release; tested with
+  a synthetic speech-like burst — there is no dialogue source yet).
+- Player (`player/src/audio.ts`, Web Audio): stems play in sync with the clock (the pre-mixed foley
+  stem is skipped when positional footsteps exist); footstep events play through HRTF panners at
+  their positions, scheduled 0.25 s ahead; the listener is the current view's eye — the
+  character's head in first person, the camera otherwise. A "Sound" button starts audio (browsers
+  require a user gesture). Verified in the browser pane: audio decoded and running, first-person
+  view, seek and pause/resume with no console errors (listening itself was not possible there).
+- Acceptance "first-person audio differs from third-person": player unit tests (own step > 3 dB
+  louder through the walker's ears; another person heard > 10° from a different direction) and
+  `eval/pov_audio.py` on the synthetic two-walker world, mirroring the player's listener rules and
+  distance model:
+
+| listening as | own steps: level diff (first − third) | other person's steps: level / direction diff |
+|---|---|---|
+| p1 (4 own, 5 other steps) | +3.14 dB | 1.64 dB / 12.7° |
+| p2 (5 own, 4 other steps) | +3.17 dB | 1.71 dB / 14.9° |
+
+  (The own-step direction differs by 180°: through one's own eyes the step is just behind / below
+  the head, from the follow camera it is ahead. With a source almost directly below, azimuth is
+  not very meaningful; the level difference is the robust number.)
