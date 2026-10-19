@@ -15,6 +15,8 @@ dependencies = [
     "opencv-python-headless>=4.9,<6",
     "scipy>=1.13",
     "pyloudnorm>=0.1",  # ITU-R BS.1770-4 loudness, MIT
+    "numba>=0.59",  # offline renderer kernels (Phase 6), BSD
+    "opentimelineio==0.18.1",  # .wedit timeline (Phase 6), Apache-2.0
 ]
 
 [project.optional-dependencies]
@@ -48,5 +50,5 @@ files = ["formats", "pipeline", "stages", "tools", "eval", "training", "tests"]
 exclude = ['tools/blender/gen_scene\.py', 'training/kaggle/']
 
 [[tool.mypy.overrides]]
-module = ["cv2", "cv2.*", "torch", "torch.*", "gsplat", "gsplat.*", "transformers", "transformers.*", "sam2", "sam2.*", "onnxruntime", "onnxruntime.*", "pyloudnorm", "pyloudnorm.*"]
+module = ["cv2", "cv2.*", "torch", "torch.*", "gsplat", "gsplat.*", "transformers", "transformers.*", "sam2", "sam2.*", "onnxruntime", "onnxruntime.*", "pyloudnorm", "pyloudnorm.*", "numba", "numba.*", "opentimelineio", "opentimelineio.*"]
 ignore_missing_imports = true
