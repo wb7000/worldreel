@@ -1526,3 +1526,18 @@ Split into two problems, each judged on its own:
    ≥ 0.90 (C is expected to fail it — it does not use references), and the owner's preference.
 2. **Director** (after the actor is chosen) — an open LLM reads each scene and writes per-line
    emotion into the `.wsl` manner notes, editable by the owner; compared against hand labels.
+
+### D-8.3b Bake-off results (2026-10-20, measured on 1x T4)
+Run: Chatterbox 2 min, Dia 10 min, Maya1 (fp16) 6.6 min for 12 lines each (incl. loading).
+| | A Chatterbox | B Dia-1.6B-0626 | C Maya1 |
+|---|---|---|---|
+| SER agrees with intended class (9 lines) | 0.333 | 0.333 | 0.333 |
+| nearest designed reference (12) | **1.000** | 0.500 | 0.833 |
+| cosine to own reference, range | 0.49–0.76 | −0.04–0.68 | 0.01–0.42 |
+No system meets the SER bar (≥ 0.60) — but the recogniser itself is unreliable on this audio: it
+hears the whispered line as "angry" for all three and the calm line as "angry" for B and C.
+Patterns: A keeps every voice but SER hears "angry" in 7 of 12 lines (exaggeration raises energy,
+not a specific emotion); B and C are heard as "happy" on the joyful lines, but lose the voice
+(B 6 / 12) and produce overlong clips (B: three lines of ~22 s; C: anger 24.8 s for a 5 s line)
+— likely rambling or garbage. Not adopted; the owner's blind listening (folder `listen/`,
+key in `report.json`) decides the direction.
