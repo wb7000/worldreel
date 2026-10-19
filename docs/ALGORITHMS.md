@@ -15,6 +15,7 @@ Register of algorithms WorldReel creates or adopts where no ready-made method fi
 ## Register
 | ID | Problem | Status | Baseline | Design note |
 |---|---|---|---|---|
+| A-11 | Per-emotion voice-quality shaping after synthesis | design | unshaped TTS output | below |
 | A-10 | Script-driven emotional delivery for synthetic voices | design | one fixed (flat) description per character | below |
 | A-9 | Procedural places from location descriptions | planned | — | (8.4) |
 | A-8 | Identity-distinctness sampling for the character bible | adopted (D-7.4) | independent random seeds per character | below |
@@ -452,3 +453,54 @@ decides.
 
 **Known limits.** The lexicon is crude and English-only; the TTS may ignore some words; emotion
 words may pull the voice away from its identity (that is why identity is re-measured).
+
+---
+
+## A-11 Per-emotion voice-quality shaping (design note, 2026-10-21)
+
+**Problem.** After three voice rounds (D-8.2–8.3e) the owner still hears "robotic": emotion must
+change the *sound* of the voice, not only how much the pitch moves — "when humans are happy
+their vocal changes". Open TTS models give some acting (Dia > Chatterbox, D-8.3d) but none
+controls voice quality per emotion while keeping a designed voice.
+
+**Prior art.** Emotional voice conversion in research changes pitch contour, duration and
+spectrum (voice quality) per emotion; acoustic correlates are well described in the speech
+literature (joy: higher, wider pitch, raised formants in "smiled" speech, brighter spectrum;
+sadness: lower, narrower, slower, darker; anger: wider range, tense, strong high frequencies;
+fear: higher, faster, breathy, unsteady; crying: tremor, breathy, breaks). Cited from general
+knowledge, not re-checked in this session. Learned EVC models need emotional training data we
+do not have; a rule-based transform on a vocoder is cheap, transparent and testable.
+
+**Idea.** WORLD (pyworld, MIT; WORLD 3-clause BSD) splits speech into pitch (f0), spectral
+envelope (voice timbre) and aperiodicity (breathiness), so each can be edited and resynthesised:
+- pitch: shift (semitones), range (scale of log-f0 around its mean), tremor (sinusoidal,
+  Hz and depth), jitter (random per-frame);
+- timbre: formant warp (envelope frequency axis x alpha; alpha > 1 = "smiling", brighter),
+  spectral tilt (dB per octave above 1 kHz: + harsh / bright, − dark);
+- breath: aperiodicity pulled toward 1 (0 = as is, 1 = whisper);
+- tempo: time-scale of the analysis frames (> 1 slower).
+Each emotion has a preset (below); the line's intensity interpolates from no change to the
+preset. Loudness is matched to the source. Applied after TTS (and after voice conversion), so
+it works with any source.
+
+| emotion | shift st | range x | tremor Hz / st | jitter st | warp | tilt dB/oct | breath | tempo |
+|---|---|---|---|---|---|---|---|---|
+| excited / joyful | +2.0 | 1.5 | – | – | 1.06 | +2.5 | 0.10 | 0.93 |
+| comic / sarcastic | +0.5 | 1.7 | – | – | 1.03 | +1.0 | – | 1.05 |
+| despair / sad | −1.5 | 0.7 | – | – | 0.98 | −3.0 | 0.25 | 1.12 |
+| crying | +1.0 | 1.2 | 6.0 / 0.8 | 0.3 | 1.00 | −1.0 | 0.35 | 1.08 |
+| angry | +1.0 | 1.4 | – | – | 1.00 | +4.0 | – | 0.95 |
+| afraid | +2.5 | 1.3 | 7.0 / 0.4 | 0.15 | 1.02 | +1.0 | 0.30 | 0.90 |
+| whisper | 0 | 0.8 | – | – | 1.00 | +1.0 | 0.85 | 1.00 |
+| shocked grief | +1.5 | 1.4 | 5.5 / 0.6 | 0.2 | 1.00 | −1.0 | 0.30 | 1.05 |
+| tender | −0.5 | 0.9 | – | – | 1.00 | −1.5 | 0.20 | 1.05 |
+| dry humour | 0 | 0.8 | – | – | 1.00 | 0 | – | 1.00 |
+| neutral | no change | | | | | | | |
+
+**Measurement (set before listening).** Same 12 lines; sources = round-3 renders. Shaped vs
+unshaped: pitch spread up for the emotions whose preset widens range; ECAPA nearest designed
+reference still 12 / 12 (shaping must not change who is speaking); Whisper WER ≤ 0.30 after
+shaping (still intelligible); owner's blind listening decides adoption.
+
+**Known limits.** Vocoder resynthesis can sound buzzy; presets are hand-set (no learning);
+laughter and sobs as sounds still have to come from the TTS (tags), shaping only colours speech.
