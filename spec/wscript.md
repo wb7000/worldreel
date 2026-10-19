@@ -59,6 +59,11 @@ No signature is required for `.wscript` (scripts are human-authored inputs, not 
   written as a change, e.g. `["C01.wearing", "world.time"]` (a time jump). Paths:
   `<CharID>.location|wearing|holding|state` and `world.lighting|weather|time`.
 - `identity_seed` links to the character bible; it is optional in v1.
+- `identity` (1.1, optional, characters): the character-bible code — `seed`, the style request
+  `requested` (allowlisted style words only, never a name), and the expanded `appearance` and
+  `voice` vectors (each dimension 0–1). The vectors are a pure function of seed + request
+  (`stages.generate.bible.expand`), so tools can check they were not edited by hand, and two
+  characters of one script must be at least the configured distance apart (D-7.4).
 - IDs: characters `C…`, locations `L…`, props `P…`, text `T…`, scenes `S…`, followed by digits
   or `[A-Za-z0-9_]` (pattern `^[CLPTS][A-Za-z0-9_]{1,31}$`). Prefixes are mandatory so a reference
   says what it points to.

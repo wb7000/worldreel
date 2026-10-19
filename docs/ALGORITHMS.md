@@ -15,7 +15,7 @@ Register of algorithms WorldReel creates or adopts where no ready-made method fi
 ## Register
 | ID | Problem | Status | Baseline | Design note |
 |---|---|---|---|---|
-| A-8 | Identity-distinctness sampling for the character bible | design | independent random seeds per character | below |
+| A-8 | Identity-distinctness sampling for the character bible | adopted (D-7.4) | independent random seeds per character | below |
 | A-7 | Continuity tracking across `.wscript` scenes | adopted (D-7.2) | none (continuity stored, never checked) | below |
 | A-6 | Procedural, event-driven footstep sounds | experimental | one fixed footstep sound for every event | below |
 | A-5 | Generative texture for filled planes (LaMa) | experimental | plane-mean colour (A-3) | below |
@@ -27,7 +27,7 @@ Register of algorithms WorldReel creates or adopts where no ready-made method fi
 ## Known open problems (candidates)
 - Confidence-aware honest filling of unseen regions
 - Sound-event → sound selection/generation
-- Identity-distinctness sampling (faces and voices)
+- Identity-distinctness sampling on rendered faces and voices (parameter space: A-8)
 - World consistency across a 1-hour film
 - Token-efficient script chunking for `.wscript`
 

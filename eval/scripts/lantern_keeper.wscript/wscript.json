@@ -8,22 +8,146 @@
       "C01": {
         "name": "Mira",
         "description": "archivist in her thirties, careful, stubborn",
-        "voice": "warm, quick"
+        "voice": "warm, quick",
+        "identity": {
+          "seed": 1829338324,
+          "requested": "adult woman, dark hair, medium skin, quick",
+          "appearance": {
+            "age": 0.3596,
+            "presentation": 0.3014,
+            "height": 0.4822,
+            "build": 0.2864,
+            "face_width": 0.6741,
+            "jaw": 0.5783,
+            "brow": 0.8329,
+            "eye_size": 0.284,
+            "eye_spacing": 0.9192,
+            "nose_length": 0.6001,
+            "nose_width": 0.8746,
+            "mouth_width": 0.889,
+            "lip_fullness": 0.2388,
+            "skin_tone": 0.4103,
+            "hair_tone": 0.2657,
+            "hair_length": 0.92,
+            "facial_hair": 0.0307
+          },
+          "voice": {
+            "pitch": 0.5279,
+            "formant": 0.0784,
+            "rate": 0.7075,
+            "breathiness": 0.323,
+            "roughness": 0.496
+          }
+        },
+        "identity_seed": 1829338324
       },
       "C02": {
         "name": "Ade",
         "description": "fort caretaker, seventy-four, wiry, slow to smile",
-        "voice": "low, dry"
+        "voice": "low, dry",
+        "identity": {
+          "seed": 581507468,
+          "requested": "elderly man, wiry, grey hair, low voice, slow",
+          "appearance": {
+            "age": 0.9149,
+            "presentation": 0.9842,
+            "height": 0.6826,
+            "build": 0.0668,
+            "face_width": 0.1003,
+            "jaw": 0.9918,
+            "brow": 0.1164,
+            "eye_size": 0.876,
+            "eye_spacing": 0.7523,
+            "nose_length": 0.7229,
+            "nose_width": 0.1942,
+            "mouth_width": 0.5714,
+            "lip_fullness": 0.3416,
+            "skin_tone": 0.7542,
+            "hair_tone": 0.9417,
+            "hair_length": 0.2492,
+            "facial_hair": 0.4923
+          },
+          "voice": {
+            "pitch": 0.2242,
+            "formant": 0.6263,
+            "rate": 0.2582,
+            "breathiness": 0.9463,
+            "roughness": 0.8923
+          }
+        },
+        "identity_seed": 581507468
       },
       "C03": {
         "name": "Tomas",
         "description": "drone pilot in his twenties, talks when nervous",
-        "voice": "light, fast"
+        "voice": "light, fast",
+        "identity": {
+          "seed": 1245601617,
+          "requested": "young man, slim, short hair, fast",
+          "appearance": {
+            "age": 0.1478,
+            "presentation": 0.878,
+            "height": 0.0968,
+            "build": 0.2581,
+            "face_width": 0.3585,
+            "jaw": 0.807,
+            "brow": 0.1315,
+            "eye_size": 0.0937,
+            "eye_spacing": 0.2417,
+            "nose_length": 0.3402,
+            "nose_width": 0.2908,
+            "mouth_width": 0.632,
+            "lip_fullness": 0.9069,
+            "skin_tone": 0.1025,
+            "hair_tone": 0.9936,
+            "hair_length": 0.278,
+            "facial_hair": 0.5966
+          },
+          "voice": {
+            "pitch": 0.0724,
+            "formant": 0.5341,
+            "rate": 0.7521,
+            "breathiness": 0.9771,
+            "roughness": 0.1203
+          }
+        },
+        "identity_seed": 1245601617
       },
       "C04": {
         "name": "Lena",
         "description": "Ade's granddaughter, nineteen, direct",
-        "voice": "clear, steady"
+        "voice": "clear, steady",
+        "identity": {
+          "seed": 1115369120,
+          "requested": "young woman, long hair, clear",
+          "appearance": {
+            "age": 0.0842,
+            "presentation": 0.2167,
+            "height": 0.3975,
+            "build": 0.0778,
+            "face_width": 0.468,
+            "jaw": 0.4472,
+            "brow": 0.8204,
+            "eye_size": 0.373,
+            "eye_spacing": 0.2049,
+            "nose_length": 0.7832,
+            "nose_width": 0.1394,
+            "mouth_width": 0.0488,
+            "lip_fullness": 0.833,
+            "skin_tone": 0.962,
+            "hair_tone": 0.6401,
+            "hair_length": 0.9005,
+            "facial_hair": 0.0961
+          },
+          "voice": {
+            "pitch": 0.6624,
+            "formant": 0.8606,
+            "rate": 0.8854,
+            "breathiness": 0.1519,
+            "roughness": 0.0083
+          }
+        },
+        "identity_seed": 1115369120
       }
     },
     "locations": {

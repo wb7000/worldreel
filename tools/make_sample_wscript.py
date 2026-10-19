@@ -12,11 +12,13 @@ declares `offscreen` (its time jumps).
 from __future__ import annotations
 
 import argparse
+import copy
 import shutil
 from pathlib import Path
 from typing import Any
 
 from formats.wscript import Script, parse_scene, write_wscript
+from stages.generate.bible import assign
 from stages.generate.continuity import propagate
 
 OUT = Path("eval/scripts/lantern_keeper.wscript")
@@ -50,6 +52,15 @@ DICTIONARY: dict[str, Any] = {
     },
     "text": {},
 }  # fmt: skip
+
+# Character-bible style requests (allowlisted style words only, D-7.4) and the cast seed.
+STYLE = {
+    "C01": "adult woman, dark hair, medium skin, quick",
+    "C02": "elderly man, wiry, grey hair, low voice, slow",
+    "C03": "young man, slim, short hair, fast",
+    "C04": "young woman, long hair, clear",
+}
+CAST_SEED = 2026
 
 START: dict[str, Any] = {
     "characters": {
@@ -362,12 +373,14 @@ def build() -> Script:
          "tension": tension, "continuity": START if i == 0 else offscreen}
         for i, (sid, title, summary, loc, tod, tension, _, offscreen) in enumerate(SCENES)
     ]  # fmt: skip
+    dictionary = copy.deepcopy(DICTIONARY)
+    assign(dictionary, STYLE, CAST_SEED)
     header = {
         "format": "wscript",
         "format_version": "1.1",
         "title": "The Lantern Keeper",
         "language": "en",
-        "dictionary": DICTIONARY,
+        "dictionary": dictionary,
         "scenes": index,
     }
     scenes = {sid: parse_scene(text) for sid, *_, text, _ in SCENES}

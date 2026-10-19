@@ -1238,3 +1238,39 @@ Findings:
   in the script (`phone_torches` in S005, `oil_lamp` again in S007). Runtime unchanged (10.91 p).
 - At ~60 scenes the summaries are half the context; for longer films they could be windowed
   (nearest scenes in full, distant ones grouped) — ROADMAP, not needed for the 1-hour rung.
+
+### D-7.4 Character bible, style filter and distinctness (A-8) (2026-10-19, measured)
+- **Identity code** (`stages/generate/bible.py`): `seed` + style request → 17 appearance
+  dimensions (age 18–85, presentation, height, build, face proportions, skin, hair, facial hair)
+  and 5 voice dimensions (pitch, formant, rate, breathiness, roughness), each 0–1. Stored per
+  character in `.wscript` 1.1 as `identity` (spec §2, schema); `verify` recomputes it from the
+  seed, so a hand-edited identity is detected (tested). The vectors stay out of model prompts.
+- **Style filter** (`stages/safety/likeness.py`, the brief's likeness-request hook): allowlist of
+  ~60 style words / phrases. Any unknown word rejects the request, so names cannot be requested;
+  "like / resembling / lookalike / famous …" are refused as likeness requests; contradictions
+  ("tall short") are refused. Adults only (age scale starts at 18). Default, not rule: a feminine
+  presentation is clean-shaven unless facial hair is requested. Limit: a name made only of style
+  words would pass (none known); Phase 9 hardens this hook.
+- **Distinctness thresholds (set before measuring):** RMS difference ≥ 0.20 for appearance and
+  for voice, between every pair of characters in a script.
+- **Measured** (`python -m eval.identity`, 300 casts per size with no style requests; failure =
+  any pair under a threshold):
+
+  | Cast size | independent seeds (baseline) | best of 8 | best of 32 (A-8) |
+  |---|---|---|---|
+  | 2 | 5.0 % | 0 % | 0 % |
+  | 4 | 26.3 % | 0 % | 0 % |
+  | 8 | 71.3 % | 0 % | 0 % |
+  | 12 | 95.7 % | 0 % | 0 % |
+  | 20 | 100 % | 4.7 % | 0 % |
+  | 40 | 100 % | 93.7 % | 1.3 % |
+
+  Hard case, every character requested as "older bearded man, deep voice" (100 casts): best of
+  32 passes up to 12 characters (0 %), 6 % fail at 20 and 100 % at 40 — the request itself leaves
+  too little room, and the check names the pairs (intended: the writer must vary the requests).
+  Collapse counter: 20 copies of one identity → 1 unique; a sampled cast of 20 → 20.
+  A-8 status: **adopted** (beats the baseline at every size; K ablation above).
+- **Sample script cast** (4 characters, requests in `tools/make_sample_wscript.py`, cast seed
+  2026): distinct — min appearance 0.405, min voice 0.418; no tampering.
+- Still open, by design: faces and voices are not rendered yet, so the distance is in parameter
+  space, not perceptual; Phase 8 must repeat the check on face / speaker embeddings of the output.

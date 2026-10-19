@@ -91,7 +91,18 @@
           "name": { "type": "string" },
           "description": { "type": "string" },
           "voice": { "type": "string" },
-          "identity_seed": { "type": "integer" }
+          "identity_seed": { "type": "integer" },
+          "identity": {
+            "type": "object", "required": ["seed", "appearance", "voice"],
+            "properties": {
+              "seed": { "type": "integer", "minimum": 0 },
+              "requested": { "type": "string" },
+              "appearance": { "type": "object",
+                              "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 } },
+              "voice": { "type": "object",
+                         "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 } }
+            }
+          }
         }
       }
     }
