@@ -131,3 +131,13 @@ def test_melt_renders_main_picture_and_exactly_the_stems(bundle: Path, tmp_path:
     n = min(len(m), *(len(s) for s in stems))
     gains, *_ = np.linalg.lstsq(np.stack([s[:n] for s in stems], 1), m[:n], rcond=None)
     assert np.allclose(gains, 1.0, atol=0.02)  # each stem once; the main clip's mix is muted
+
+
+def test_command_line_exports_an_mp4(tmp_path: Path) -> None:
+    if FFMPEG is None:
+        pytest.skip("ffmpeg not available")
+    from tools.export_video import main
+
+    out = tmp_path / "c.mp4"
+    assert main([str(_world(tmp_path)), "--out", str(out), "--width", "64", "--height", "36"]) == 0
+    assert out.stat().st_size > 0

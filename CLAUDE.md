@@ -62,6 +62,7 @@ npm run dev                                 # http://localhost:5173
 ```
 Hardware report: `python -m tools.hwcheck` (writes `hardware.local.json`, git-ignored).
 External programs: copy `worldreel.example.toml` to `worldreel.local.toml` (git-ignored).
+Export: `python -m tools.export_video world.wreel --out x.mp4` (or `--wedit`, opens in Shotcut).
 Data workflow: `python -m tools.data --help`; synthetic scenes: `python -m tools.synth --help`
 (see `docs/DATA.md`). Tests needing ffmpeg or Blender skip themselves when the tool is absent.
 Reconstruction benchmark: `python -m eval.benchmark <scene> [--calibrated]`; never loosen

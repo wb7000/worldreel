@@ -1023,7 +1023,7 @@ Owner's manual steps:
 4. Still open from Phase 4: a ground-level Vasai Fort clip for a real retrieval match; your 14
    fort photos are in `data/inbox/` (they show other visitors — keep them local).
 
-## Phase 6: `.wedit` export and flat MP4 (2026-10-19, in progress)
+## Phase 6: `.wedit` export and flat MP4 (2026-10-19)
 
 ### D-6.0 Plan, tools and order
 Brief acceptance: a `.wedit` opens in at least one common editor with stems, layers and timeline
@@ -1111,3 +1111,28 @@ Shotcut); each video blend composites onto the video track below (`a_track` = pr
 track). Measured with melt, both as written and with Shotcut's V1 `disable` applied: layers hidden →
 output identical to main; depth un-hidden → depth on top (26.3 dB vs the 8-bit depth, 6.0 vs
 main). Full render unchanged: PSNR 39.4 dB, stem gains 1.00 / 1.00 / 1.00.
+
+### D-6.end Phase 6 close-out (2026-10-19)
+Final checks on `phase-6-wedit`: pytest 227 passed (1 skipped: LaMa model not downloaded); ruff +
+format clean; mypy clean (119 files); player vitest 35 passed; player build OK.
+**Owner's Shotcut 26.9.27 check of `walkers_v4.wedit`: the timeline opens with its tracks, the
+main picture (with the AI label) plays, and switching on `mask_p2` shows the walker's mask.**
+
+Acceptance (brief §Phase 6):
+- **A `.wedit` opens in at least one common editor with stems, layers and timeline intact** —
+  met in Shotcut (owner, three fix rounds D-6.6 – D-6.8) and checked headless with its `melt`:
+  picture PSNR 39.4 dB vs the exported video, every stem mixed once (gains 1.00), every layer
+  loads and shows when un-hidden. OTIO timeline written and read back; not tested in an
+  OTIO-importing editor (none available on this laptop).
+- **Flat MP4 of one camera path** — met: H.264 + AAC, loudness-normalised mix, AI label burned in
+  and in the metadata. `python -m tools.export_video world.wreel --out clip.mp4`.
+
+Limits: CPU rendering ~0.7 s per 640×360 frame (a 1-minute 854×480 export takes roughly 20 min);
+the export is "flat" level only (no re-import of edits into a `.wreel`).
+
+Owner's manual steps:
+1. Export your own: `python -m tools.export_video world.wreel --out my.wedit --wedit`, then open
+   `my.wedit/timeline/main.mlt` in Shotcut. Layers are hidden tracks: click a track's eye to show
+   it. Shotcut may ask to save changes on close — it only adds its own bookkeeping.
+2. `data/exports/walkers.wedit`, `walkers_v2`, `walkers_v3` are broken earlier attempts and
+   `walkers_v4` is the good one (all git-ignored); delete the old ones when you like.
