@@ -1580,3 +1580,19 @@ Next round, same 12 lines:
   [chuckle] [cough] [clear throat] [shush] [narration] [advertisement]. Only laugh / chuckle /
   sigh / gasp were used here; the emotion tags are untested (next round if needed).
 - Owner's blind listening (W/X/Y/Z = A, D, BV, CV shuffled) decides the routing.
+
+### D-8.3e Owner after round 2 (2026-10-20)
+"Still robotic, but some have proper expression. Put the pitch change, the distortion in the
+sound — when humans are happy their vocal changes; it depends on emotion and situation."
+No per-line picks this round. Requirement refined: emotion must change **voice quality**, not
+only pitch range — brighter / "smiling" and laughing for joy, shaky / broken for crying, tense
+and harsh for anger, breathy and fast for fear. Options for the next round (not started):
+1. Chatterbox Turbo with its untested emotion tags ([happy] [crying] [angry] [fear]
+   [surprised] [whispering] [sarcastic] [dramatic]) in the designed voice;
+2. Dia acting → ChatterboxVC (best so far on pitch movement, D-8.3d), with the "(sighs)"
+   failure avoided;
+3. explicit per-emotion voice-quality shaping after synthesis (pitch contour and range, jitter /
+   tremor for crying, spectral brightness / formant raise for smiling speech, breathiness) —
+   own design (A-11) with a vocoder that edits pitch and spectrum separately;
+4. IndexTTS2 (emotion and voice separated by design) — only if the owner accepts the bilibili
+   Model Use License (not a standard open licence).
