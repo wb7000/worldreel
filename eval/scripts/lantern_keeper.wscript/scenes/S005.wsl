@@ -1,4 +1,5 @@
 @scene S005 loc=L03 time=night tension=6
+= world lighting=phone_torches
 ~ rain intensity=heavy
 ~ thunder distance=far
 > third C01

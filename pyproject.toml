@@ -22,6 +22,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11", "types-jsonschema", "scipy-stubs"]
 fill = ["onnxruntime>=1.18"]  # generative fill (A-5), MIT licence
+script = ["tiktoken==0.14.0", "tokenizers==0.23.3"]  # token measurement (D-7.3), MIT / Apache-2.0
 
 [tool.setuptools.packages.find]
 include = ["formats*", "pipeline*", "stages*", "tools*", "eval*", "training*"]

@@ -1207,3 +1207,34 @@ never measured (D-1.6).
   follows) and weather / lighting changes just before a declared time jump (`offscreen` covers
   them). Clean script: 0 issues (no false alarm). Both halves are needed (ablation).
   A-7 status: **adopted** (beats the no-check baseline, which catches nothing).
+
+### D-7.3 Token measurement (2026-10-19, measured)
+Tokenizers: tiktoken 0.14.0 `o200k_base` (MIT) and the tokenizer of `Qwen/Qwen2.5-0.5B-Instruct`
+(Apache-2.0 per model card and LICENSE, revision 7ae557604adf67be50417f59c2c2f167def9a775,
+`tokenizer.json` 7,031,645 bytes, SHA-256 c0382117…e87539, git-ignored `data/models/`; read with
+`tokenizers` 0.23.3, Apache-2.0). Optional extra `.[script]`. `python -m eval.tokens`.
+
+| o200k_base (Qwen2.5 in brackets) | 10 scenes (~11 min) | 60 scenes (~1 h, sample x6) |
+|---|---|---|
+| whole `.wscript` (header + all scenes) | 7,413 (8,185) | 41,443 (45,955) |
+| whole script as plain screenplay | 3,306 (3,388) | 19,836 (20,328) |
+| **scene context** (`load_context`), mean / max | **919 / 1,115** (1,012 / 1,221) | **2,159 / 2,355** (2,387 / 2,596) |
+| one scene's `.wsl` alone, mean | 365 (397) | 365 (397) |
+
+Findings:
+- Scene loading works as designed: the context is 28 % of the plain whole script at 10 scenes
+  and 11 % at 60; it grows only by one summary line (~21 tokens) per extra scene, while the whole
+  script grows 6x. (The plain screenplay leaves out state, sound and POV, so it holds less.)
+- **IDs do not save tokens here** — the brief's assumption fails for short names: scenes written
+  with `{C01}` take 3,653 tokens vs 3,382 with names spelled out (+8 %; Qwen +12 %). IDs remain
+  for losslessness and unambiguous references; they would save tokens only for long reusable
+  `T…` descriptions. No token saving is claimed for IDs.
+- Feeding the whole `.wscript` costs 2.2x the plain script, mostly the per-scene state in the
+  JSON header — never feed it whole.
+- Prompt change: the continuity block is now one line per character + one for the world instead
+  of indented JSON (`continuity_lines`): mean context 1,020 → 919 tokens (−10 %), same facts.
+- Script fix found while reading prompts: lighting stayed `oil_lamp` in the chapel after leaving
+  the hut — the tracker cannot know lighting belongs to a place (A-7 limit, added below); fixed
+  in the script (`phone_torches` in S005, `oil_lamp` again in S007). Runtime unchanged (10.91 p).
+- At ~60 scenes the summaries are half the context; for longer films they could be windowed
+  (nearest scenes in full, distant ones grouped) — ROADMAP, not needed for the 1-hour rung.

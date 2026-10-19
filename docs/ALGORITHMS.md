@@ -382,6 +382,8 @@ swap a location) are all detected — detection rate reported.
 
 **Known limits.** Only what is written as `=` lines is tracked; actions described in prose alone
 are invisible to it. No physical plausibility (travel time between locations).
+World state is global: it cannot know that lighting belongs to a place (found in D-7.3: a
+hut's oil lamp carried into the chapel). Location-bound world state is a possible extension.
 
 ---
 

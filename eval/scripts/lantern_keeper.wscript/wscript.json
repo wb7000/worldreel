@@ -304,7 +304,7 @@
         "time": "night"
       },
       "path": "scenes/S005.wsl",
-      "sha256": "cb727ad77927c897ffe0a083d76dfa6c4f7ccb8bf9cf89136c42f048620d1200"
+      "sha256": "f52360397428953342c2b72743e8f795712394e34cde4482981cd822e495af1e"
     },
     {
       "id": "S006",
@@ -346,7 +346,7 @@
             ]
           }
         },
-        "lighting": "oil_lamp",
+        "lighting": "phone_torches",
         "weather": "steady_rain",
         "time": "night"
       },
@@ -393,12 +393,12 @@
             ]
           }
         },
-        "lighting": "oil_lamp",
+        "lighting": "phone_torches",
         "weather": "steady_rain",
         "time": "night"
       },
       "path": "scenes/S007.wsl",
-      "sha256": "77b1cd37a76ce36bbdcf6ce5e01e0f70ba51300ee3c96378a029890732021671"
+      "sha256": "81b1bcd59439cc0ed832869bbb49682fc0b73acc7b8776ba129738af27b553fb"
     },
     {
       "id": "S008",

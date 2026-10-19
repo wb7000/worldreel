@@ -502,10 +502,28 @@ class SceneContext:
                 value = entry if isinstance(entry, str) else entry.get("name", "")
                 desc = "" if isinstance(entry, str) else entry.get("description", "")
                 lines.append(f"- {ident} ({section}): {value}" + (f" — {desc}" if desc else ""))
-        lines += ["", "## Continuity at scene start", dump_json(self.continuity).decode().strip()]
+        lines += ["", "## Continuity at scene start", *continuity_lines(self.continuity)]
         lines += ["", "## Other scenes"] + [f"- {sid}: {s}" for sid, s in self.other_summaries]
         lines += ["", "## Scene text", self.scene_text.rstrip()]
         return "\n".join(lines) + "\n"
+
+
+def continuity_lines(cont: Mapping[str, Any]) -> list[str]:
+    """A continuity state as one line per character plus one for the world: the same facts as the
+    JSON, in about a third of the tokens (D-7.3)."""
+    lines = []
+    for cid, st in cont.get("characters", {}).items():
+        parts = [f"at {st['location']}"] if "location" in st else []
+        parts += [f"{k} {', '.join(st[k])}" for k in ("wearing", "holding") if st.get(k)]
+        if st.get("state"):
+            parts.append(f"state {st['state']}")
+        lines.append(f"- {cid}: " + ("; ".join(parts) or "no state"))
+    world = [f"{k} {cont[k]}" for k in ("time", "lighting", "weather") if k in cont]
+    if world:
+        lines.append("- world: " + "; ".join(world))
+    if cont.get("offscreen"):
+        lines.append("- changed offscreen since the last scene: " + ", ".join(cont["offscreen"]))
+    return lines
 
 
 def load_context(script: Script, scene_id: str) -> SceneContext:

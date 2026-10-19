@@ -39,7 +39,9 @@ verification before the next. Full acceptance criteria are in `docs/MASTER_PROMP
 - Measure player frame rate and load time in a real window and on a mid-range phone.
 - Point lighting, camera collision for follow cameras, audio playback, more rule types.
 - Network streaming (HTTP range requests / spatial chunks) for large `.wreel` files.
-- Signing-key trust list; measure `.wscript` token savings with a real tokenizer.
+- Signing-key trust list. (`.wscript` tokens measured in D-7.3.)
+- `.wscript` for films longer than ~1 h: window the scene summaries (near scenes in full, far
+  ones grouped); location-bound world state (lighting per place) in the continuity tracker.
 
 ## Parked ideas (outside current phase)
 - AI camera director, watch-together, branching story editor, creator analytics, VR/AR.

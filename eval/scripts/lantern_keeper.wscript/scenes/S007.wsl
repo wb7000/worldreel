@@ -1,5 +1,5 @@
 @scene S007 loc=L04 time=night tension=4
-= world weather=light_rain
+= world weather=light_rain lighting=oil_lamp
 ~ rain intensity=light
 > wide
 ! The hut, after midnight. The {P05} is spread across the table, weighted with teacups. {C03} has the {P03} plugged into a laptop.

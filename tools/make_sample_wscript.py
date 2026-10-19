@@ -168,6 +168,7 @@ C04: The west steps. They're slippery, but they hold. I'll show you.
 """
 
 S005 = """@scene S005 loc=L03 time=night tension=6
+= world lighting=phone_torches
 ~ rain intensity=heavy
 ~ thunder distance=far
 > third C01
@@ -220,7 +221,7 @@ C02: The iron gate at the bottom of the steps. This opens it. Not tonight. At lo
 """
 
 S007 = """@scene S007 loc=L04 time=night tension=4
-= world weather=light_rain
+= world weather=light_rain lighting=oil_lamp
 ~ rain intensity=light
 > wide
 ! The hut, after midnight. The {P05} is spread across the table, weighted with teacups. {C03} has the {P03} plugged into a laptop.
