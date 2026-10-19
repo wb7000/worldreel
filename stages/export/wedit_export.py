@@ -164,7 +164,14 @@ def _mlt_xml(
     for layer in layers:
         producer(
             f"p_{layer['id']}",
-            {"resource": f"../{layer['path']}{FRAME_PATTERN}?begin=0", "ttl": "1"},
+            # Service named explicitly: a "?begin=0" query hides the .png extension from
+            # Shotcut's loader and the sequence fails there (D-6.7). qimage: "%" = sequence.
+            {
+                "resource": f"../{layer['path']}{FRAME_PATTERN}",
+                "mlt_service": "qimage",
+                "begin": "0",
+                "ttl": "1",
+            },
         )
     for s in stems:
         producer(f"p_{s['id']}", {"resource": f"../{s['path']}"})

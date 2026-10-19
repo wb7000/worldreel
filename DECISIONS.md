@@ -1090,3 +1090,12 @@ partly by their `hide` bits, and I did not confirm how a hidden video track is c
 covers them, so hide or move main to see a layer.
 Measured with melt (walker world): 60/60 frames, PSNR vs `video/main.mp4` mean 39.4 dB, min 38.9
 (melt output at CRF 12); stem gains 1.00 / 1.00 / 1.00. Not yet confirmed in the Shotcut window.
+
+### D-6.7 Shotcut showed "INVALID": layer sequences failed to load (2026-10-19)
+Owner's second check: the timeline opened (D-6.6 worked) but the viewer showed MLT's "INVALID"
+placeholder. Shotcut's log: `producer_xml failed to load producer ".../layers/depth/%06d.png?begin=0"`
+(and both masks). The `?begin=0` query hides the `.png` extension, so the loader cannot pick a
+service. Fix: `mlt_service=qimage` (Shotcut's `qt6/producer_qimage.yml`: "%" in the filename = image
+sequence, `begin` = starting number) with `begin=0` as a property. Measured with melt, each layer
+rendered alone (others hidden): depth, mask_p1 and mask_p2 load, no load errors; main picture and
+stem gains unchanged (PSNR 39.4 dB, gains 1.00 / 1.00 / 1.00).

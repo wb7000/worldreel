@@ -77,6 +77,8 @@ def test_mlt_paths_resolve_from_the_timeline_folder(bundle: Path) -> None:
         if props.get("mlt_service") != "color":  # the black background is not a file
             path = props["resource"].split("?")[0]
             if "%06d" in path:
+                # Explicit service and no "?begin=" query, or Shotcut cannot load it (D-6.7).
+                assert props["mlt_service"] == "qimage" and "?" not in props["resource"]
                 path = path.replace("%06d", "000000")
             assert (bundle / "timeline" / path).resolve().exists(), path
     hides = {t.get("producer"): t.get("hide") for t in root.iter("track")}
