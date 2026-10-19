@@ -1558,3 +1558,25 @@ Next round, same 12 lines:
   transcribes; keep the take with the lowest word error; reject if WER > 0.30 or length >
   max(2.5x expected, expected + 3 s) with expected = words / 2.5 per s.
 - the owner listens again (blind); routing per emotion is then fixed from the picks.
+
+### D-8.3d Round 2: voice conversion keeps Dia's acting (2026-10-20, measured on 1x T4, 60 min)
+3 takes per line per system; Whisper small.en take guard; ChatterboxVC to the designed voice.
+
+| | nearest designed ref (12) | cos to own ref | pitch spread (st) | usable takes |
+|---|---|---|---|---|
+| A Chatterbox | 1.000 | 0.668 | 3.32 | 12 |
+| D Chatterbox Turbo (+[laugh]/[chuckle]/[sigh]/[gasp]) | 1.000 | 0.706 | 2.67 | 12 |
+| B Dia | 0.667 | 0.296 | 5.51 | 10 |
+| **BV Dia → ChatterboxVC** | **1.000** | 0.565 | **5.29** | 10 |
+| C Maya1 | 0.833 | 0.204 | 3.17 | 12 |
+| CV Maya1 → ChatterboxVC | 1.000 | 0.553 | 2.73 | 12 |
+
+- Voice conversion restores the designed voice (B 0.67 → 1.00, C 0.83 → 1.00) and **keeps Dia's
+  pitch movement** (5.51 → 5.29 st, ~1.6x Chatterbox); for Maya1 it loses more (3.17 → 2.73).
+- Dia fails both lines that start with "(sighs)" (lost gamble, tender): all 3 takes 22 s, WER 1.0
+  — caught by the guard; no clean take, so the blind folder still holds the broken one for those.
+- Turbo's tokenizer knows more tags than its card lists: [angry] [crying] [fear] [happy]
+  [sarcastic] [surprised] [whispering] [dramatic] [sigh] [gasp] [sniff] [groan] [laugh]
+  [chuckle] [cough] [clear throat] [shush] [narration] [advertisement]. Only laugh / chuckle /
+  sigh / gasp were used here; the emotion tags are untested (next round if needed).
+- Owner's blind listening (W/X/Y/Z = A, D, BV, CV shuffled) decides the routing.
