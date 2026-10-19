@@ -1049,3 +1049,31 @@ Decisions:
 5. **6.5 Verification:** schema + signature validation; OTIO read-back; `melt` renders the MLT
    timeline headless and the result is checked (duration, every audio stem present, frames);
    then the owner opens it once in Shotcut.
+
+### D-6.1 – D-6.4 Built (2026-10-19)
+- **6.1** `spec/wedit.md` + schema → 1.1 (timeline format `"mlt"`, media type
+  `application/xml`); 1.0 bundles stay readable.
+- **6.2** `stages/export/render.py`: CPU renderer (Numba 0.68.0, BSD) mirroring the player — EWA
+  splats (+0.3 px² low-pass, 3σ), front-to-back compositing, same fog rule and gradient; depth is
+  the median depth (where transmittance crosses 0.5), actors drawn as z-buffered points with ids.
+  Measured: ~0.7 s per 640×360 frame on this laptop. 4 unit tests.
+- **6.3** `stages/export/flat.py`: rgb24 piped to ffmpeg libx264 (yuv420p, CRF 20) + AAC mix at the
+  world's loudness target; label "AI-RECONSTRUCTED - not a recording" burned in top-left and
+  written to `comment` / `description` metadata. Walker world: 60 frames, h264 + aac, 8 s.
+- **6.4** `stages/export/wedit_export.py`: one render pass writes the video, `layers/depth`
+  (16-bit PNG, scale in `encoding`), `layers/mask_<actor>`, `stems/<layer>.wav`,
+  `timeline/main.otio` and `timeline/main.mlt` (layer tracks present but hidden).
+
+### D-6.5 Verification with Shotcut's `melt` 7.41.0 (2026-10-19, measured)
+Walker world (`walkers_audio.wreel`, camera `director`, 60 frames 854×480):
+- Bundle validates: 0 errors, signature valid, 186 files.
+- Bug found: MLT resolves paths relative to the XML file → all timeline paths now `../…`
+  (OTIO too). Bug found: the main clip's own mix plus the stems would play the sound twice →
+  the main track has `hide="audio"`; the stems are the timeline's sound.
+- `melt main.mlt` render: 60/60 frames; PSNR vs `video/main.mp4` 33.9 dB (hidden layers do not
+  leak into the picture). Depth sequence loads as a producer (60 frames).
+- Audio rendered at 44.1 kHz mono: least-squares gains per stem ambience 1.00, foley 1.00,
+  music 1.00, correlation 1.00 with the plain stem sum — every stem present exactly once.
+  (A first check at melt's default 48 kHz looked wrong, 0.56, only because of the rate change.)
+- `tests/test_wedit_export.py`: validity, OTIO read-back, MLT paths, melt stem gains (skips
+  without melt). Remaining: the owner opens `timeline/main.mlt` once in Shotcut.
