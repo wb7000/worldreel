@@ -120,8 +120,10 @@ def _mlt_xml(
     stems: list[dict[str, Any]],
     layers: list[dict[str, Any]],
 ) -> str:
-    """MLT XML: one producer and playlist per file; video main track first, hidden layer tracks,
-    audio tracks mixed into the output."""
+    """MLT XML in Shotcut's project layout (D-6.6): `background` track, layer tracks under the
+    main picture (which covers them; hide or move it to see a layer), audio tracks mixed in.
+    Property names are Shotcut's (src/shotcut_mlt_properties.h); without `shotcut` on the tractor
+    Shotcut opens the file as a single clip instead of a timeline."""
     out = frames - 1
     fr_num, fr_den = (round(fps * 1000), 1000) if abs(fps - round(fps)) > 1e-9 else (round(fps), 1)
     lines = [
@@ -132,47 +134,70 @@ def _mlt_xml(
         f'sample_aspect_den="1" display_aspect_num="{width}" display_aspect_den="{height}" '
         f'frame_rate_num="{fr_num}" frame_rate_den="{fr_den}" colorspace="709"/>',
     ]
-    tracks: list[tuple[str, str]] = []  # (playlist id, hide attribute)
 
-    def producer(pid: str, resource: str, extra: str = "") -> None:
+    def producer(pid: str, props: dict[str, str]) -> None:
         lines.append(f'  <producer id="{pid}" in="0" out="{out}">')
-        lines.append(f'    <property name="resource">{resource}</property>{extra}')
+        lines.extend([f'    <property name="{k}">{v}</property>' for k, v in props.items()])
         lines.append("  </producer>")
 
+    def transition(tid: str, service: str, b_track: int, props: dict[str, str]) -> None:
+        lines.append(f'    <transition id="{tid}">')
+        lines.append('      <property name="a_track">0</property>')
+        lines.append(f'      <property name="b_track">{b_track}</property>')
+        lines.append(f'      <property name="mlt_service">{service}</property>')
+        lines.extend([f'      <property name="{k}">{v}</property>' for k, v in props.items()])
+        lines.append("    </transition>")
+
+    producer(
+        "black",
+        {
+            "length": str(frames),
+            "eof": "pause",
+            "resource": "0",
+            "aspect_ratio": "1",
+            "mlt_service": "color",
+            "set.test_audio": "0",
+        },
+    )
     # Paths are relative to the timeline file (timeline/), as MLT resolves them (D-6.5).
-    producer("p_main", "../video/main.mp4")
+    producer("p_main", {"resource": "../video/main.mp4"})
     for layer in layers:
         producer(
             f"p_{layer['id']}",
-            f"../{layer['path']}{FRAME_PATTERN}?begin=0",
-            '\n    <property name="ttl">1</property>',
+            {"resource": f"../{layer['path']}{FRAME_PATTERN}?begin=0", "ttl": "1"},
         )
     for s in stems:
-        producer(f"p_{s['id']}", f"../{s['path']}")
-    # The main clip's own (mixed) sound is muted: the stems are the timeline's audio, otherwise
-    # the mix and the stems would play together (D-6.5).
-    playlists = [("pl_main", "p_main", "audio")]
-    playlists += [(f"pl_{layer['id']}", f"p_{layer['id']}", "video") for layer in layers]  # hidden
-    playlists += [(f"pl_{s['id']}", f"p_{s['id']}", "video") for s in stems]  # audio only
-    for plid, pid, hide in playlists:
+        producer(f"p_{s['id']}", {"resource": f"../{s['path']}"})
+
+    # (playlist id, producer, Shotcut track kind, track name, hide). Video tracks first, bottom
+    # to top; the main clip's own mixed sound is muted because the stems are the timeline's audio,
+    # otherwise the mix and the stems would play together (D-6.5).
+    playlists = [
+        (f"pl_{layer['id']}", f"p_{layer['id']}", "video", layer["id"], "") for layer in layers
+    ]
+    playlists.append(("pl_main", "p_main", "video", "main", "audio"))
+    playlists += [(f"pl_{s['id']}", f"p_{s['id']}", "audio", s["layer"], "video") for s in stems]
+    lines.append('  <playlist id="background">')
+    lines.append(f'    <entry producer="black" in="0" out="{out}"/>')
+    lines.append("  </playlist>")
+    for plid, pid, kind, name, _ in playlists:
         lines.append(f'  <playlist id="{plid}">')
+        lines.append(f'    <property name="shotcut:{kind}">1</property>')
+        lines.append(f'    <property name="shotcut:name">{name}</property>')
         lines.append(f'    <entry producer="{pid}" in="0" out="{out}"/>')
         lines.append("  </playlist>")
-        tracks.append((plid, hide))
-    lines.append(f'  <tractor id="tractor0" in="0" out="{out}">')
+    lines.append(f'  <tractor id="tractor0" title="WorldReel export" in="0" out="{out}">')
+    lines.append('    <property name="shotcut">1</property>')
     lines.append("    <multitrack>")
-    for plid, hide in tracks:
+    lines.append('      <track producer="background"/>')
+    for plid, _, _, _, hide in playlists:
         attr = f' hide="{hide}"' if hide else ""
         lines.append(f'      <track producer="{plid}"{attr}/>')
     lines.append("    </multitrack>")
-    for k in range(1, len(tracks)):
-        lines.append(f'    <transition id="mix{k}">')
-        lines.append('      <property name="a_track">0</property>')
-        lines.append(f'      <property name="b_track">{k}</property>')
-        lines.append('      <property name="mlt_service">mix</property>')
-        lines.append('      <property name="always_active">1</property>')
-        lines.append('      <property name="sum">1</property>')
-        lines.append("    </transition>")
+    for k, (_, _, kind, _, _) in enumerate(playlists, start=1):
+        transition(f"mix{k}", "mix", k, {"always_active": "1", "sum": "1"})
+        if kind == "video":
+            transition(f"blend{k}", "qtblend", k, {"always_active": "1"})
     lines.append("  </tractor>")
     lines.append("</mlt>")
     return "\n".join(lines) + "\n"

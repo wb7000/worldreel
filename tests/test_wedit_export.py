@@ -72,14 +72,25 @@ def test_otio_timeline_reads_back_with_all_tracks(bundle: Path) -> None:
 
 def test_mlt_paths_resolve_from_the_timeline_folder(bundle: Path) -> None:
     root = ET.parse(bundle / "timeline" / "main.mlt").getroot()
-    for prop in root.iter("property"):
-        if prop.get("name") == "resource":
-            path = (prop.text or "").split("?")[0]
+    for prod in root.iter("producer"):
+        props = {p.get("name"): p.text or "" for p in prod.findall("property")}
+        if props.get("mlt_service") != "color":  # the black background is not a file
+            path = props["resource"].split("?")[0]
             if "%06d" in path:
                 path = path.replace("%06d", "000000")
             assert (bundle / "timeline" / path).resolve().exists(), path
     hides = {t.get("producer"): t.get("hide") for t in root.iter("track")}
     assert hides["pl_main"] == "audio"  # stems carry the sound
+    # Shotcut's project markers: without them it opens the file as one clip, not a timeline.
+    tractor = root.find("tractor")
+    assert tractor is not None
+    assert any(p.get("name") == "shotcut" and p.text == "1" for p in tractor.findall("property"))
+    assert next(iter(hides)) == "background"
+    kinds = {
+        pl.get("id"): {p.get("name") for p in pl.findall("property")}
+        for pl in root.iter("playlist")
+    }
+    assert "shotcut:video" in kinds["pl_main"] and "shotcut:audio" in kinds["pl_stem_music"]
 
 
 @pytest.mark.skipif(MELT is None, reason="melt (Shotcut / MLT) not installed")

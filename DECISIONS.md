@@ -1077,3 +1077,16 @@ Walker world (`walkers_audio.wreel`, camera `director`, 60 frames 854×480):
   (A first check at melt's default 48 kHz looked wrong, 0.56, only because of the rate change.)
 - `tests/test_wedit_export.py`: validity, OTIO read-back, MLT paths, melt stem gains (skips
   without melt). Remaining: the owner opens `timeline/main.mlt` once in Shotcut.
+
+### D-6.6 Shotcut opened the timeline as one clip; MLT now in Shotcut's project layout (2026-10-19)
+Owner's check: Shotcut opened `main.mlt` in the Source viewer as a single clip with an empty
+Timeline. Shotcut's source (`src/mltcontroller.cpp`, `src/shotcut_mlt_properties.h`,
+`src/models/multitrackmodel.cpp`, master) shows why: a file is a multitrack project only when the
+tractor has the property `shotcut`; tracks carry `shotcut:video` / `shotcut:audio` and
+`shotcut:name`; track 0 is the `background` playlist (black `color` producer); video tracks are
+blended with `qtblend`, every track has a `mix` transition. The export now writes that layout.
+Layer tracks sit *under* the main picture instead of being hidden (Shotcut classifies tracks
+partly by their `hide` bits, and I did not confirm how a hidden video track is classified); main
+covers them, so hide or move main to see a layer.
+Measured with melt (walker world): 60/60 frames, PSNR vs `video/main.mp4` mean 39.4 dB, min 38.9
+(melt output at CRF 12); stem gains 1.00 / 1.00 / 1.00. Not yet confirmed in the Shotcut window.
