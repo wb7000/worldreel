@@ -1369,3 +1369,59 @@ Owner's manual steps:
    first run's fetch by mistake; git-ignored — delete when you like.
 4. Converted plays and the training set live in git-ignored `data/plays/` and as the private
    Kaggle dataset `worldreel-data-scriptsft`.
+
+---
+
+## Phase 8: Generation and the test ladder (2026-10-20, in progress)
+
+### D-8.0 Plan, rungs, metrics and thresholds (set before generating anything)
+Brief: generate 10 s, then 1 min, then 10 min scenes from `.wscript`; run identity, voice and
+continuity metrics; each rung must meet its thresholds before the next. Output is a `.wreel`
+world (geometry, actors, motion, camera, sound), not a flat video — the player renders it.
+
+**Generator design (all `generated` provenance, AI-generated label, generation record of seeds
+and model versions in the manifest):**
+1. **Places** — procedural from the location dictionary (A-9, design note before code): a small
+   set of parametric templates (room / courtyard / wall walk / ruin / tunnel) chosen and sized
+   from description words, built as Gaussian/point layers. No image model for places in Phase 8.
+2. **Characters** — avatars from the character bible (A-8 identity code): body from height /
+   build / skin / clothing; a **face portrait** per character made once by an open text-to-image
+   model from the appearance vector, mapped onto the avatar's head. The same portrait is used in
+   every scene, so identity drift can only come from rendering — which is what we measure.
+3. **Voices** — one synthetic voice per character from the voice vector, written as a text
+   description (gender from presentation, pitch, speed, breathiness / roughness as "clear" /
+   "rough"), by a description-controlled TTS. **No voice cloning** of anyone, ever.
+4. **Blocking and motion** — from the script: who is where (continuity), `=` moves become walks
+   between spots, speakers turn to listeners; timing = dialogue audio lengths + fixed beats for
+   actions (D-7.2 runtime rule). Camera (director's cut) from POV hints and speaker changes.
+5. **Sound** — dialogue stems (one per character), Phase 5 footsteps / ambience / mood music
+   driven by the script's sound cues and tension.
+
+**Models (to verify on the T4 before use; numbers only after measuring):**
+- TTS: Parler-TTS Mini v1 (Apache-2.0 per model card, 878 M, voice set by a text description:
+  gender, pitch, speed, reverberation). Fallback: Kokoro-82M (Apache-2.0, 54 preset voices).
+- Portraits: FLUX.1-schnell (Apache-2.0 per diffusers docs); no T4 benchmark found — measure
+  memory / time first; fallback chosen only after that measurement.
+- Voice metric: SpeechBrain `spkrec-ecapa-voxceleb` (Apache-2.0 per model card).
+- Face metric: OpenCV Zoo SFace (Apache-2.0, directory licence) + YuNet (already in use).
+
+**Rungs** (from "The Lantern Keeper", D-7.2):
+- R1 **10 s**: the opening of S001 (gate, 2 characters), one `.wreel`.
+- R2 **1 min**: all of S001 + S002 (2 places, 3 characters), one `.wreel` per scene + a playlist.
+- R3 **10 min**: all 10 scenes (5 places, 4 characters).
+- (R4 1 h: Phase 10.)
+
+**Metrics and thresholds per rung** (fixed now; never loosened — failures are recorded):
+| Metric | How | Threshold |
+|---|---|---|
+| Duration | generated world length vs rung target | within ±25 % |
+| Script adherence | every dialogue line has audio from its own character's voice, in order; every `=` change and POV hint is realised in tracks / camera | 100 % |
+| Continuity | world state at each scene start and end (positions per location, props held / worn) equals the script's continuity | 100 % of facts |
+| Voice identity | ECAPA embedding per line; leave-one-out nearest-character-centroid accuracy | ≥ 0.95 |
+| Voice distinctness | cosine between character centroids | all pairs < 0.60 |
+| Face identity | SFace on faces detected in rendered frames (director's cut, 2 fps); nearest-character accuracy | ≥ 0.90, and faces found in ≥ 50 % of frames where a character's head is on screen and ≥ 40 px |
+| Face distinctness | SFace cosine between character mean embeddings | all pairs < 0.363 (OpenCV's same-person threshold for SFace cosine) |
+
+Order: 8.1 environment check job on the T4 (TTS, portrait model, ECAPA, SFace: install, memory,
+seconds per item); 8.2 voices + voice metrics; 8.3 portraits + avatars + face metrics;
+8.4 places (A-9) + blocking + camera; 8.5 assemble `.wreel`, R1; 8.6 R2; 8.7 R3; close-out.
