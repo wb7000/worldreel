@@ -924,3 +924,18 @@ Branch: `phase-5-audio` from main eee6fab.
   smoothing was an O(n·k) convolution (minutes for 20 s) → running sum (0.02 s); the tempo
   detector reported 144 bpm for pulse-free pads (window aliasing on the 55 Hz chord pattern) →
   energy low-passed at 8 Hz before sampling.
+
+### D-4.4c Owner's own fort photos; unused clips deleted (2026-10-19)
+- At the owner's request all five unused clips were deleted from `data/inbox/`, including the
+  drone montage: its creator is no longer known, so it cannot be credited and was not used.
+  Everything derived from it (gate frames, the 2 s reconstruction, previews) was deleted too;
+  D-4.4b's numbers remain as a record of what was run.
+- The owner added 14 of their own photos of Vasai Fort (gate wall, arch courtyard, church
+  façade, nave, tombstones; several show other visitors — kept on the laptop only). As a set they
+  cannot be reconstructed (1–3 near-identical shots per spot, strong sun flare).
+- 2D check instead (fundamental-matrix RANSAC, no 3D): 4 distinct spots vs the 46 Commons
+  candidates. Best: 17 inliers (façade vs Bassein-Fort-11.jpg), 12–17 for the others — below
+  what a reliable match needs (~40); **no real positive match**. Likely: different parts / angles
+  of the fort on Commons, and flare / haze in the owner's photos.
+- Still needed for a real-world positive: a continuous ground-level clip of one spot (for 3D),
+  ideally a spot that open-licensed photos also show.
