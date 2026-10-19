@@ -25,8 +25,8 @@ from formats.common import (
 )
 
 FORMAT = "wscript"
-SUPPORTED_VERSION = (1, 0)
-FORMAT_VERSION = "1.0"
+SUPPORTED_VERSION = (1, 1)
+FORMAT_VERSION = "1.1"
 HEADER = "wscript.json"
 SCHEMA = "wscript-header-1.schema.json"
 
@@ -36,6 +36,16 @@ _CHAR_ID = r"C[A-Za-z0-9_]{1,31}"
 _DIALOGUE = re.compile(rf"^({_CHAR_ID})(?:\s+\(([^()]*)\))?\s*:\s*(\S.*)$")
 _KV = re.compile(r"^([a-z_][a-z0-9_]*)=(\S+)$")
 _ANY_ID = re.compile(rf"^{_ID}$")
+_CHANGE_KV = re.compile(r"^([a-z_][a-z0-9_]*)(\+=|-=|=)(\S+)$")
+WORLD = "world"
+# State-change keys (spec §4.2): key -> (allowed operators, kind of value)
+CHARACTER_KEYS = {
+    "location": ("=", "location"),
+    "wearing": ("+=-=", "prop"),
+    "holding": ("+=-=", "prop"),
+    "state": ("=", "text"),
+}
+WORLD_KEYS = {"lighting": ("=", "text"), "weather": ("=", "text"), "time": ("=", "text")}
 
 
 # --------------------------------------------------------------------------- statements
@@ -77,6 +87,14 @@ class Tension:
 
 
 @dataclass(frozen=True)
+class Change:
+    """`= <ID|world> key=value key+=value key-=value ...` (1.1): an explicit state change."""
+
+    target: str
+    ops: tuple[tuple[str, str, str], ...]  # (key, "=" | "+=" | "-=", value)
+
+
+@dataclass(frozen=True)
 class Comment:
     text: str
 
@@ -86,7 +104,7 @@ class Blank:
     pass
 
 
-Statement = SceneHeader | Dialogue | Action | Sound | Pov | Tension | Comment | Blank
+Statement = SceneHeader | Dialogue | Action | Sound | Pov | Tension | Change | Comment | Blank
 
 
 class WslSyntaxError(FormatError):
@@ -144,6 +162,19 @@ def parse_scene(text: str) -> list[Statement]:
             if not re.fullmatch(r"\d{1,2}", rest) or int(rest) > 10:
                 raise WslSyntaxError(no, "tension must be an integer 0-10")
             statements.append(Tension(int(rest)))
+        elif sigil == "=":
+            tokens = rest.split()
+            if len(tokens) < 2 or not (tokens[0] == WORLD or _ANY_ID.match(tokens[0])):
+                raise WslSyntaxError(no, "expected '= <ID|world> key=value ...'")
+            ops: list[tuple[str, str, str]] = []
+            for token in tokens[1:]:
+                m = _CHANGE_KV.match(token)
+                if not m:
+                    raise WslSyntaxError(
+                        no, f"expected key=value, key+=value or key-=value, got {token!r}"
+                    )
+                ops.append((m.group(1), m.group(2), m.group(3)))
+            statements.append(Change(tokens[0], tuple(ops)))
         elif sigil == "#":
             statements.append(Comment(rest))
         else:
@@ -179,6 +210,8 @@ def serialize_scene(statements: list[Statement]) -> str:
                 out.append(f"> {mode} {target}" if target else f"> {mode}")
             case Tension(value):
                 out.append(f"% {value}")
+            case Change(target, ops):
+                out.append(f"= {target}" + "".join(f" {k}{op}{v}" for k, op, v in ops))
             case Comment(text):
                 out.append(f"# {text}" if text else "#")
             case Blank():
@@ -353,7 +386,7 @@ def _validate_entries(entries: Mapping[str, bytes], rep: Report) -> dict[str, li
         if entry.get("location") and entry["location"] not in locations:
             rep.error("bad_reference", f"unknown location {entry['location']!r}", where)
         _check_continuity(entry["continuity"], characters, locations, props, rep, where)
-        _check_statements(statements, known, characters, rep, where)
+        _check_statements(statements, known, characters, locations, props, rep, where)
     return scenes
 
 
@@ -376,7 +409,13 @@ def _check_continuity(
 
 
 def _check_statements(
-    statements: list[Statement], known: set[str], characters: set[str], rep: Report, where: str
+    statements: list[Statement],
+    known: set[str],
+    characters: set[str],
+    locations: set[str],
+    props: set[str],
+    rep: Report,
+    where: str,
 ) -> None:
     for s in statements:
         texts: list[str] = []
@@ -398,6 +437,8 @@ def _check_statements(
             case Pov(_, target):
                 if target is not None and target not in characters:
                     rep.error("bad_reference", f"POV target {target!r} is not a character", where)
+            case Change(target, ops):
+                _check_change(target, ops, characters, locations, props, rep, where)
             case _:
                 pass
         for text in texts:
@@ -409,6 +450,35 @@ def _check_statements(
             for r in refs:
                 if not _ANY_ID.match(r) or r not in known:
                     rep.error("bad_reference", f"unknown reference {{{r}}}", where)
+
+
+def _check_change(
+    target: str,
+    ops: tuple[tuple[str, str, str], ...],
+    characters: set[str],
+    locations: set[str],
+    props: set[str],
+    rep: Report,
+    where: str,
+) -> None:
+    if target == WORLD:
+        keys = WORLD_KEYS
+    elif target in characters:
+        keys = CHARACTER_KEYS
+    else:
+        rep.error("bad_reference", f"state change for {target!r}: not a character or world", where)
+        return
+    for key, op, value in ops:
+        if key not in keys:
+            rep.error("bad_change", f"= {target}: unknown key {key!r}", where)
+            continue
+        allowed, kind = keys[key]
+        if op not in (("+=", "-=") if allowed == "+=-=" else ("=",)):
+            rep.error("bad_change", f"= {target}: {key}{op} is not allowed", where)
+        if (kind == "location" and value not in locations) or (
+            kind == "prop" and value not in props
+        ):
+            rep.error("bad_reference", f"= {target}: unknown {kind} {value!r}", where)
 
 
 # --------------------------------------------------------------------------- model context
@@ -454,6 +524,9 @@ def load_context(script: Script, scene_id: str) -> SceneContext:
                 used.add(target)
             case SceneHeader(_, params):
                 used.update(v for k, v in params if k == "loc")
+            case Change(target, ops):
+                used.add(target)
+                used.update(v for k, _, v in ops if k in ("location", "wearing", "holding"))
     cont = entry["continuity"]
     used.update(cont.get("characters", {}))
     for state in cont.get("characters", {}).values():

@@ -1,6 +1,6 @@
 # `.wscript` — WorldReel long-form script
 
-**Format version: 1.0** · Status: draft for Phase 1 · Schema (header):
+**Format version: 1.1** · Status: draft (1.0 Phase 1; 1.1 Phase 7) · Schema (header):
 `spec/schemas/wscript-header-1.schema.json` · Scene grammar: §4
 
 A structured screenplay that stays **lossless** and **token-efficient** for language models.
@@ -30,7 +30,7 @@ No signature is required for `.wscript` (scripts are human-authored inputs, not 
 ```jsonc
 {
   "format": "wscript",
-  "format_version": "1.0",
+  "format_version": "1.1",
   "title": "The Courtyard",
   "language": "en",
   "dictionary": {
@@ -54,7 +54,10 @@ No signature is required for `.wscript` (scripts are human-authored inputs, not 
 ```
 
 - `continuity` is the state **at the start** of the scene. Tools check that scene *n+1*'s state
-  is consistent with scene *n* plus what happens in it (Phase 7).
+  equals scene *n*'s start state plus its state changes (§4.2). Optional keys (1.1): `time`
+  (time of day, world state) and `offscreen`: paths that changed between scenes without being
+  written as a change, e.g. `["C01.wearing", "world.time"]` (a time jump). Paths:
+  `<CharID>.location|wearing|holding|state` and `world.lighting|weather|time`.
 - `identity_seed` links to the character bible; it is optional in v1.
 - IDs: characters `C…`, locations `L…`, props `P…`, text `T…`, scenes `S…`, followed by digits
   or `[A-Za-z0-9_]` (pattern `^[CLPTS][A-Za-z0-9_]{1,31}$`). Prefixes are mandatory so a reference
@@ -79,6 +82,7 @@ UTF-8, `\n` line endings, one statement per line. The first character decides th
 | `~ <cue> [key=value …]` | Sound cue | `~ rain intensity=heavy` |
 | `> <pov> [<ID>]` | POV hint: `first`, `third`, `over`, `wide`, `free` | `> first C02` |
 | `% <0-10>` | Tension change from this point | `% 7` |
+| `= <ID\|world> <change> …` | State change (1.1, §4.2) | `= C01 holding+=P01 location=L02` |
 | `# <text>` | Comment (kept, not performed) | `# TODO tighten` |
 | empty line | Kept as a blank line (layout only) | |
 
@@ -96,6 +100,20 @@ no trailing whitespace, final newline), `serialize(parse(text)) == text` byte fo
 in canonical form normalise on the first round trip and are stable afterwards. Information is
 never dropped: comments, blank lines and unknown header keys are preserved.
 
+### 4.2 State changes (1.1)
+`= <target> <change> …` records what changes, so continuity can be checked by replaying scenes.
+A change is `key=value` (set), `key+=value` (add to a list) or `key-=value` (remove from a list).
+
+| Target | Key | Operators | Value |
+|---|---|---|---|
+| character `C…` | `location` | `=` | location ID |
+| | `wearing`, `holding` | `+=`, `-=` | prop ID |
+| | `state` | `=` | text with `_` for spaces |
+| `world` | `lighting`, `weather`, `time` | `=` | text with `_` for spaces |
+
+Checks (by tools, not by the reader): a speaker must be at the scene's location when speaking; a
+prop is worn or held by at most one character; `-=` removes something the character has.
+
 ## 5. Validation
 - Every `{ID}` and every speaker/POV ID exists in the dictionary.
 - Scene `@scene` ID matches the index entry; `sha256` matches the file.
@@ -103,4 +121,5 @@ never dropped: comments, blank lines and unknown header keys are preserved.
 - `continuity` references existing IDs.
 
 ## 6. Versioning
-As `.wreel` §13.
+As `.wreel` §13. 1.1 adds the `=` statement and the continuity keys `time` and `offscreen`;
+every 1.0 file is a valid 1.1 file. A 1.0 reader rejects scenes containing `=` lines.

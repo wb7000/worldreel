@@ -64,7 +64,15 @@
                 }
               },
               "lighting": { "type": "string" },
-              "weather": { "type": "string" }
+              "weather": { "type": "string" },
+              "time": { "type": "string" },
+              "offscreen": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(C[A-Za-z0-9_]{1,31}\\.(location|wearing|holding|state)|world\\.(lighting|weather|time))$"
+                }
+              }
             }
           }
         }

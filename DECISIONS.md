@@ -1136,3 +1136,44 @@ Owner's manual steps:
    it. Shotcut may ask to save changes on close — it only adds its own bookkeeping.
 2. `data/exports/walkers.wedit`, `walkers_v2`, `walkers_v3` are broken earlier attempts and
    `walkers_v4` is the good one (all git-ignored); delete the old ones when you like.
+
+---
+
+## Phase 7: Script brain and character bible (2026-10-19, in progress)
+
+### D-7.0 Plan and order
+Brief acceptance: a 10-minute script loads scene by scene with a continuity state; character
+distinctness checks pass. Plus the brief's "fine-tuned script model". Starting point (Phase 1):
+`.wscript` 1.0 container, lossless `.wsl` scene language, validator, `load_context` (current scene +
+one-line summaries of the others). Gaps: continuity is stored per scene but nothing can *check* it,
+because what happens inside a scene is free text; no long script; no character bible; token savings
+never measured (D-1.6).
+1. **7.1 Continuity (A-7):** spec 1.1 adds a state-change line `= <ID> key=value …` to `.wsl`.
+   A tracker replays scenes: end state = start state + changes; the next scene's start must match
+   unless it lists the difference as `offscreen` (time jumps). Also checked: speakers are present
+   in the scene's location, a prop is in one place at a time. 1.0 files stay readable and valid.
+2. **7.2 A 10-minute script:** an original script written for this project (no copyrighted text).
+   "10 minutes" needs a measurable definition: an estimator (dialogue words at a speaking rate +
+   fixed time per action / sound / POV line), recorded as an assumption, checked against the
+   1-page-per-minute convention on the rendered screenplay.
+3. **7.3 Token measurement:** scene context vs whole script vs a plain screenplay (IDs expanded),
+   with a real tokenizer (verified library, exact version), per scene and in total.
+4. **7.4 Character bible (A-8):** identity code = seed → appearance vector + voice parameters,
+   stored in the file; distinctness = minimum pairwise distance ≥ threshold; a sampler that keeps
+   characters apart; a collapse counter; a style-request parser that accepts attribute words only,
+   so a named real person cannot be requested. Face / voice *embeddings of rendered output* need a
+   generator (Phase 8); Phase 7 checks distinctness in the identity-parameter space and says so.
+5. **7.5 Script model:** no local GPU (D-0.1), so fine-tuning runs on Kaggle (T4) behind a config.
+   "Soup" is still unverified (D-0.8); it is checked against its docs first, otherwise a verified
+   library is used. Model, licence and training data are chosen and recorded before any training.
+6. **7.6 Close-out.**
+
+### D-7.1 `.wscript` 1.1 and the continuity tracker (A-7) (2026-10-19)
+- Spec 1.1: `.wsl` line `= <ID|world> key=value|key+=value|key-=value …` (keys and operators in
+  spec §4.2, validated); continuity keys `time` and `offscreen`. 1.0 files stay valid.
+- `stages/generate/continuity.py` (the script feeds the `generate` stage): `replay` (end state
+  from start + changes; `speaker_absent`, `prop_in_two_places`, `prop_not_held`), `check`
+  (scene n end vs scene n+1 start, `continuity_break` unless listed in `offscreen`), `propagate`
+  (authors write the first state and the changes; later start states are filled in).
+- Tests: every check fires on a hand-made violation; no issue on the clean script; round trip
+  of `=` lines is byte-exact. Detection rate on a long script: next, with the 10-minute script.

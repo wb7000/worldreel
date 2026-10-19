@@ -15,6 +15,8 @@ Register of algorithms WorldReel creates or adopts where no ready-made method fi
 ## Register
 | ID | Problem | Status | Baseline | Design note |
 |---|---|---|---|---|
+| A-8 | Identity-distinctness sampling for the character bible | design | independent random seeds per character | below |
+| A-7 | Continuity tracking across `.wscript` scenes | design | none (continuity stored, never checked) | below |
 | A-6 | Procedural, event-driven footstep sounds | experimental | one fixed footstep sound for every event | below |
 | A-5 | Generative texture for filled planes (LaMa) | experimental | plane-mean colour (A-3) | below |
 | A-4 | Licensed reference images, geometrically verified, to colour unseen regions | adopted, provisional (D-4.4) | no retrieval (fill colour = plane mean, A-3) | below |
@@ -346,3 +348,66 @@ in the expected direction (more high-band energy, longer tail).
 
 **Known limits.** Synthetic, not recorded: plausible rather than realistic; no room acoustics
 yet; surface per step comes from scene/config, not from vision (no material recognition).
+
+---
+
+## A-7 Continuity tracking across scenes (design note, 2026-10-19)
+
+**Problem.** Brief §4.3: "a continuity state per scene ... so scene 40 matches scene 4". `.wscript`
+1.0 stores the state at the start of each scene, but what happens in a scene is free text, so a
+tool cannot tell whether scene n+1's state follows from scene n.
+
+**Prior art.** Screenplay software tracks props / wardrobe in breakdown sheets (manual lists);
+story-state tracking for language models is a research topic; nothing found that fits a
+line-based, lossless script format. Own design, deliberately simple.
+
+**Idea.** Make changes explicit and replay them.
+- New `.wsl` line `= <ID> key=value …`, `<ID>` a character or `world`. Character keys:
+  `location=<L…>`, `wearing+=<P…>`, `wearing-=<P…>`, `holding+=<P…>`, `holding-=<P…>`,
+  `state=<text_with_underscores>`. World keys: `lighting=`, `weather=`, `time=`.
+- `replay(start, statements)` applies changes in order and returns the end state; at every
+  dialogue line the speaker must be at the scene's location (else `speaker_absent`); after every
+  change no prop is held or worn by two characters (`prop_in_two_places`); a `-=` of something not
+  held is an error (`prop_not_held`).
+- Between scenes: `diff(end(n), start(n+1))` must be empty, except paths listed in scene n+1's
+  `continuity.offscreen` (e.g. `["C01.wearing", "world.time"]`) — explicit time jumps.
+- Authoring help: `propagate(script)` fills each scene's start state from the previous end state
+  (keeping declared offscreen changes), so writers only write changes.
+
+**Complexity.** Linear in the number of lines; state is small (characters x props).
+
+**Measurement.** Unit tests on hand-made violations (each check fires, no false alarm on the clean
+script); on the 10-minute script: 0 errors, and seeded corruptions (move a prop, delete a change,
+swap a location) are all detected — detection rate reported.
+
+**Known limits.** Only what is written as `=` lines is tracked; actions described in prose alone
+are invisible to it. No physical plausibility (travel time between locations).
+
+---
+
+## A-8 Identity-distinctness sampling (design note, 2026-10-19)
+
+**Problem.** Brief §5: identity must be an explicit input; characters in one film must be farther
+apart than a threshold (faces and voices); collapse must be detectable. Independent random seeds
+can, by chance, give two similar characters, and the chance grows with the cast size.
+
+**Prior art.** Farthest-point / Poisson-disk sampling (classic, for spreading points in a space);
+rejection sampling. Used here as the method; the novel part is only the identity space and the
+check.
+
+**Idea.**
+- Identity code: `seed` → deterministic draw of an appearance vector (face shape, skin tone, hair
+  colour / length, eye / nose / mouth proportions, age, build, height) and voice parameters
+  (median pitch, formant scale, rate, breathiness), each dimension normalised to [0, 1]; any
+  user-specified attributes (from the style parser) are fixed and the rest drawn.
+- Distance: weighted Euclidean over normalised dimensions, separately for face and voice.
+- Sampler: for each new character draw K candidate seeds and keep the one whose nearest existing
+  character is farthest (best-candidate sampling); deterministic given a cast seed.
+- Check: minimum pairwise face and voice distance ≥ thresholds (set before measuring); violations
+  name the pair. Collapse counter: number of distinct identities (after quantising) in a batch.
+
+**Baseline.** Independent seeds. **Measurement.** Over many random casts of size 2–40: rate of
+casts that fail the threshold, baseline vs sampler; ablation K=1 (= baseline).
+
+**Known limits.** Distance in parameter space is not perceptual distance; once Phase 8 renders
+faces and voices, the check must also run on face / speaker embeddings of the output.
