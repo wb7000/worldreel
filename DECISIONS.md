@@ -1651,3 +1651,11 @@ Conversational text + manners moved in the right direction; the remaining gap is
 of vocal change per manner. Next: amplify voice-quality change on the preferred rendering
 (A-11 shaping with stronger presets per manner, applied per turn), after the owner says which
 rendering (R1 / R2 / R3) carried it.
+
+### D-8.6 Owner prefers whole-conversation rendering → strengthen it (2026-10-21, plan)
+Owner: "the whole convo was good — built the vocal, and the perfect timing to express the
+emotions" (R3, Dia, whole exchange in one pass). Plan, all on the laptop: split each R3 exchange
+into turns with Whisper word timestamps; check each turn's voice (ECAPA vs the designed voices);
+apply A-11 shaping per turn from its emotion, **tempo fixed at 1.0** so timing is untouched, at
+two strengths (preset x 0.8 and an amplified preset x 1.5); reassemble in place. Blind test per
+exchange: as rendered / shaped / strongly shaped.
