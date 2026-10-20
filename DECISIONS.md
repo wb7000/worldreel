@@ -1671,3 +1671,13 @@ exchange: as rendered / shaped / strongly shaped.
   — still intelligible.
 - Blind folder `runs/listen_round5/` (6 exchanges x as rendered / 0.8x / 1.5x as X/Y/Z), key in
   `runs/conv/round5_blind_key.json`.
+
+### D-8.6c Owner after round 5: "far better" but hoarse ("like a cold, dry throat") (2026-10-21)
+"Far better than before, the vocals are good, but it sounds like they have a throat problem — a
+cold, a dry throat. For some emotions like crying it fits, for most no." Cause (mine, A-11):
+(1) breathiness (aperiodicity) and jitter added for many emotions — right for crying, wrong for
+the rest; (2) `pyworld.wav2world` analysis (fast DIO pitch) resynthesises with roughness.
+Fix (A-11 v2): Harvest pitch + CheapTrick + D4C analysis; breath / jitter / tremor only for
+crying, fear, despair, whisper, shocked grief; a hoarseness check — harmonics-to-noise ratio
+(HNR) of shaped speech must stay within 2 dB of the unshaped turn for the other emotions
+(threshold set now).
