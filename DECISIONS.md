@@ -1634,3 +1634,13 @@ R2 Turbo, spoken text + manner tag, line by line; R3 Dia, the whole exchange in 
 spoken text and both designed voices as the prompt. 3 takes each, Whisper picks the cleanest.
 Owner's blind listening per exchange decides (R3 cannot be voice-converted per speaker yet —
 only worth building if it wins).
+
+### D-8.5b Round 4 rendered (2026-10-21)
+Two job failures first: the Dia step's script was named `dia.py` and shadowed the `dia` package;
+my quick rename then let the formatter move a comma into a comment (implicit string
+concatenation) — caught before it ran (AST check of every `run()` call), fixed, re-run.
+All 18 renders usable: Whisper WER R1 0.00 per turn; R2 0–0.17 per turn (fillers such as "uh"
+are not always transcribed); R3 (whole exchange, Dia) 0.00–0.07, 6.9–11.0 s per exchange.
+R3 keeps the two designed voices only through Dia's audio prompt (not voice-converted per
+speaker; not measured). Blind folder `runs/listen_round4/` (6 exchanges x X/Y/Z), key in
+`runs/shaping/round4_blind_key.json`.
