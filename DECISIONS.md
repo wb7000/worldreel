@@ -1596,3 +1596,28 @@ and harsh for anger, breathy and fast for fear. Options for the next round (not 
    own design (A-11) with a vocoder that edits pitch and spectrum separately;
 4. IndexTTS2 (emotion and voice separated by design) — only if the owner accepts the bilibili
    Model Use License (not a standard open licence).
+
+### D-8.4 Round 3: Turbo emotion tags, Dia fix, A-11 shaping (2026-10-21, measured)
+Kaggle 1x T4, 30 min (`voice_acting3.py`): **Turbo with emotion tags** ([happy] [crying] [angry]
+[fear] [whispering] [sarcastic] [surprised] + nonverbals after the first sentence) — all 12 lines
+clean, 3 / 3 takes usable each (Whisper WER 0–0.18). **Dia with nonverbals never at the start**:
+the lost-gamble line now works; the tender line still fails all 3 takes (22 s, WER 1.0) although
+it has no tag — a Dia failure on that text. Converted to the designed voice (BV2).
+**A-11 shaping** (WORLD via pyworld-prebuilt 0.3.6.post1, MIT; WORLD 3-clause BSD; laptop CPU,
+~1 s per line), scored on the laptop (ECAPA + Whisper small.en, `eval/score_voices.py`):
+
+| | nearest designed ref | cos own ref | WER mean | usable |
+|---|---|---|---|---|
+| Turbo + tags | 12 / 12 | 0.701 | 0.042 | 12 / 12 |
+| Turbo + tags + shaping | 12 / 12 | 0.639 | 0.047 | 12 / 12 |
+| Dia → voice | 11 / 11 | 0.610 | 0.122 | 11 / 11 |
+| Dia → voice + shaping | 11 / 11 | 0.527 | 0.125 | 10 / 11 |
+
+Shaping keeps who is speaking and the words. Pitch movement: my autocorrelation tracker makes
+octave errors on real speech (up to 14 jumps per line) — its spreads are not trustworthy here;
+re-measured with WORLD's Harvest tracker, shaping widened pitch on most lines (e.g. lottery
+9.0 → 12.0 st, anger 4.3 → 6.4, shock 3.5 → 6.2) but the neutral line also moved 2.7 → 4.5
+with no shaping applied (resynthesis alone changes the measure) — so pitch numbers are only
+indicative. The owner's blind listening decides: `runs/listen_round3/` (46 clips = 12 lines x
+Turbo / Turbo + shaping / Dia→voice / Dia→voice + shaping, as W/X/Y/Z; key in
+`runs/shaping/round3_blind_key.json`).
