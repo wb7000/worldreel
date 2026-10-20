@@ -1782,3 +1782,22 @@ fixed seed) instead of greedy. Pass marks unchanged (emotion ≥ 0.50 strict, me
 new one for the main miss: **≥ 70 % of lines spoken differently from the written line with the
 meaning check passing**. Reported, not pass marks: agreement by emotion family (joy / humour /
 sadness / fear / tender / anger / neutral) and the neutral share on The Lantern Keeper.
+
+### D-8.8c Director v2 (Qwen2.5-14B, guides + examples, sampling) — better, still FAILS (2026-10-21)
+Job 1,724 s on the T4 (14B 4-bit; 44–160 s per scene). No parse failures, no retries.
+| | v1 7B | v2 14B | pass mark |
+|---|---|---|---|
+| emotion agreement (strict, 19 lines) | 0.158 | 0.368 | ≥ 0.50 ✗ |
+| emotion family agreement | — | 0.474 | reported |
+| spoken differently with meaning kept | — | 0.421 | ≥ 0.70 ✗ |
+| meaning check | 0.895 | 0.895 | ≥ 0.90 ✗ |
+| The Lantern Keeper: neutral lines | 66 / 101 | 72 / 101 | reported |
+| The Lantern Keeper: changed + meaning ok | — | **0.000** | reported |
+Reading the answers: on the sample script the director keeps every line as written (they are
+already fairly conversational) and labels most calmly — but its *manners* are apt ("dry,
+matter-of-fact", "serious, warning", "curious, slightly annoyed"). Dia performs from the words, so
+unchanged bookish lines would be voiced read-aloud again.
+**v3 plan:** keep stage 1 (manner / emotion / intensity); add stage 2 — per scene, for each line
+with its manner and emotion, the model writes **three** spoken alternatives that must differ from
+the written line; code keeps the first alternative that differs and passes the meaning check
+(best-of-3 selection), else the original. Same pass marks.
