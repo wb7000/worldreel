@@ -207,3 +207,87 @@ def to_layer(
             "proposed": spoken if not check.ok else None,
         }
     return {"lines": lines}, problems
+
+
+# --------------------------------------------------------------------------- stage 2 (v3, D-8.8c)
+
+REWRITE_EXAMPLE = """Example. Line: "You are leaving. After everything."
+(manner: hurt, quietly bitter; emotion: despair)
+{"index": 1, "takes": ["So you're leaving. After... after everything.",
+                       "You're leaving. Huh. After everything.",
+                       "You're really leaving? After all of it... everything."]}
+Line: "It is fine. It is a modern cake." (manner: bluffing, laughing; emotion: comic_sarcastic)
+{"index": 2, "takes": ["It's fine! (laugh) It's a... modern cake.",
+                       "It's fine, it's fine. It's a modern cake, okay?",
+                       "Oh, it's totally fine. (chuckle) Modern cake."]}"""
+
+
+def build_rewrite_prompt(
+    script: Script, scene_id: str, layer: dict[str, Any]
+) -> list[dict[str, str]]:
+    """Stage 2: three spoken takes per line, given the manner and emotion from stage 1."""
+    names = {c: str(v["name"]) for c, v in script.header["dictionary"]["characters"].items()}
+    rows = []
+    for i, s, text in dialogue_lines(script, scene_id):
+        d = layer["lines"].get(str(i), {})
+        rows.append(
+            f'{i}: {names.get(s.speaker, s.speaker)}: "{text}" '
+            f"(manner: {d.get('manner') or 'natural'}; emotion: {d.get('emotion', 'neutral')})"
+        )
+    lines_text = "\n".join(rows)
+    task = (
+        f"{TALK_GUIDE}\n\n{REWRITE_EXAMPLE}\n\n"
+        f"Scene situation:\n{load_context(script, scene_id).to_prompt()}\n"
+        f"## Lines\n{lines_text}\n\n"
+        "For EVERY line write three different takes of how this person really says it, in this "
+        "manner and emotion. Every take must differ from the written line (contractions, a small "
+        "opening word, a repeat, trailing off, a (laugh)/(sigh)/(gasp)/(chuckle)/(cry) where it "
+        "fits) but keep the meaning, the facts and about the same length. No new names.\n"
+        'Answer exactly as {"lines": [{"index": <n>, "takes": ["...", "...", "..."]}, ...]}.'
+    )
+    return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": task}]
+
+
+def _norm(text: str) -> str:
+    return " ".join(text.lower().replace(chr(0x2019), "'").split())
+
+
+def choose_spoken(original: str, takes: list[str], names: set[str]) -> tuple[str, bool, str | None]:
+    """(spoken, meaning_ok, first rejected take): the first take that differs from the written
+    line and passes the meaning check; the original if none does. Rejected = a changed take that
+    failed the meaning check (kept for review)."""
+    rejected = None
+    for take in takes:
+        take = str(take).strip()
+        if not take or _norm(take) == _norm(original):
+            continue
+        if meaning_check(original, take, names).ok:
+            return take, True, rejected
+        rejected = rejected or take
+    return original, False, rejected
+
+
+def apply_rewrites(
+    script: Script, scene_id: str, layer: dict[str, Any], answer: list[dict[str, Any]]
+) -> list[str]:
+    """Put the chosen takes into the layer (in place); returns problems."""
+    chars = script.header["dictionary"]["characters"]
+    entry = next(e for e in script.header["scenes"] if e["id"] == scene_id)
+    present = {
+        c
+        for c, st in entry["continuity"].get("characters", {}).items()
+        if st.get("location") == entry.get("location")
+    } | {s.speaker for _, s, _ in dialogue_lines(script, scene_id)}
+    names = {str(v["name"]) for c, v in chars.items() if c not in present}
+    by_index = {int(x["index"]): x for x in answer if str(x.get("index", "")).isdigit()}
+    problems = []
+    for i, _s, text in dialogue_lines(script, scene_id):
+        d = layer["lines"][str(i)]
+        takes = [str(t) for t in by_index.get(i, {}).get("takes", []) if isinstance(t, str)]
+        spoken, ok, rejected = choose_spoken(text, takes, names)
+        d["spoken"], d["meaning_ok"], d["takes"] = spoken, ok, takes
+        d["proposed"] = rejected
+        d["nonverbal"] = [n for n in NONVERBALS if f"({n})" in spoken]
+        if not ok:
+            problems.append(f"{i}: no take passed ({len(takes)} takes)")
+    return problems

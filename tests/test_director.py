@@ -74,3 +74,31 @@ def test_invalid_layers_are_rejected(tmp_path: Path) -> None:
         write_wscript(tmp_path / "x.wscript", script, as_zip=False)
     with pytest.raises(ValueError):
         parse_answer("I think the scene is sad.")
+
+
+def test_best_of_three_takes_picks_a_changed_line_that_keeps_the_meaning() -> None:
+    from stages.generate.director import choose_spoken
+
+    orig = "The stones move when they are wet."
+    takes = [
+        "The stones move when they are wet.",  # unchanged: skipped
+        "Lena said the stones fall.",  # changes meaning / adds an absent name: rejected
+        "The stones... they move when they're wet, you know.",
+    ]
+    spoken, ok, rejected = choose_spoken(orig, takes, {"Lena"})
+    assert ok and spoken == takes[2] and rejected == takes[1]
+    assert choose_spoken(orig, [orig], set()) == (orig, False, None)  # nothing new: original kept
+
+
+def test_rewrites_fill_the_layer() -> None:
+    from stages.generate.director import apply_rewrites, build_rewrite_prompt
+
+    script = read_wscript(OUT)
+    lines = dialogue_lines(script, "S001")
+    layer, _ = to_layer(script, "S001", [], "test")
+    assert "three different takes" in build_rewrite_prompt(script, "S001", layer)[1]["content"]
+    i, _, text = lines[0]
+    answer = [{"index": i, "takes": [text.replace("I'm", "Hi, I'm", 1)]}]
+    problems = apply_rewrites(script, "S001", layer, answer)
+    assert layer["lines"][str(i)]["meaning_ok"] and layer["lines"][str(i)]["spoken"] != text
+    assert len(problems) == len(lines) - 1
