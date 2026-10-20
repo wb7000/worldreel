@@ -1644,3 +1644,10 @@ are not always transcribed); R3 (whole exchange, Dia) 0.00–0.07, 6.9–11.0 s 
 R3 keeps the two designed voices only through Dia's audio prompt (not voice-converted per
 speaker; not measured). Blind folder `runs/listen_round4/` (6 exchanges x X/Y/Z), key in
 `runs/shaping/round4_blind_key.json`.
+
+### D-8.5c Owner after round 4 (2026-10-21)
+"Better than before — there is vocal change, but it's less; by far this is good progress."
+Conversational text + manners moved in the right direction; the remaining gap is the *amount*
+of vocal change per manner. Next: amplify voice-quality change on the preferred rendering
+(A-11 shaping with stronger presets per manner, applied per turn), after the owner says which
+rendering (R1 / R2 / R3) carried it.
