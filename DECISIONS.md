@@ -1621,3 +1621,16 @@ with no shaping applied (resynthesis alone changes the measure) — so pitch num
 indicative. The owner's blind listening decides: `runs/listen_round3/` (46 clips = 12 lines x
 Turbo / Turbo + shaping / Dia→voice / Dia→voice + shaping, as W/X/Y/Z; key in
 `runs/shaping/round3_blind_key.json`).
+
+### D-8.5 Owner after round 3: "perfect English", not talking → conversation round (2026-10-21)
+Owner: "every letter is like perfect English, but we talk in respectful, joyful, mischievous
+manners, and with each manner our tone, voice and pitch change". Diagnosis: (1) lines are written
+to be read, so they are read; (2) a line had an emotion but no *manner* toward the listener;
+(3) lines were voiced in isolation — no conversational rhythm between speakers.
+A-12 (conversational delivery), round 4 on `eval/conversations.json` (6 original two-person
+exchanges, 19 turns, a manner per turn, each written twice: clean "written" and "spoken" with
+hesitations / repeats / trailing off / nonverbals): R1 Turbo, written text, line by line;
+R2 Turbo, spoken text + manner tag, line by line; R3 Dia, the whole exchange in one pass with the
+spoken text and both designed voices as the prompt. 3 takes each, Whisper picks the cleanest.
+Owner's blind listening per exchange decides (R3 cannot be voice-converted per speaker yet —
+only worth building if it wins).

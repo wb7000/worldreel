@@ -35,7 +35,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args(argv)
 
-    lines = {ln["id"]: ln for ln in json.loads(Path("eval/emotion_lines.json").read_text())["lines"]}
+    lines = {
+        ln["id"]: ln for ln in json.loads(Path("eval/emotion_lines.json").read_text())["lines"]
+    }
     designed = json.loads((a.refs / "designed_voices.json").read_text())
     enc = EncoderClassifier.from_hparams(
         source=snapshot_download("speechbrain/spkrec-ecapa-voxceleb", revision=ECAPA_SHA),
@@ -47,7 +49,9 @@ def main(argv: list[str] | None = None) -> int:
     def load(p: Path) -> tuple[torch.Tensor, float]:
         x, sr = sf.read(p, dtype="float32")
         x = x if x.ndim == 1 else x.mean(1)
-        return torchaudio.functional.resample(torch.from_numpy(x).unsqueeze(0), sr, 16000), len(x) / sr
+        return torchaudio.functional.resample(torch.from_numpy(x).unsqueeze(0), sr, 16000), len(
+            x
+        ) / sr
 
     def emb(p: Path) -> np.ndarray:
         e = enc.encode_batch(load(p)[0]).squeeze().numpy()

@@ -1,0 +1,36 @@
+{
+  "about": "A-12 conversational test set (D-8.5). Six original two-person exchanges with a speaking manner per turn. 'written' = clean read-aloud text; 'spoken' = the same meaning as people actually talk (hesitation, repeats, trailing off, nonverbals in parentheses). Hand-written gold direction, so the renderer is the variable.",
+  "exchanges": [
+    {"id": "respectful", "turns": [
+      {"cid": "C04", "manner": "respectful", "emotion": "tender", "written": "Grandfather, may I ask you something about Rafi?", "spoken": "Grandfather... um, can I... can I ask you something? About Rafi?"},
+      {"cid": "C02", "manner": "warm", "emotion": "tender", "written": "You may ask. I may not answer.", "spoken": "Hm. You can ask. I might not answer, you know."},
+      {"cid": "C04", "manner": "respectful", "emotion": "tender", "written": "Was he kind?", "spoken": "Was he... was he kind?"},
+      {"cid": "C02", "manner": "tender", "emotion": "joyful", "written": "He was the kindest fool I ever knew.", "spoken": "Oh, he was the kindest... (chuckle) the kindest fool I ever knew."}
+    ]},
+    {"id": "mischievous", "turns": [
+      {"cid": "C03", "manner": "mischievous", "emotion": "comic_sarcastic", "written": "So, the brave archivist is scared of a little tunnel?", "spoken": "Sooo... the brave archivist is scared of a little tunnel, huh?"},
+      {"cid": "C01", "manner": "annoyed", "emotion": "dry_humour", "written": "I am not scared. I am cautious.", "spoken": "I'm not scared. I'm... I'm cautious. There's a difference."},
+      {"cid": "C03", "manner": "teasing", "emotion": "joyful", "written": "Cautious. Right. Your hands are shaking.", "spoken": "Cautious. Right, right. (laugh) Your hands are shaking, Mira."},
+      {"cid": "C01", "manner": "laughing despite herself", "emotion": "joyful", "written": "Be quiet and hold the lamp.", "spoken": "Oh, shut up. (laugh) Just hold the lamp."}
+    ]},
+    {"id": "joyful", "turns": [
+      {"cid": "C03", "manner": "overjoyed", "emotion": "excited", "written": "We won. We actually won!", "spoken": "We won! We... we actually won! (laugh)"},
+      {"cid": "C04", "manner": "disbelieving", "emotion": "excited", "written": "Show me. Show me the numbers!", "spoken": "No way. No way! Show me, show me the numbers!"},
+      {"cid": "C03", "manner": "overjoyed", "emotion": "excited", "written": "Every single one. Every one!", "spoken": "Every single one! Look! Every. One!"}
+    ]},
+    {"id": "sarcastic", "turns": [
+      {"cid": "C02", "manner": "irritated", "emotion": "angry", "written": "You flew it into the chapel.", "spoken": "You flew it. Into the chapel."},
+      {"cid": "C03", "manner": "sheepish", "emotion": "comic_sarcastic", "written": "Technically the wind flew it into the chapel.", "spoken": "Well, uh... technically? The wind flew it into the chapel."},
+      {"cid": "C02", "manner": "sarcastic", "emotion": "dry_humour", "written": "Of course. The wind. Clever wind.", "spoken": "Oh, of course. The wind. Very clever wind."}
+    ]},
+    {"id": "pleading", "turns": [
+      {"cid": "C01", "manner": "pleading", "emotion": "despair", "written": "Please. Let me go down with you. Just this once.", "spoken": "Please. Please, Ade, let me go down with you. Just... just this once."},
+      {"cid": "C02", "manner": "firm but softening", "emotion": "tender", "written": "No. It is not safe.", "spoken": "No. (sigh) No, it's not safe, Mira."},
+      {"cid": "C01", "manner": "pleading, close to tears", "emotion": "crying", "written": "Then why are you going?", "spoken": "Then why are you going? Hm? Why you?"}
+    ]},
+    {"id": "panic", "turns": [
+      {"cid": "C03", "manner": "panicking", "emotion": "afraid", "written": "The water is rising. We need to go now.", "spoken": "Mira... Mira, the water's rising, we need to go, we need to go now!"},
+      {"cid": "C01", "manner": "forcing calm", "emotion": "afraid", "written": "Stay calm. Hold my hand. Walk.", "spoken": "Okay. Okay, stay calm. Hold my hand. Just... walk."}
+    ]}
+  ]
+}
