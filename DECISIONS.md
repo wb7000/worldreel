@@ -1762,3 +1762,23 @@ manners and spoken text — an automatic **director** must produce them for real
 - Job `training/kaggle/jobs/director.py`: Qwen2.5-7B-Instruct (revision a09a354, Apache-2.0),
   4-bit NF4 (bitsandbytes, MIT), greedy, one retry on invalid JSON; directs the test set and all
   10 scenes of The Lantern Keeper.
+
+### D-8.8b Director v1 (Qwen2.5-7B) FAILS its pass marks (2026-10-21, measured)
+Job: 946 s on the T4 for 16 scenes; no parse failures after retry (one first-run failure: in
+transformers 5 `apply_chat_template(..., return_tensors="pt")` returns a dict → `return_dict=True`).
+Test set (19 lines): emotion agreement **0.158** (threshold 0.50 ✗; "always neutral" = 0.0);
+meaning check **0.895** (threshold 0.90 ✗). The Lantern Keeper: **66 / 101 lines "neutral"**,
+meaning check 0.752. Reading the answers:
+- the "spoken" text is mostly the written line copied unchanged — exactly the read-aloud style
+  the owner rejected (the biggest miss);
+- many emotion misses are neighbours (excited ↔ joyful x3, dry_humour ↔ comic_sarcastic, despair
+  ↔ afraid); some hand labels are judgement calls themselves;
+- the manners are often apt ("teasing", "pleading, desperate", "panicked, urgent", "wistful,
+  proud"); one answer skipped a line (fallback worked).
+**v2 (set before running):** Qwen2.5-14B-Instruct (Apache-2.0, revision cf98f3b, 4-bit); the
+prompt gets short definitions of the 12 emotions, a "how people really talk" guide and two worked
+examples written for this purpose (not from the test set); sampling (temperature 0.7, top_p 0.9,
+fixed seed) instead of greedy. Pass marks unchanged (emotion ≥ 0.50 strict, meaning ≥ 0.90) plus a
+new one for the main miss: **≥ 70 % of lines spoken differently from the written line with the
+meaning check passing**. Reported, not pass marks: agreement by emotion family (joy / humour /
+sadness / fear / tender / anger / neutral) and the neutral share on The Lantern Keeper.
