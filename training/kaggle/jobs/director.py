@@ -135,12 +135,12 @@ report["lantern"] = {
     "spoken_changed_ok": round(
         sum(d["meaning_ok"] and _norm(d["spoken"]) != _norm(t) for d, t in lantern) / len(lantern),
         3,
-    ),  # fmt: skip
+    ),
     "meaning_ok": round(sum(d["meaning_ok"] for d, _ in lantern) / len(lantern), 3),
     "emotions": {
         e: sum(d["emotion"] == e for d, _ in lantern)
         for e in sorted({d["emotion"] for d, _ in lantern})
-    },  # fmt: skip
+    },
 }
 write_wscript(OUT / "lantern_keeper_directed.wscript", sample, as_zip=False)
 write_wscript(OUT / "director_test.wscript", test, as_zip=False)
