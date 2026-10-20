@@ -52,6 +52,54 @@ def dialogue_lines(script: Script, scene_id: str) -> list[tuple[int, Dialogue, s
     ]
 
 
+EMOTION_GUIDE = """Emotions (pick the one that fits the moment, not the words alone):
+- neutral: plain information, no feeling coloured into it
+- tender: warm, gentle, caring, intimate
+- joyful: happy, warm laughter, delight
+- excited: thrilled, high energy, disbelief at good news
+- comic_sarcastic: teasing, playful mockery, mischief
+- dry_humour: deadpan, understated irony
+- angry: irritated, cross, sharp, furious
+- afraid: scared, panicked, urgent, nervous
+- despair: hopeless, pleading, defeated
+- crying: in tears, voice breaking
+- whisper_tense: hushed, secretive, holding breath
+- shocked_grief: sudden bad news, stunned sorrow"""
+
+TALK_GUIDE = """How people really talk (the "spoken" field): nobody speaks like a book.
+Use contractions (I am -> I'm, it is -> it's), start with a small word ("Oh,", "Well,", "Hey,",
+"Look,", "Hm."), repeat a word when someone is moved or hesitant ("I... I can't"), trail off
+("Just... walk."), call the listener by name when it feels natural, and put (laugh) (chuckle)
+(sigh) (gasp) or (cry) where the feeling breaks through. Keep the meaning and the facts; keep it
+about as long as the line. Only a one- or two-word line may stay unchanged."""
+
+EXAMPLE = """Example (a different scene): an old fisherman, Joss, and his daughter Ama on a pier
+in a storm; she has just told him she is leaving the village.
+1: Joss (C01): You are leaving. After everything.
+2: Ama (C02): I have to go, father. There is nothing here for me.
+3: Joss (C01): Then go. I will not stop you.
+Answer:
+{"lines": [
+ {"index": 1, "manner": "hurt, quietly bitter", "emotion": "despair", "intensity": 0.6,
+  "spoken": "So you're leaving. After... after everything.", "nonverbal": []},
+ {"index": 2, "manner": "pleading, guilty", "emotion": "crying", "intensity": 0.7,
+  "spoken": "I have to go, Dad. (sigh) There's nothing here for me. Nothing.",
+  "nonverbal": ["sigh"]},
+ {"index": 3, "manner": "cold, proud, turning away", "emotion": "angry", "intensity": 0.5,
+  "spoken": "Then go. Go. I won't stop you.", "nonverbal": []}
+]}
+Another (comedy): two friends, Pell and Rue, whose cake has just collapsed at a party.
+1: Pell (C01): Well. That is not how it looked in the picture.
+2: Rue (C02): It is fine. It is a modern cake.
+Answer:
+{"lines": [
+ {"index": 1, "manner": "deadpan, amused", "emotion": "dry_humour", "intensity": 0.5,
+  "spoken": "Well. That's... not how it looked in the picture.", "nonverbal": []},
+ {"index": 2, "manner": "bluffing, laughing", "emotion": "comic_sarcastic", "intensity": 0.7,
+  "spoken": "It's fine! (laugh) It's a... modern cake.", "nonverbal": ["laugh"]}
+]}"""
+
+
 def build_prompt(script: Script, scene_id: str) -> list[dict[str, str]]:
     names = {c: str(v["name"]) for c, v in script.header["dictionary"]["characters"].items()}
     ctx = load_context(script, scene_id).to_prompt()
@@ -62,17 +110,14 @@ def build_prompt(script: Script, scene_id: str) -> list[dict[str, str]]:
         for i, s, text in dialogue_lines(script, scene_id)
     )
     task = (
-        f"{ctx}\n## Dialogue lines to direct\n{numbered}\n\n"
-        "For each line give:\n"
+        f"{EMOTION_GUIDE}\n\n{TALK_GUIDE}\n\n{EXAMPLE}\n\n"
+        f"Now the real scene.\n{ctx}\n## Dialogue lines to direct\n{numbered}\n\n"
+        "For EVERY numbered line give:\n"
         '- "index": the number before the line;\n'
-        '- "manner": how it is said toward the listener, at most 6 words '
-        '(e.g. "respectful, hesitant", "teasing", "irritated, clipped");\n'
+        '- "manner": how it is said toward the listener, at most 6 words;\n'
         f'- "emotion": one of {", ".join(EMOTIONS)};\n'
         '- "intensity": 0.0 to 1.0;\n'
-        '- "spoken": the same line as a real person would say it in this moment — the same '
-        "meaning and the same facts, but natural speech: contractions, a hesitation, a repeated "
-        "word or trailing off only where it fits; keep it about as long as the original; you may "
-        "put one of (laugh) (chuckle) (sigh) (gasp) (cry) where it truly fits; no new names;\n"
+        '- "spoken": the line as this person would really say it now (see the guide);\n'
         f'- "nonverbal": the list of those used, from {", ".join(NONVERBALS)}.\n'
         'Answer exactly as {"lines": [{...}, ...]} with one entry per line, in order.'
     )

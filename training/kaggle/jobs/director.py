@@ -8,12 +8,12 @@ import sys
 import textwrap
 from pathlib import Path
 
-from eval.director_eval import score, test_script
+from eval.director_eval import _norm, score, test_script
 from formats.wscript import read_wscript, write_wscript
 from stages.generate.director import build_prompt, parse_answer, to_layer
 
-MODEL = "Qwen/Qwen2.5-7B-Instruct"
-REVISION = "a09a35458c702b33eeacc393d103063234e8bc28"
+MODEL = "Qwen/Qwen2.5-14B-Instruct"  # v2 (D-8.8b); v1 was 7B
+REVISION = "cf98f3b3bbb457ad9e2bb7baf9a0125b6b88caa8"
 SOURCE = f"director:{MODEL}@{REVISION[:7]}"
 report: dict[str, object] = {}
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "uv"], check=True)
@@ -47,7 +47,9 @@ jobs += [{"key": f"lantern/{sid}", "messages": build_prompt(sample, sid)} for si
                                       return_dict=True)  # transformers 5: a dict, not a tensor
         ids = enc["input_ids"].to("cuda")
         with torch.inference_mode():
-            o = m.generate(ids, max_new_tokens=3000, do_sample=False, pad_token_id=tok.eos_token_id)
+            torch.manual_seed(7)
+            o = m.generate(ids, max_new_tokens=3000, do_sample=True, temperature=0.7, top_p=0.9,
+                           pad_token_id=tok.eos_token_id)
         return tok.decode(o[0, ids.shape[1]:], skip_special_tokens=True)
     res = {}
     for j in a["jobs"]:
@@ -98,7 +100,17 @@ report["seconds"] = {k: a["seconds"] for k, a in answers["answers"].items()}
 report["problems"] = problems
 report["test_score"] = score(test, gold)
 lantern = [d for sid in sample.scenes for d in sample.delivery[sid]["lines"].values()]
+
+changed = [
+    d["meaning_ok"] and _norm(d["spoken"]) != _norm(t)
+    for sid in sample.scenes
+    for (i, _, t) in __import__("stages.generate.director", fromlist=["x"]).dialogue_lines(
+        sample, sid
+    )
+    for d in [sample.delivery[sid]["lines"][str(i)]]
+]
 report["lantern"] = {
+    "spoken_changed_ok": round(sum(changed) / len(changed), 3),
     "lines": len(lantern),
     "meaning_ok": round(sum(d["meaning_ok"] for d in lantern) / len(lantern), 3),
     "emotions": {

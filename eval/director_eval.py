@@ -16,6 +16,15 @@ from formats.wscript import Action, Dialogue, SceneHeader, Script, Statement, re
 from tools.make_sample_wscript import OUT
 
 TEST = Path("eval/conversations.json")
+FAMILIES = {
+    "joy": ("joyful", "excited"), "humour": ("comic_sarcastic", "dry_humour"),
+    "sadness": ("despair", "crying", "shocked_grief"), "fear": ("afraid", "whisper_tense"),
+    "tender": ("tender",), "anger": ("angry",), "neutral": ("neutral",),
+}  # fmt: skip
+
+
+def _norm(text: str) -> str:
+    return " ".join(text.lower().replace(chr(0x2019), "'").split())  # curly apostrophe
 
 
 def test_script() -> tuple[Script, dict[str, list[dict[str, Any]]]]:
@@ -57,7 +66,16 @@ def score(script: Script, gold: dict[str, list[dict[str, Any]]]) -> dict[str, An
                          "meaning_ok": d.get("meaning_ok", False), "spoken": d.get("spoken"),
                          "proposed": d.get("proposed"), "gold_spoken": t["spoken"]})  # fmt: skip
     n = len(rows)
+    family = {e: f for f, es in FAMILIES.items() for e in es}
+    changed = [
+        bool(r["meaning_ok"]) and _norm(str(r["spoken"])) != _norm(t)
+        for r, t in zip(rows, [t["written"] for ts in gold.values() for t in ts], strict=True)
+    ]
     return {
+        "family_agreement": round(
+            sum(family.get(r["emotion"]) == family.get(r["gold_emotion"]) for r in rows) / n, 3
+        ),
+        "spoken_changed_ok": round(sum(changed) / n, 3),
         "lines": n,
         "covered": sum(r["emotion"] is not None for r in rows),
         "emotion_agreement": round(sum(r["emotion"] == r["gold_emotion"] for r in rows) / n, 3),
