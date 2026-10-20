@@ -53,16 +53,18 @@ class Shape:
 
 
 PRESETS: dict[str, Shape] = {
-    "excited": Shape(2.0, 1.5, warp=1.06, tilt_db=2.5, breath=0.10, tempo=0.93),
-    "joyful": Shape(2.0, 1.5, warp=1.06, tilt_db=2.5, breath=0.10, tempo=0.93),
+    # v2 (D-8.6c): breath / jitter / tremor only where the emotion calls for it — elsewhere they
+    # made voices sound hoarse ("like a cold, dry throat")
+    "excited": Shape(2.0, 1.5, warp=1.06, tilt_db=2.5, tempo=0.93),
+    "joyful": Shape(2.0, 1.5, warp=1.06, tilt_db=2.5, tempo=0.93),
     "comic_sarcastic": Shape(0.5, 1.7, warp=1.03, tilt_db=1.0, tempo=1.05),
-    "despair": Shape(-1.5, 0.7, warp=0.98, tilt_db=-3.0, breath=0.25, tempo=1.12),
+    "despair": Shape(-1.5, 0.7, warp=0.98, tilt_db=-3.0, breath=0.12, tempo=1.12),
     "crying": Shape(1.0, 1.2, 6.0, 0.8, 0.3, tilt_db=-1.0, breath=0.35, tempo=1.08),
     "angry": Shape(1.0, 1.4, tilt_db=4.0, tempo=0.95),
-    "afraid": Shape(2.5, 1.3, 7.0, 0.4, 0.15, warp=1.02, tilt_db=1.0, breath=0.30, tempo=0.90),
+    "afraid": Shape(2.5, 1.3, 7.0, 0.3, 0.0, warp=1.02, tilt_db=1.0, breath=0.15, tempo=0.90),
     "whisper_tense": Shape(0.0, 0.8, tilt_db=1.0, breath=0.85),
     "shocked_grief": Shape(1.5, 1.4, 5.5, 0.6, 0.2, tilt_db=-1.0, breath=0.30, tempo=1.05),
-    "tender": Shape(-0.5, 0.9, tilt_db=-1.5, breath=0.20, tempo=1.05),
+    "tender": Shape(-0.5, 0.9, tilt_db=-1.5, tempo=1.05),
     "dry_humour": Shape(0.0, 0.8),
     "neutral": Shape(),
 }
@@ -110,7 +112,12 @@ def shape_voice(x: np.ndarray, fs: int, shape: Shape, seed: int = 0) -> np.ndarr
     peak = np.abs(x).max()
     if peak > 1.5:  # int PCM
         x = x / 32768.0
-    f0, sp, ap = pw.wav2world(x, fs, frame_period=FRAME_MS)
+    if shape == Shape() or (shape.tempo == 1.0 and replace(shape, tempo=1.0) == Shape()):
+        return np.clip(x, -1.0, 1.0)  # nothing to change: never resynthesise (adds roughness)
+    # Harvest pitch (not the faster DIO of wav2world): cleaner resynthesis (D-8.6c)
+    f0, t_axis = pw.harvest(x, fs, frame_period=FRAME_MS)
+    sp = pw.cheaptrick(x, f0, t_axis, fs)
+    ap = pw.d4c(x, f0, t_axis, fs)
     voiced = f0 > 0
     if voiced.any():
         lf = np.zeros_like(f0)
@@ -135,3 +142,29 @@ def shape_voice(x: np.ndarray, fs: int, shape: Shape, seed: int = 0) -> np.ndarr
     y = y * (rms_in / rms_out)
     clipped: np.ndarray = np.clip(y, -1.0, 1.0)
     return clipped
+
+
+def hnr_db(x: np.ndarray, fs: int) -> float:
+    """Median harmonics-to-noise ratio (dB) over voiced 40 ms frames, from the normalised
+    autocorrelation peak r in the 60-400 Hz lag range: HNR = 10 log10(r / (1 - r)). Lower = more
+    hoarse / breathy. Used to check that shaping does not add roughness (D-8.6c)."""
+    x = np.asarray(x, dtype=np.float64)
+    if np.abs(x).max() > 1.5:
+        x = x / 32768.0
+    fr, hop = int(0.04 * fs), int(0.01 * fs)
+    lo, hi = int(fs / 400), int(fs / 60)
+    vals = []
+    for s0 in range(0, len(x) - fr, hop):
+        w = x[s0 : s0 + fr] - x[s0 : s0 + fr].mean()
+        e = float(w @ w)
+        if e < 1e-4 * fr:
+            continue
+        ac = np.correlate(w, w, "full")[fr - 1 :]
+        # normalise each lag by the energies of the two overlapping parts (unbiased for overlap)
+        cum = np.concatenate([[0.0], np.cumsum(w * w)])
+        lags = np.arange(lo, hi)
+        norm = np.sqrt((cum[fr - lags] - cum[0]) * (cum[fr] - cum[lags])) + 1e-12
+        r = float(np.max(ac[lo:hi] / norm))
+        if 0.3 < r < 0.999:
+            vals.append(10 * np.log10(r / (1 - r)))
+    return float(np.median(vals)) if vals else 0.0

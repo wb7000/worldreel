@@ -42,3 +42,17 @@ def test_intensity_interpolates_and_whisper_removes_voicing() -> None:
     x = _voice()
     whisper = shape_voice(x, FS, PRESETS["whisper_tense"].scaled(1.0))
     assert len(pitch_track(whisper, FS)) < 0.5 * len(pitch_track(x, FS))
+
+
+def test_hnr_drops_with_noise_and_v2_joy_does_not_make_the_voice_hoarse() -> None:
+    from stages.generate.voice_quality import hnr_db
+
+    x = _voice()
+    noisy = x + np.random.default_rng(0).normal(0, 0.05, len(x))
+    assert hnr_db(x, FS) > hnr_db(noisy, FS) + 5
+    # roughness on a steady vowel (a gliding one loses frame periodicity when its range widens)
+    t = np.arange(int(FS * 1.5)) / FS
+    steady = np.sum([np.sin(2 * np.pi * 140 * k * t) / k for k in range(1, 12)], axis=0) * 0.2
+    joy = shape_voice(steady, FS, PRESETS["joyful"])
+    assert hnr_db(joy, FS) > hnr_db(steady, FS) - 2  # no added roughness (D-8.6c)
+    assert np.array_equal(shape_voice(x, FS, Shape()), np.clip(x, -1, 1))  # untouched

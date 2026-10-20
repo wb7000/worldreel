@@ -1681,3 +1681,22 @@ Fix (A-11 v2): Harvest pitch + CheapTrick + D4C analysis; breath / jitter / trem
 crying, fear, despair, whisper, shocked grief; a hoarseness check — harmonics-to-noise ratio
 (HNR) of shaped speech must stay within 2 dB of the unshaped turn for the other emotions
 (threshold set now).
+
+### D-8.6d A-11 v2 measured (2026-10-21)
+Changes: Harvest + CheapTrick + D4C analysis instead of `wav2world`; no resynthesis when nothing
+changes; breath removed from joy / excitement / tenderness, lowered for fear (0.30 → 0.15) and
+despair (0.25 → 0.12), jitter only for crying / shock. New `hnr_db` (harmonics-to-noise ratio,
+autocorrelation normalised per lag for the overlap — the first version was biased and capped a
+clean vowel at 6.5 dB; fixed: clean synthetic vowel 22 dB).
+Hoarseness on the 15 non-breathy turns (HNR change vs the rendered turn; threshold: within 2 dB):
+
+| | mean change | worst | within 2 dB |
+|---|---|---|---|
+| v1 shaping x0.8 | −0.88 dB | −4.08 | 12 / 15 |
+| v1 shaping x1.5 (owner heard "cold, dry throat") | −2.69 dB | −5.67 | 4 / 15 |
+| **v2 shaping x0.8** | **+0.22 dB** | −2.33 | **13 / 15** |
+| v2 shaping x1.5 | −0.74 dB | −4.30 | 8 / 15 |
+
+The measure agrees with the owner's ears about v1. Whisper WER: v2 x0.8 0.034, v2 x1.5 0.038.
+Blind folder `runs/listen_round6/` (6 exchanges x rendered / old x1.5 / new x0.8 / new x1.5 as
+W/X/Y/Z), key `runs/conv/round6_blind_key.json`.
