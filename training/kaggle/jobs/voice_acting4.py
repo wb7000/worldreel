@@ -120,7 +120,7 @@ run(
 dia = env("dia", "3.12", ["git+https://github.com/nari-labs/dia.git", "soundfile"])
 run(
     dia,
-    "dia_render"  # not "dia": the script file must not shadow the dia package,
+    "dia_render",  # not "dia": the script file must not shadow the dia package
     """
     import json, sys, torch, numpy as np, soundfile as sf
     from dia.model import Dia
