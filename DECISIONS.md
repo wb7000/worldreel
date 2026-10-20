@@ -1724,3 +1724,12 @@ chosen, not claimed optimal), 5 takes per exchange, Whisper picks the cleanest; 
 (Whisper word timestamps, as D-8.6b); every turn voice-converted with ChatterboxVC to its
 character's designed voice (clean vocoder; in round 2 it kept Dia's acting: pitch spread
 5.51 → 5.29) and put back at the same time. Compared blind with the raw Dia take.
+
+### D-8.7b Round 7 measured (2026-10-21, Kaggle 1x T4, 38 min)
+Dia whole exchanges, temperature 1.3, cfg 3.0, float32, 5 takes each (Dia ~32 min); best take
+by Whisper WER 0.000–0.037 per exchange; 8.5–15.6 s per exchange (longer than round 4's
+6.9–11.0 s — calmer, slower delivery). Split into turns, each turn voice-converted
+(ChatterboxVC) to its designed voice and placed back at its start time.
+Voice identity (ECAPA nearest designed voice): raw 17 / 19 turns, **converted 19 / 19**.
+Blind folder `runs/listen_round7/` (6 exchanges x raw / converted as X / Y), key
+`runs/conv/round7_blind_key.json`. The owner listens for echo, broken audio and acting.
