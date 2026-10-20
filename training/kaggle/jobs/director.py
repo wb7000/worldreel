@@ -43,7 +43,9 @@ jobs += [{"key": f"lantern/{sid}", "messages": build_prompt(sample, sid)} for si
     m = AutoModelForCausalLM.from_pretrained(a["model"], revision=a["rev"], quantization_config=q,
                                              device_map="cuda")
     def ask(messages):
-        ids = tok.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt").to("cuda")
+        enc = tok.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt",
+                                      return_dict=True)  # transformers 5: a dict, not a tensor
+        ids = enc["input_ids"].to("cuda")
         with torch.inference_mode():
             o = m.generate(ids, max_new_tokens=3000, do_sample=False, pad_token_id=tok.eos_token_id)
         return tok.decode(o[0, ids.shape[1]:], skip_special_tokens=True)
