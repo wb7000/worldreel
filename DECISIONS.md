@@ -1659,3 +1659,15 @@ into turns with Whisper word timestamps; check each turn's voice (ECAPA vs the d
 apply A-11 shaping per turn from its emotion, **tempo fixed at 1.0** so timing is untouched, at
 two strengths (preset x 0.8 and an amplified preset x 1.5); reassemble in place. Blind test per
 exchange: as rendered / shaped / strongly shaped.
+
+### D-8.6b Whole conversations: turns split, voices checked, vocal change strengthened (2026-10-21)
+- Split (Whisper word timestamps aligned to each turn's text, cuts in the pauses;
+  `eval/conversation_turns.py`): 19 turns; 16 / 19 closest to their own designed voice (ECAPA);
+  misses: joyful C03 turn 3 (cos 0.09), pleading C01 turns 1 and 3 (0.21, 0.22) — Dia's audio
+  prompt holds most voices but not all; per-turn voice conversion is the fix if the owner hears it.
+- Shaping per turn with tempo fixed at 1.0, at 0.8x and 1.5x the A-11 preset of the turn's
+  emotion (`Shape.amplified`, `eval/conversation_shaping.py`); every exchange keeps its exact
+  length and turn timing. Whisper WER (whole exchange): as rendered 0.034, 0.8x 0.037, 1.5x 0.048
+  — still intelligible.
+- Blind folder `runs/listen_round5/` (6 exchanges x as rendered / 0.8x / 1.5x as X/Y/Z), key in
+  `runs/conv/round5_blind_key.json`.

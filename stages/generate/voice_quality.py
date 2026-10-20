@@ -37,6 +37,20 @@ class Shape:
         }
         return replace(neutral, **vals)
 
+    def amplified(self, k: float) -> Shape:
+        """Like `scaled` but allows k > 1 (stronger than the preset) and keeps timing (tempo 1);
+        used on whole-conversation renders whose timing must not move (D-8.6)."""
+        neutral = Shape()
+        vals = {
+            f.name: getattr(neutral, f.name)
+            + k * (getattr(self, f.name) - getattr(neutral, f.name))
+            for f in fields(self)
+        }
+        vals["tempo"] = 1.0
+        vals["breath"] = min(vals["breath"], 0.9)
+        vals["range_x"] = max(vals["range_x"], 0.3)
+        return replace(neutral, **vals)
+
 
 PRESETS: dict[str, Shape] = {
     "excited": Shape(2.0, 1.5, warp=1.06, tilt_db=2.5, breath=0.10, tempo=0.93),
