@@ -1743,3 +1743,22 @@ same start times. Default output: the converted version (voice identity 19 / 19 
 Not adopted: description-only Parler voices (D-8.2), Chatterbox exaggeration alone (D-8.2b),
 vocoder shaping A-11 (hoarse / phasey, D-8.6c–e). Still hand-written in the test set: the
 manners and spoken text — an automatic **director** must produce them for real scripts (next).
+
+### D-8.8 The director (A-13) built; first run on Kaggle (2026-10-21)
+- `.wscript` 1.2: delivery layer (spec §4.3; schema `delivery` on scene entries; reader / writer /
+  validator in `formats/wscript.py`). The scene text is never changed.
+- `stages/generate/director.py`: prompt = scene context + numbered dialogue lines; strict JSON
+  answer; `to_layer` validates every field and falls back to the original line on any problem;
+  `meaning_check` (no model).
+- **Meaning check calibrated before the director ran**, on the hand-written spoken lines (which
+  are correct by construction): first version passed only 13 / 19 — calling the listener by name
+  counted as a "new name", and modal swaps (may → can / might) as lost content. Now names of
+  characters present in the scene may be added (absent ones still may not), and modal /
+  auxiliary words are ignored: 18 / 19 pass; the remaining one is a real paraphrase ("Be quiet"
+  → "shut up") and correctly falls back. Thresholds (recall ≥ 0.8, length 0.8–1.8x) unchanged.
+- Test set: `eval/director_eval.py` turns `eval/conversations.json` into 6 scenes (a situation
+  line each — added to the test set, as a script would give — then the *written* lines); the
+  director never sees the hand labels. Baseline "always neutral": emotion agreement 0 / 19.
+- Job `training/kaggle/jobs/director.py`: Qwen2.5-7B-Instruct (revision a09a354, Apache-2.0),
+  4-bit NF4 (bitsandbytes, MIT), greedy, one retry on invalid JSON; directs the test set and all
+  10 scenes of The Lantern Keeper.

@@ -1,6 +1,6 @@
 # `.wscript` — WorldReel long-form script
 
-**Format version: 1.1** · Status: draft (1.0 Phase 1; 1.1 Phase 7) · Schema (header):
+**Format version: 1.2** · Status: draft (1.0 Phase 1; 1.1 Phase 7; 1.2 Phase 8) · Schema (header):
 `spec/schemas/wscript-header-1.schema.json` · Scene grammar: §4
 
 A structured screenplay that stays **lossless** and **token-efficient** for language models.
@@ -30,7 +30,7 @@ No signature is required for `.wscript` (scripts are human-authored inputs, not 
 ```jsonc
 {
   "format": "wscript",
-  "format_version": "1.1",
+  "format_version": "1.2",
   "title": "The Courtyard",
   "language": "en",
   "dictionary": {
@@ -119,6 +119,26 @@ A change is `key=value` (set), `key+=value` (add to a list) or `key-=value` (rem
 Checks (by tools, not by the reader): a speaker must be at the scene's location when speaking; a
 prop is worn or held by at most one character; `-=` removes something the character has.
 
+### 4.3 Delivery layer (1.2)
+How each line is *performed* is kept apart from what the script says, so the script stays lossless
+and a performance can be regenerated or edited without touching the scene text. A scene index
+entry may carry `"delivery": {"path": "delivery/S001.json", "sha256": "…"}`:
+
+```jsonc
+{ "format": "wscript-delivery", "scene": "S001",
+  "lines": { "5": { "manner": "dry, unimpressed", "emotion": "dry_humour", "intensity": 0.4,
+                    "spoken": "They said a team. And I see... one wet woman with a paper map.",
+                    "nonverbal": [], "source": "director:Qwen/Qwen2.5-7B-Instruct@a09a354",
+                    "meaning_ok": true } } }
+```
+- keys are statement indices in the scene file (0 = the `@scene` line) and must point at dialogue;
+- `emotion` ∈ neutral, tender, joyful, excited, comic_sarcastic, dry_humour, angry, afraid,
+  despair, crying, whisper_tense, shocked_grief; `intensity` 0–1;
+- `spoken` is the line as it is said (hesitations, repeats, `(laugh)` style nonverbals allowed);
+  when a meaning check fails, tools use the original text instead (`meaning_ok: false`);
+- `nonverbal` ⊆ laugh, chuckle, sigh, gasp, cry; `source` says who wrote it (`human` or
+  `director:<model>@<revision>`).
+
 ## 5. Validation
 - Every `{ID}` and every speaker/POV ID exists in the dictionary.
 - Scene `@scene` ID matches the index entry; `sha256` matches the file.
@@ -128,3 +148,4 @@ prop is worn or held by at most one character; `-=` removes something the charac
 ## 6. Versioning
 As `.wreel` §13. 1.1 adds the `=` statement and the continuity keys `time` and `offscreen`;
 every 1.0 file is a valid 1.1 file. A 1.0 reader rejects scenes containing `=` lines.
+1.2 adds the optional delivery layer (§4.3); 1.0 / 1.1 files are valid 1.2 files.

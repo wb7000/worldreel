@@ -25,8 +25,8 @@ from formats.common import (
 )
 
 FORMAT = "wscript"
-SUPPORTED_VERSION = (1, 1)
-FORMAT_VERSION = "1.1"
+SUPPORTED_VERSION = (1, 2)
+FORMAT_VERSION = "1.2"
 HEADER = "wscript.json"
 SCHEMA = "wscript-header-1.schema.json"
 
@@ -45,6 +45,12 @@ CHARACTER_KEYS = {
     "holding": ("+=-=", "prop"),
     "state": ("=", "text"),
 }
+# Delivery layer (1.2, spec §4.3)
+EMOTIONS = (
+    "neutral", "tender", "joyful", "excited", "comic_sarcastic", "dry_humour", "angry",
+    "afraid", "despair", "crying", "whisper_tense", "shocked_grief",
+)  # fmt: skip
+NONVERBALS = ("laugh", "chuckle", "sigh", "gasp", "cry")
 WORLD_KEYS = {"lighting": ("=", "text"), "weather": ("=", "text"), "time": ("=", "text")}
 
 
@@ -282,6 +288,7 @@ class Script:
     header: dict[str, Any]
     scenes: dict[str, list[Statement]]
     report: Report = field(default_factory=Report)
+    delivery: dict[str, dict[str, Any]] = field(default_factory=dict)  # scene id -> layer (1.2)
 
     def scene_entry(self, scene_id: str) -> dict[str, Any]:
         for entry in self.header["scenes"]:
@@ -301,7 +308,16 @@ def _entries_for(script: Script) -> dict[str, bytes]:
         data = serialize_scene(script.scenes[scene_id]).encode("utf-8")
         path = f"scenes/{scene_id}.wsl"
         entries[path] = data
-        index.append({**entry, "path": path, "sha256": sha256_hex(data)})
+        new = {**entry, "path": path, "sha256": sha256_hex(data)}
+        new.pop("delivery", None)
+        if scene_id in script.delivery:
+            layer = {"format": "wscript-delivery", "scene": scene_id,
+                     "lines": script.delivery[scene_id].get("lines", {})}  # fmt: skip
+            ddata = dump_json(layer)
+            dpath = f"delivery/{scene_id}.json"
+            entries[dpath] = ddata
+            new["delivery"] = {"path": dpath, "sha256": sha256_hex(ddata)}
+        index.append(new)
     missing = set(script.scenes) - {e["id"] for e in header["scenes"]}
     if missing:
         raise FormatError(f"scenes not in the index: {sorted(missing)}")
@@ -329,7 +345,12 @@ def read_wscript(path: Path) -> Script:
     report = Report()
     scenes = _validate_entries(entries, report)
     header = load_json(entries[HEADER], HEADER)
-    return Script(header=header, scenes=scenes, report=report)
+    delivery = {
+        e["id"]: load_json(entries[e["delivery"]["path"]], e["delivery"]["path"])
+        for e in header.get("scenes", [])
+        if "delivery" in e and e["delivery"]["path"] in entries
+    }
+    return Script(header=header, scenes=scenes, report=report, delivery=delivery)
 
 
 def validate_wscript(path: Path) -> Report:
@@ -358,6 +379,7 @@ def _validate_entries(entries: Mapping[str, bytes], rep: Report) -> dict[str, li
     locations = set(dictionary["locations"])
     props = set(dictionary["props"])
     listed = {e["path"] for e in header["scenes"]}
+    listed |= {e["delivery"]["path"] for e in header["scenes"] if "delivery" in e}
     for extra in sorted(set(entries) - listed - {HEADER}):
         rep.warning("unlisted_entry", "file is not referenced by the scene index", extra)
     seen: set[str] = set()
@@ -386,8 +408,41 @@ def _validate_entries(entries: Mapping[str, bytes], rep: Report) -> dict[str, li
         if entry.get("location") and entry["location"] not in locations:
             rep.error("bad_reference", f"unknown location {entry['location']!r}", where)
         _check_continuity(entry["continuity"], characters, locations, props, rep, where)
+        if "delivery" in entry:
+            _check_delivery(entry["delivery"], entries, statements, rep, where)
         _check_statements(statements, known, characters, locations, props, rep, where)
     return scenes
+
+
+def _check_delivery(
+    ref: Mapping[str, str],
+    entries: Mapping[str, bytes],
+    statements: list[Statement],
+    rep: Report,
+    where: str,
+) -> None:
+    data = entries.get(ref["path"])
+    if data is None:
+        rep.error("missing_entry", f"{ref['path']} is missing", where)
+        return
+    if sha256_hex(data) != ref["sha256"]:
+        rep.error("hash_mismatch", "delivery file does not match its sha256", where)
+    layer = load_json(data, ref["path"])
+    for key, d in layer.get("lines", {}).items():
+        w = f"{where}.delivery[{key}]"
+        if not key.isdigit() or int(key) >= len(statements):
+            rep.error("bad_delivery", "not a statement index of this scene", w)
+            continue
+        if not isinstance(statements[int(key)], Dialogue):
+            rep.error("bad_delivery", "delivery for a statement that is not dialogue", w)
+        if d.get("emotion") not in EMOTIONS:
+            rep.error("bad_delivery", f"unknown emotion {d.get('emotion')!r}", w)
+        if not 0 <= float(d.get("intensity", -1)) <= 1:
+            rep.error("bad_delivery", "intensity must be 0-1", w)
+        if not str(d.get("spoken", "")).strip():
+            rep.error("bad_delivery", "empty spoken text", w)
+        if any(n not in NONVERBALS for n in d.get("nonverbal", [])):
+            rep.error("bad_delivery", f"unknown nonverbal in {d.get('nonverbal')}", w)
 
 
 def _check_continuity(

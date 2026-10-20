@@ -15,6 +15,7 @@ Register of algorithms WorldReel creates or adopts where no ready-made method fi
 ## Register
 | ID | Problem | Status | Baseline | Design note |
 |---|---|---|---|---|
+| A-13 | Director: per-line manner, emotion and spoken text from scene context | design | the original line, read neutrally | below |
 | A-12 | Conversational delivery: spoken text + manner, whole-exchange rendering, per-turn voice conversion | adopted (D-8.7c, owner) | isolated read-aloud lines | DECISIONS D-8.5–8.7 |
 | A-11 | Per-emotion voice-quality shaping after synthesis | experimental — not adopted (hoarse v1, phasey; PSOLA v3 hoarser) | unshaped TTS output | below |
 | A-10 | Script-driven emotional delivery for synthetic voices | superseded by A-12 | one fixed (flat) description per character | below |
@@ -505,3 +506,38 @@ shaping (still intelligible); owner's blind listening decides adoption.
 
 **Known limits.** Vocoder resynthesis can sound buzzy; presets are hand-set (no learning);
 laughter and sobs as sounds still have to come from the TTS (tags), shaping only colours speech.
+
+---
+
+## A-13 The director: manner, emotion and spoken text per line (design note, 2026-10-21)
+
+**Problem.** The accepted voice pipeline (A-12, D-8.7c) needs, for every line, a manner toward the
+listener, an emotion and a version of the line *as people say it*. For the test set they were
+hand-written; real scripts have hundreds of lines.
+
+**Prior art.** LLM annotation of scripts (emotion tagging, rewriting for speech) is common practice;
+no specific method adopted. Own design: an open instruction model as the "director", constrained
+output, and a deterministic meaning check so a rewrite can never change what a character says.
+
+**Idea.**
+- Input per scene: the `load_context` prompt (characters with descriptions, continuity, other
+  scenes' summaries, the scene text with tension changes) — the director sees the situation.
+- Output: strict JSON, one entry per dialogue line: manner (≤ 6 words), emotion (12 fixed
+  labels), intensity 0–1, spoken text, nonverbals (5 allowed). Greedy decoding; invalid JSON →
+  one retry with the error message, then the line falls back to neutral / original.
+- Meaning check (no model): the spoken text must keep ≥ 80 % of the original's content words
+  (stop-words and fillers ignored) and stay within 0.8–1.8x its word count, add no new names /
+  IDs; otherwise `meaning_ok = false` and the original text is spoken.
+- Written to the delivery layer (spec §4.3), human-editable; never into the scene text.
+
+**Model.** Qwen2.5-7B-Instruct (Apache-2.0, revision a09a354), 4-bit NF4 with bitsandbytes on a
+T4. (The 3B model is under a different, restricted licence — not used.)
+
+**Measurement (thresholds set before running).** On `eval/conversations.json` (19 turns with hand
+labels, run as 6 small scenes): JSON valid for 100 % of lines after the retry; meaning check passes
+≥ 90 %; emotion agrees with the hand label ≥ 50 % (12 classes; neighbouring classes such as
+joyful / excited count as disagreement — strict); manner and spoken text judged by the owner's
+listening of the voiced result. Then the whole sample script is directed and voiced.
+
+**Known limits.** A 7B model's sense of comedy and subtext is limited; labels are coarse;
+English only.
