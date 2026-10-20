@@ -15,8 +15,9 @@ Register of algorithms WorldReel creates or adopts where no ready-made method fi
 ## Register
 | ID | Problem | Status | Baseline | Design note |
 |---|---|---|---|---|
-| A-11 | Per-emotion voice-quality shaping after synthesis | design | unshaped TTS output | below |
-| A-10 | Script-driven emotional delivery for synthetic voices | design | one fixed (flat) description per character | below |
+| A-12 | Conversational delivery: spoken text + manner, whole-exchange rendering, per-turn voice conversion | adopted (D-8.7c, owner) | isolated read-aloud lines | DECISIONS D-8.5–8.7 |
+| A-11 | Per-emotion voice-quality shaping after synthesis | experimental — not adopted (hoarse v1, phasey; PSOLA v3 hoarser) | unshaped TTS output | below |
+| A-10 | Script-driven emotional delivery for synthetic voices | superseded by A-12 | one fixed (flat) description per character | below |
 | A-9 | Procedural places from location descriptions | planned | — | (8.4) |
 | A-8 | Identity-distinctness sampling for the character bible | adopted (D-7.4) | independent random seeds per character | below |
 | A-7 | Continuity tracking across `.wscript` scenes | adopted (D-7.2) | none (continuity stored, never checked) | below |

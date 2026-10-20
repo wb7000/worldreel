@@ -1733,3 +1733,13 @@ by Whisper WER 0.000–0.037 per exchange; 8.5–15.6 s per exchange (longer tha
 Voice identity (ECAPA nearest designed voice): raw 17 / 19 turns, **converted 19 / 19**.
 Blind folder `runs/listen_round7/` (6 exchanges x raw / converted as X / Y), key
 `runs/conv/round7_blind_key.json`. The owner listens for echo, broken audio and acting.
+
+### D-8.7c Owner accepts the voice pipeline (2026-10-21)
+Owner on round 7: "better than previous, it has emotion — well done." Adopted (A-12):
+spoken text + manner per line → Dia renders the whole exchange (temperature 1.3, cfg 3.0,
+float32, 5 takes, Whisper picks the cleanest) → split into turns (Whisper word timestamps) →
+each turn voice-converted (ChatterboxVC) to its character's designed voice → put back at the
+same start times. Default output: the converted version (voice identity 19 / 19 vs raw 17 / 19).
+Not adopted: description-only Parler voices (D-8.2), Chatterbox exaggeration alone (D-8.2b),
+vocoder shaping A-11 (hoarse / phasey, D-8.6c–e). Still hand-written in the test set: the
+manners and spoken text — an automatic **director** must produce them for real scripts (next).
