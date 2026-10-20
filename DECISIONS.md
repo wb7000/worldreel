@@ -1801,3 +1801,20 @@ unchanged bookish lines would be voiced read-aloud again.
 with its manner and emotion, the model writes **three** spoken alternatives that must differ from
 the written line; code keeps the first alternative that differs and passes the meaning check
 (best-of-3 selection), else the original. Same pass marks.
+
+### D-8.8d Director v3 (best-of-3 rewrites) and three scoring bugs (2026-10-21, measured)
+Run: stage 1 1,730 s + stage 2 1,461 s on the T4. As scored by the job: test "changed + meaning ok"
+0.421, The Lantern Keeper 0.366 (up from 0.000). Inspecting the rejected takes found three bugs
+in *my* scoring, fixed and re-scored from the saved answers (`eval/director_rescore.py`, no GPU):
+1. contractions were not expanded ("Mira's gonna kill me" failed against "Mira is going to kill
+   me") → contractions / slang expanded before comparing;
+2. the length bounds (0.8–1.8x) then rejected natural repeats ("I'm... I'm cautious. There's a
+   difference.") → re-calibrated on the hand-written lines only (correct by construction):
+   0.75–2.0x, 18 / 19 hand lines pass;
+3. the model sometimes packs several entries into ONE JSON object with repeated keys; plain
+   `json.loads` keeps the last → repeated keys are split into separate entries.
+Re-scored: test **0.579**, The Lantern Keeper **0.455** (11 / 101 lines still without takes);
+emotion agreement 0.368, family 0.474 — all still under the pass marks. Remaining causes: the
+model shortens lines (drops facts — rightly rejected) and skips lines in longer scenes.
+v4: stage 2 in chunks of ≤ 6 lines, 5 takes per line, and an explicit rule never to drop a name,
+number, place or fact.

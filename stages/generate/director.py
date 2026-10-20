@@ -33,9 +33,33 @@ FILLERS = set("uh um hm hmm oh ah well like okay ok yeah right huh eh mm".split(
 WORD = re.compile(r"[a-z0-9']+")
 
 
+CONTRACTIONS = (
+    ("n't", " not"),
+    ("'re", " are"),
+    ("'ll", " will"),
+    ("'ve", " have"),
+    ("'d", " would"),
+    ("'m", " am"),
+    ("'s", " is"),  # possessives too: harmless, "is" is a stop word
+)  # suffixes: "it's" -> "it is" (possessives too: harmless, "is" is a stop word)
+SLANG = {"gonna": "going to", "wanna": "want to", "gotta": "got to", "kinda": "kind of"}
+
+
 def _words(text: str) -> list[str]:
-    text = re.sub(r"\([a-z ]+\)|\[[a-z ]+\]", " ", text.lower())
-    return WORD.findall(text)
+    """Lower-case words with nonverbals removed and contractions expanded (a spoken \"Mira's
+    gonna\" must match a written \"Mira is going to\", D-8.8d)."""
+    text = re.sub(r"\([a-z ]+\)|\[[a-z ]+\]", " ", text.lower().replace(chr(0x2019), "'"))
+    out: list[str] = []
+    for w in WORD.findall(text):
+        if w in SLANG:
+            out += SLANG[w].split()
+            continue
+        for short, full in CONTRACTIONS:
+            if w.endswith(short) and len(w) > len(short):
+                w = w[: -len(short)] + full
+                break
+        out += w.split()
+    return out
 
 
 def _content(text: str) -> list[str]:
@@ -144,7 +168,7 @@ def meaning_check(original: str, spoken: str, names: set[str]) -> MeaningCheck:
     new = tuple(
         sorted(n for n in names if n.lower() in _words(spoken) and n.lower() not in orig_words)
     )
-    ok = recall >= 0.8 and 0.8 <= ratio <= 1.8 and not new
+    ok = recall >= 0.8 and 0.75 <= ratio <= 2.0 and not new  # bounds calibrated on gold (D-8.8d)
     return MeaningCheck(ok, round(recall, 3), round(ratio, 3), new)
 
 
@@ -153,11 +177,29 @@ def parse_answer(text: str) -> list[dict[str, Any]]:
     start, end = text.find("{"), text.rfind("}")
     if start < 0 or end < start:
         raise ValueError("no JSON object in the answer")
-    data = json.loads(text[start : end + 1])
+    data = json.loads(text[start : end + 1], object_pairs_hook=_split_repeated)
     lines = data.get("lines") if isinstance(data, dict) else None
     if not isinstance(lines, list):
         raise ValueError('answer has no "lines" list')
-    return [x for x in lines if isinstance(x, dict)]
+    out: list[dict[str, Any]] = []
+    for x in lines:  # an object with repeated keys became a list of objects
+        out += [y for y in (x if isinstance(x, list) else [x]) if isinstance(y, dict)]
+    return out
+
+
+def _split_repeated(pairs: list[tuple[str, Any]]) -> Any:
+    """Models sometimes put several entries into ONE object with repeated keys
+    ({"index": 2, "takes": [...], "index": 3, ...}); plain json keeps only the last (D-8.8d).
+    Split such an object into one object per repeated group."""
+    keys = [k for k, _ in pairs]
+    if len(keys) == len(set(keys)):
+        return dict(pairs)
+    groups: list[dict[str, Any]] = [{}]
+    for k, v in pairs:
+        if k in groups[-1]:
+            groups.append({})
+        groups[-1][k] = v
+    return groups
 
 
 def to_layer(
@@ -222,13 +264,20 @@ Line: "It is fine. It is a modern cake." (manner: bluffing, laughing; emotion: c
                        "Oh, it's totally fine. (chuckle) Modern cake."]}"""
 
 
+TAKES = 5
+CHUNK = 6
+
+
 def build_rewrite_prompt(
-    script: Script, scene_id: str, layer: dict[str, Any]
+    script: Script, scene_id: str, layer: dict[str, Any], only: list[int] | None = None
 ) -> list[dict[str, str]]:
-    """Stage 2: three spoken takes per line, given the manner and emotion from stage 1."""
+    """Stage 2: TAKES spoken takes per line, given the manner and emotion from stage 1; `only`
+    limits the request to some line indices (chunks of CHUNK lines, so none is skipped)."""
     names = {c: str(v["name"]) for c, v in script.header["dictionary"]["characters"].items()}
     rows = []
     for i, s, text in dialogue_lines(script, scene_id):
+        if only is not None and i not in only:
+            continue
         d = layer["lines"].get(str(i), {})
         rows.append(
             f'{i}: {names.get(s.speaker, s.speaker)}: "{text}" '
@@ -239,13 +288,21 @@ def build_rewrite_prompt(
         f"{TALK_GUIDE}\n\n{REWRITE_EXAMPLE}\n\n"
         f"Scene situation:\n{load_context(script, scene_id).to_prompt()}\n"
         f"## Lines\n{lines_text}\n\n"
-        "For EVERY line write three different takes of how this person really says it, in this "
-        "manner and emotion. Every take must differ from the written line (contractions, a small "
-        "opening word, a repeat, trailing off, a (laugh)/(sigh)/(gasp)/(chuckle)/(cry) where it "
-        "fits) but keep the meaning, the facts and about the same length. No new names.\n"
-        'Answer exactly as {"lines": [{"index": <n>, "takes": ["...", "...", "..."]}, ...]}.'
+        f"For EVERY line write {TAKES} different takes of how this person really says it, in "
+        "this manner and emotion. Every take must differ from the written line (contractions, a "
+        "small opening word, a repeat, trailing off, a (laugh)/(sigh)/(gasp)/(chuckle)/(cry) "
+        "where it fits). NEVER drop or shorten content: keep every name, number, place and fact, "
+        "and keep it at least as long as the written line. No new names.\n"
+        'Answer exactly as {"lines": [{"index": <n>, "takes": ["...", ...]}, ...]} with one '
+        "object per line."
     )
     return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": task}]
+
+
+def rewrite_chunks(script: Script, scene_id: str) -> list[list[int]]:
+    """Dialogue line indices of a scene in groups of at most CHUNK."""
+    idx = [i for i, _, _ in dialogue_lines(script, scene_id)]
+    return [idx[k : k + CHUNK] for k in range(0, len(idx), CHUNK)]
 
 
 def _norm(text: str) -> str:
@@ -282,6 +339,8 @@ def apply_rewrites(
     by_index = {int(x["index"]): x for x in answer if str(x.get("index", "")).isdigit()}
     problems = []
     for i, _s, text in dialogue_lines(script, scene_id):
+        if i not in by_index:
+            continue  # not in this answer (another chunk)
         d = layer["lines"][str(i)]
         takes = [str(t) for t in by_index.get(i, {}).get("takes", []) if isinstance(t, str)]
         spoken, ok, rejected = choose_spoken(text, takes, names)

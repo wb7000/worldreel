@@ -96,9 +96,14 @@ def test_rewrites_fill_the_layer() -> None:
     script = read_wscript(OUT)
     lines = dialogue_lines(script, "S001")
     layer, _ = to_layer(script, "S001", [], "test")
-    assert "three different takes" in build_rewrite_prompt(script, "S001", layer)[1]["content"]
+    assert "5 different takes" in build_rewrite_prompt(script, "S001", layer)[1]["content"]
     i, _, text = lines[0]
     answer = [{"index": i, "takes": [text.replace("I'm", "Hi, I'm", 1)]}]
     problems = apply_rewrites(script, "S001", layer, answer)
     assert layer["lines"][str(i)]["meaning_ok"] and layer["lines"][str(i)]["spoken"] != text
-    assert len(problems) == len(lines) - 1
+    assert problems == []  # lines not in the answer belong to other chunks
+
+
+def test_parser_recovers_entries_packed_into_one_object() -> None:
+    packed = '{"lines": [{"index": 2, "takes": ["a"], "index": 3, "takes": ["b"]}, {"index": 4}]}'
+    assert [x["index"] for x in parse_answer(packed)] == [2, 3, 4]

@@ -18,6 +18,7 @@ from stages.generate.director import (
     build_rewrite_prompt,
     dialogue_lines,
     parse_answer,
+    rewrite_chunks,
     to_layer,
 )
 
@@ -96,8 +97,16 @@ test, gold = test_script()
 sample = read_wscript(CODE / "eval" / "scripts" / "lantern_keeper.wscript")
 scripts = {"test": test, "lantern": sample}
 
-# Stage 1: manner / emotion / intensity
-a1 = llm("stage1", [{"key": f"{g}/{sid}", "messages": build_prompt(s, sid)}
+# Stage 1: manner / emotion / intensity (reused from an attached earlier run when present —
+# stage 1 is unchanged since v2; saves ~30 min of GPU)
+prev = next(INPUT.rglob("stage1_answers.json"), None)
+if prev is not None:
+    a1 = json.loads(prev.read_text())["answers"]
+    (OUT / "stage1_answers.json").write_text(prev.read_text())
+    log(f"stage 1 reused from {prev}")
+else:
+    a1 = None
+a1 = a1 or llm("stage1", [{"key": f"{g}/{sid}", "messages": build_prompt(s, sid)}
                     for g, s in scripts.items() for sid in s.scenes])  # fmt: skip
 problems: dict[str, list[str]] = {}
 for key, a in a1.items():
@@ -111,11 +120,14 @@ for key, a in a1.items():
     problems.setdefault(key, []).extend(probs)
 report["stage1_test_score"] = {k: v for k, v in score(test, gold).items() if k != "rows"}
 
-# Stage 2: three spoken takes per line, best of 3
-a2 = llm("stage2", [{"key": f"{g}/{sid}", "messages": build_rewrite_prompt(s, sid, s.delivery[sid])}
-                    for g, s in scripts.items() for sid in s.scenes])  # fmt: skip
+# Stage 2: five spoken takes per line, chunks of <= 6 lines, first good take kept (v4)
+a2 = llm("stage2", [
+    {"key": f"{g}/{sid}/{k}", "messages": build_rewrite_prompt(s, sid, s.delivery[sid], only=chunk)}
+    for g, s in scripts.items() for sid in s.scenes
+    for k, chunk in enumerate(rewrite_chunks(s, sid))
+])  # fmt: skip
 for key, a in a2.items():
-    g, sid = key.split("/")
+    g, sid, _chunk = key.split("/")
     try:
         parsed = parse_answer(str(a["answer"]))
     except ValueError as exc:
