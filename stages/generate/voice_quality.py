@@ -168,3 +168,38 @@ def hnr_db(x: np.ndarray, fs: int) -> float:
         if 0.3 < r < 0.999:
             vals.append(10 * np.log10(r / (1 - r)))
     return float(np.median(vals)) if vals else 0.0
+
+
+def shape_voice_psola(x: np.ndarray, fs: int, shape: Shape, seed: int = 0) -> np.ndarray:
+    """A-11 v3 (D-8.6e): the same pitch edits as `shape_voice` (shift, range, tremor, jitter) done
+    with TD-PSOLA on the real waveform, and brightness as a linear filter — no vocoder
+    resynthesis, so no phase echo. Timing is unchanged (tempo ignored); formant warp is not
+    applied. Whisper-like breath (> 0.5) still needs the vocoder and falls back to it."""
+    from stages.generate.psola import f0_track, psola, tilt
+
+    x = np.asarray(x, dtype=np.float64)
+    if x.ndim > 1:
+        x = x.mean(axis=1)
+    if np.abs(x).max() > 1.5:
+        x = x / 32768.0
+    if replace(shape, tempo=1.0, warp=1.0) == Shape():
+        return np.clip(x, -1.0, 1.0)  # nothing to change
+    if shape.breath > 0.5:
+        return shape_voice(x, fs, replace(shape, tempo=1.0), seed)
+    f0 = f0_track(x, fs)
+    voiced = f0 > 0
+    ratio = np.ones_like(f0)
+    if voiced.any():
+        lf = np.log2(np.where(voiced, f0, 1.0))
+        mean = lf[voiced].mean()
+        new = mean + shape.shift_st / 12 + shape.range_x * (lf - mean)
+        t = np.arange(len(f0)) * FRAME_MS / 1000
+        if shape.tremor_st:
+            new = new + shape.tremor_st / 12 * np.sin(2 * np.pi * shape.tremor_hz * t)
+        if shape.jitter_st:
+            new = new + np.random.default_rng(seed).normal(0, shape.jitter_st / 12, len(f0))
+        ratio = np.where(voiced, 2 ** (new - lf), 1.0)
+    y = tilt(psola(x, fs, ratio, f0), fs, shape.tilt_db)
+    y = y * (np.sqrt(np.mean(x**2)) + 1e-12) / (np.sqrt(np.mean(y**2)) + 1e-12)
+    clipped: np.ndarray = np.clip(y, -1.0, 1.0)
+    return clipped

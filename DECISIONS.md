@@ -1700,3 +1700,16 @@ Hoarseness on the 15 non-breathy turns (HNR change vs the rendered turn; thresho
 The measure agrees with the owner's ears about v1. Whisper WER: v2 x0.8 0.034, v2 x1.5 0.038.
 Blind folder `runs/listen_round6/` (6 exchanges x rendered / old x1.5 / new x0.8 / new x1.5 as
 W/X/Y/Z), key `runs/conv/round6_blind_key.json`.
+
+### D-8.6e Owner: "good, but an echo / vibration / delay" → PSOLA tried, not better yet (2026-10-21)
+Owner after round 6: "good but has echo-type vibration, delay in the sound". Measured: vocoder
+resynthesis loses the original phase (waveform correlation 0.22–0.25 even for a near-identity
+edit) — the classic "phasey" sound; no real time offset (±4 ms, border-only blend).
+A-11 v3 tried: TD-PSOLA on the real waveform (`stages/generate/psola.py`, pitch by grain
+re-spacing, brightness as a linear FIR filter, vocoder only for whisper). Unit tests pass
+(identity exact, +2 st within 0.4 st, length kept). On the real turns it achieves the intended
+shift (mean abs error 0.47 st over 17 turns) but is **hoarser**: HNR −2.51 dB at x0.8 (5 / 15
+within 2 dB) vs vocoder v2 +0.22 dB (13 / 15) — its pitch marks (snapped to |x| peaks) wobble on
+real speech, which itself sounds like vibration. Not adopted; v2 stays. Next: locate the echo —
+the owner checks whether it is also in the *unshaped* render (then it is Dia's audio, not the
+shaping) before more work on PSOLA marks.
