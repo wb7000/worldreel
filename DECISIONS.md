@@ -1713,3 +1713,14 @@ within 2 dB) vs vocoder v2 +0.22 dB (13 / 15) — its pitch marks (snapped to |x
 real speech, which itself sounds like vibration. Not adopted; v2 stays. Next: locate the echo —
 the owner checks whether it is also in the *unshaped* render (then it is Dia's audio, not the
 shaping) before more work on PSOLA marks.
+
+### D-8.7 The echo is in Dia's own audio → clean the source (2026-10-21, plan)
+Owner on the *unshaped* renders: joyful (R3) "has the echo / vibration", respectful (R3) "is
+broken". So the artefacts come from Dia itself, not from A-11 shaping (Whisper still heard the
+words: WER 0.03 / 0.05 — the word check cannot catch them). My Dia settings were temperature 1.8
+(from its voice-cloning example) and fp16 compute on the T4 — both plausible causes.
+Round 7: Dia whole exchanges at temperature 1.3, cfg_scale 3.0, float32 compute (settings
+chosen, not claimed optimal), 5 takes per exchange, Whisper picks the cleanest; split into turns
+(Whisper word timestamps, as D-8.6b); every turn voice-converted with ChatterboxVC to its
+character's designed voice (clean vocoder; in round 2 it kept Dia's acting: pitch spread
+5.51 → 5.29) and put back at the same time. Compared blind with the raw Dia take.
