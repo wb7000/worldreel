@@ -1,7 +1,8 @@
 """Plan how a directed scene is voiced with the accepted pipeline (A-12, D-8.7c).
 
-Dia renders at most two speakers per pass ([S1] / [S2]); a scene is cut into chunks of
-consecutive dialogue lines with at most two distinct speakers. Each chunk is rendered as one
+Dia renders at most two speakers per pass ([S1] / [S2]) and stops at about 16 s of output with the
+two-voice prompt (measured, D-8.9b); a scene is cut into chunks of consecutive dialogue lines with
+at most two distinct speakers and at most MAX_WORDS words. Each chunk is rendered as one
 conversation from the delivery layer's spoken text, then split into turns and voice-converted
 (Kaggle job `training/kaggle/jobs/voice_scenes.py`). Pure Python: planning only.
 """
@@ -12,6 +13,7 @@ from dataclasses import dataclass
 
 from formats.wscript import Dialogue, Script, expand_text
 
+MAX_WORDS = 30  # ~12 s of speech: under Dia's ~16 s cap with the prompt (D-8.9b)
 DIA_NV = {"(laugh)": "(laughs)", "(chuckle)": "(chuckle)", "(sigh)": "(sighs)", "(gasp)": "(gasps)",
           "(cry)": "(sniffs)"}  # fmt: skip
 
@@ -40,7 +42,9 @@ class Chunk:
         return f"{prompt} {body}"
 
 
-def scene_chunks(script: Script, scene_id: str, max_speakers: int = 2) -> list[Chunk]:
+def scene_chunks(
+    script: Script, scene_id: str, max_speakers: int = 2, max_words: int = MAX_WORDS
+) -> list[Chunk]:
     d = script.header["dictionary"]
     layer = script.delivery.get(scene_id, {}).get("lines", {})
     turns = []
@@ -52,7 +56,8 @@ def scene_chunks(script: Script, scene_id: str, max_speakers: int = 2) -> list[C
     current: list[Turn] = []
     for t in turns:
         speakers = list(dict.fromkeys([*(c.speaker for c in current), t.speaker]))
-        if current and len(speakers) > max_speakers:
+        words = sum(len(c.spoken.split()) for c in current) + len(t.spoken.split())
+        if current and (len(speakers) > max_speakers or words > max_words):
             chunks.append(_chunk(scene_id, len(chunks), current))
             current = []
         current.append(t)

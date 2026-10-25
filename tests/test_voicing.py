@@ -34,3 +34,13 @@ def test_three_speaker_scene_is_split() -> None:
     ]
     assert multi and all(len(scene_chunks(script, sid)) > 1 for sid in multi)
     assert Path(OUT).exists()
+
+
+def test_chunks_stay_under_dias_length_cap() -> None:
+    from stages.generate.voicing import MAX_WORDS
+
+    script = read_wscript(OUT)
+    for sid in script.scenes:
+        for c in scene_chunks(script, sid):
+            words = sum(len(t.spoken.split()) for t in c.turns)
+            assert words <= MAX_WORDS or len(c.turns) == 1  # a single long line cannot be split

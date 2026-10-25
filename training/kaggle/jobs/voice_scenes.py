@@ -80,7 +80,10 @@ log(
 for d in ("takes", "turns", "turns_vc", "scenes"):
     (OUT / d).mkdir(exist_ok=True)
 
-chunks = [c for sid in script.scenes for c in scene_chunks(script, sid)]
+# Re-voice only these scenes (D-8.9b: S001 and S006 hit Dia's ~16 s cap); empty = all scenes
+ONLY = ["S001", "S006"]
+scene_ids = [sid for sid in script.scenes if not ONLY or sid in ONLY]
+chunks = [c for sid in scene_ids for c in scene_chunks(script, sid)]
 items = []
 for c in chunks:
     key = f"{c.scene}_{c.number:02d}"
@@ -177,7 +180,7 @@ run(
 # Assemble each scene: chunks in order, converted turns at their times, GAP_S between chunks
 vc_sr = json.loads((OUT / "vc.json").read_text())["sr"]
 timing: dict[str, list[dict[str, object]]] = {}
-for sid in script.scenes:
+for sid in scene_ids:
     pieces: list[np.ndarray] = []
     t0 = 0.0
     timing[sid] = []

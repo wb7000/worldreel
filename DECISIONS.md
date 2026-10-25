@@ -1846,3 +1846,12 @@ speakers (Dia's [S1] / [S2]); The Lantern Keeper → 34 chunks, 101 lines. Job
 cfg 3.0, float32, **3** takes — not 5, for the T4 time budget; Whisper picks; split into turns;
 ChatterboxVC to the designed voices), chunks joined with 0.5 s pauses; writes one WAV per scene
 and `timing.json` (start / end of every line) — the timing that blocking and camera will use.
+
+### D-8.9b First full voicing of The Lantern Keeper (2026-10-25, measured)
+Kaggle T4, 6,043 s (Dia 5,249 s for 34 chunks x 3 takes; Whisper 130 s; voice conversion 147 s).
+10 scene WAVs, 5.22 min of dialogue in total; Whisper WER per chunk mean 0.054.
+**Bug found: Dia stops at ~16.2 s of output** with the two-voice prompt — no take in the run is
+longer than 16.21 s. Three chunks hit it and lost lines: S001_00 (12 lines, 159 words, ~64 s
+needed, WER 0.50), S006_00 (77 words) and S006_02 (70 words). Scenes 2–5 and 7–10 are complete.
+Fix: chunks also capped at 30 words (~12 s); S001 → 6 chunks, S006 → 8. Only S001 and S006 are
+re-voiced (`ONLY` in the job); first-run outputs kept in `runs/kaggle/voice_scenes_run1/`.
