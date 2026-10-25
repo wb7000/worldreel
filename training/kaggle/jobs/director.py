@@ -132,8 +132,10 @@ for key, a in a2.items():
         parsed = parse_answer(str(a["answer"]))
     except ValueError as exc:
         parsed = []
-        problems[key].append(f"stage 2 parse: {exc}")
-    problems[key] += apply_rewrites(scripts[g], sid, scripts[g].delivery[sid], parsed)
+        problems.setdefault(f"{g}/{sid}", []).append(f"stage 2 parse: {exc}")
+    problems.setdefault(f"{g}/{sid}", []).extend(
+        apply_rewrites(scripts[g], sid, scripts[g].delivery[sid], parsed)
+    )
 report["problems"] = problems
 report["test_score"] = score(test, gold)
 lantern = [

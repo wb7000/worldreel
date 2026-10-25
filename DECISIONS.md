@@ -1818,3 +1818,23 @@ emotion agreement 0.368, family 0.474 — all still under the pass marks. Remain
 model shortens lines (drops facts — rightly rejected) and skips lines in longer scenes.
 v4: stage 2 in chunks of ≤ 6 lines, 5 takes per line, and an explicit rule never to drop a name,
 number, place or fact.
+
+### D-8.8e Director v4 (chunks of ≤ 6 lines, 5 takes, no-shortening rule) (2026-10-25, measured)
+Stage 1 reused from v3 (attached dataset), stage 2 2,471 s on the T4. The job then crashed in my
+bookkeeping (stage-2 keys carry a chunk number, the problems dict was keyed per scene) — fixed;
+results re-scored and the directed script written from the saved answers on the laptop
+(`eval/director_rescore.py`), no GPU rerun.
+| | v3 (re-scored) | v4 | pass mark |
+|---|---|---|---|
+| test: spoken differently + meaning kept | 0.579 | **0.842** | ≥ 0.70 ✔ |
+| test: meaning check on the chosen lines | — | 0.842 of all lines changed and passing; the rest keep the original | (≥ 0.90 was defined on v1's single answer; not comparable) |
+| test: emotion agreement (stage 1, unchanged) | 0.368 | 0.368 | ≥ 0.50 ✗ |
+| The Lantern Keeper: changed + meaning kept | 0.455 | **0.693** | reported |
+| The Lantern Keeper: lines without takes | 11 | 6 | — |
+Reading the directed Lantern Keeper: manners apt ("frustrated, worried", "focused, counting");
+spoken changes mostly mild ("Hi, I'm Mira", "Light's almost gone", "Thirty-nine... Forty...");
+some **add** content ("It's rusted solid, just like old times", "Not the damn trees") — the
+meaning check catches dropped content, not added content (known gap, A-13 limit).
+Status: spoken-text rewriting **adopted as experimental** (meets its pass mark); emotion labels
+fail theirs — they are not used downstream (Dia performs from the words), so they stay
+informational. The owner's listening of the voiced scenes decides.
