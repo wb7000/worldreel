@@ -1838,3 +1838,11 @@ meaning check catches dropped content, not added content (known gap, A-13 limit)
 Status: spoken-text rewriting **adopted as experimental** (meets its pass mark); emotion labels
 fail theirs — they are not used downstream (Dia performs from the words), so they stay
 informational. The owner's listening of the voiced scenes decides.
+
+### D-8.9 Voicing the directed script (2026-10-25, plan)
+`stages/generate/voicing.py`: a scene becomes chunks of consecutive lines with at most two
+speakers (Dia's [S1] / [S2]); The Lantern Keeper → 34 chunks, 101 lines. Job
+`training/kaggle/jobs/voice_scenes.py`: the accepted pipeline per chunk (Dia temperature 1.3,
+cfg 3.0, float32, **3** takes — not 5, for the T4 time budget; Whisper picks; split into turns;
+ChatterboxVC to the designed voices), chunks joined with 0.5 s pauses; writes one WAV per scene
+and `timing.json` (start / end of every line) — the timing that blocking and camera will use.
