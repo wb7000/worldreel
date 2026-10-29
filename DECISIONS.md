@@ -1855,3 +1855,15 @@ longer than 16.21 s. Three chunks hit it and lost lines: S001_00 (12 lines, 159 
 needed, WER 0.50), S006_00 (77 words) and S006_02 (70 words). Scenes 2–5 and 7–10 are complete.
 Fix: chunks also capped at 30 words (~12 s); S001 → 6 chunks, S006 → 8. Only S001 and S006 are
 re-voiced (`ONLY` in the job); first-run outputs kept in `runs/kaggle/voice_scenes_run1/`.
+
+### D-8.9c The Lantern Keeper fully voiced; owner approves (2026-10-29)
+Re-voice of S001 and S006 with chunks ≤ 30 words (14 chunks): Kaggle 2,422 s; Whisper WER per
+chunk mean 0.010, max 0.111; longest take 11.41 s (under Dia's ~16 s cap). S001 now 51.9 s (was
+16.7 s, truncated), S006 66.7 s. (The local wait wrapper exited with code 4 although the kernel
+completed — outputs were complete.)
+Merged with the 8 complete scenes of the first run → `runs/voice_lantern_final/` (git-ignored):
+10 scene WAVs, **6.17 min of dialogue**, 101 lines with start / end times in `timing.json`.
+**Owner on the complete scenes: "Sounds good."** The voice pipeline (A-12 + director A-13 v4 +
+two-speaker / 30-word chunks) is now the default for voicing a script.
+Next in D-8.0's order: 8.3 portraits + avatars + face metrics, 8.4 places (A-9) + blocking +
+camera from `timing.json`, then 8.5 assembling the `.wreel` worlds and the rungs.
