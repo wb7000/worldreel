@@ -1867,3 +1867,15 @@ Merged with the 8 complete scenes of the first run → `runs/voice_lantern_final
 two-speaker / 30-word chunks) is now the default for voicing a script.
 Next in D-8.0's order: 8.3 portraits + avatars + face metrics, 8.4 places (A-9) + blocking +
 camera from `timing.json`, then 8.5 assembling the `.wreel` worlds and the rungs.
+
+### D-8.10 Portraits, first set: one pair too alike → more face traits in the prompt (2026-10-29)
+Kandinsky 2.2 on the T4: 16 candidates (4 per character) in 145 s, 10.52 GB peak; all 16 have
+exactly one clear face (YuNet ≥ 0.9). Best set by SFace (`eval/choose_portraits.py`): the
+closest pair Ade–Tomas at cosine **0.386 > 0.363** (also Mira–Tomas 0.358). Each character's
+candidates are much alike (0.67–0.86): the prompt decides the face, the seed only varies it —
+and the prompt carried only age / sex / skin / hair / facial hair / build / face width, so two men
+with moustaches came out close although the bible keeps them 0.41 apart in parameter space.
+Fix: the bible's remaining face traits (jaw, brows, eye size, nose length / width, mouth width,
+lips) go into the prompt when clearly high (> 0.75) or low (< 0.25); 6 candidates per character.
+First set kept in `runs/kaggle/portraits_run1/`. Distinctness of the *rendered* avatars is the
+D-8.0 measure; portraits only bound it.

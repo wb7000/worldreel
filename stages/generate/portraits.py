@@ -10,7 +10,7 @@ from typing import Any
 
 from stages.generate.bible import Identity, expand
 
-CANDIDATES = 4
+CANDIDATES = 6  # 4 left the closest pair at 0.386 > 0.363 (D-8.10)
 NEGATIVE = "cartoon, drawing, painting, blurry, text, watermark, sunglasses, hands, two people"
 
 
@@ -59,6 +59,21 @@ def appearance_words(ident: Identity, description: str = "") -> list[str]:
         words.append("moustache")
     words.append(_pick(a["build"], ("slim", "lean", "average build", "sturdy", "heavy-set")))
     words.append(_pick(a["face_width"], ("narrow face", "oval face", "broad face")))
+    # the remaining face traits of the bible, when clearly high or low (D-8.10: without them the
+    # image model drew characters of the same sex and hair too alike)
+    for dim, low, high in (
+        ("jaw", "soft rounded jaw", "strong square jaw"),
+        ("brow", "thin light eyebrows", "heavy dark eyebrows"),
+        ("eye_size", "narrow eyes", "large eyes"),
+        ("nose_length", "short nose", "long nose"),
+        ("nose_width", "narrow nose", "broad nose"),
+        ("mouth_width", "small mouth", "wide mouth"),
+        ("lip_fullness", "thin lips", "full lips"),
+    ):
+        if a[dim] < 0.25:
+            words.append(low)
+        elif a[dim] > 0.75:
+            words.append(high)
     return words
 
 
