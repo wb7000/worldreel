@@ -15,6 +15,7 @@ Register of algorithms WorldReel creates or adopts where no ready-made method fi
 ## Register
 | ID | Problem | Status | Baseline | Design note |
 |---|---|---|---|---|
+| A-14 | Character avatars from the bible with a generated portrait face | design | stylised cylinder figure, coloured dot as nose | below |
 | A-13 | Director: per-line manner, emotion and spoken text from scene context | design | the original line, read neutrally | below |
 | A-12 | Conversational delivery: spoken text + manner, whole-exchange rendering, per-turn voice conversion | adopted (D-8.7c, owner) | isolated read-aloud lines | DECISIONS D-8.5–8.7 |
 | A-11 | Per-emotion voice-quality shaping after synthesis | experimental — not adopted (hoarse v1, phasey; PSOLA v3 hoarser) | unshaped TTS output | below |
@@ -541,3 +542,36 @@ listening of the voiced result. Then the whole sample script is directed and voi
 
 **Known limits.** A 7B model's sense of comedy and subtext is limited; labels are coarse;
 English only.
+
+---
+
+## A-14 Character avatars from the bible, with a portrait face (design note, 2026-10-29)
+
+**Problem.** D-8.0 asks for face identity and distinctness measured on *rendered* frames. The current
+avatar (`person_cloud`) is a stylised cylinder with a red dot for a nose — no face to recognise,
+and nothing of the character bible (height, build, skin, hair) is visible.
+
+**Prior art.** Parametric human bodies (SMPL-style models) are the usual route; their licences
+are restrictive / non-commercial, and a mesh pipeline is out of scope for the point-cloud format.
+Own design: primitive body parts sampled densely as points, coloured from the bible, with the
+generated portrait projected onto the face.
+
+**Idea.**
+- Body (feet at origin, +Y up, facing −Z, as `person_cloud`): legs, hips, torso, arms, neck and an
+  ellipsoid head, sized from height (1.50–1.95 m) and build (girth x 0.85–1.25); surface points
+  every ~6 mm; clothing colours deterministic from the identity seed; skin colour from the skin
+  dimension; hair as a cap on the head (length from hair length, colour from hair tone, none
+  when bald); facial hair is in the portrait.
+- Portrait: one per character, chosen from 4 Kandinsky candidates (appearance words only) so the
+  four faces are as distinct as possible (SFace; same selection as A-10 v2's voices); the face box
+  (YuNet) is mapped onto the front half of the head ellipsoid by orthographic projection.
+- Point size 6 mm in the `.wreel` actor geometry (one size per actor in the format).
+
+**Measurement (D-8.0 thresholds, set before).** Render every avatar alone with the offline renderer
+(`stages/export/render.py`) at distances 1.0–3.5 m and yaw 0–40°, 854 x 480, neutral background;
+YuNet + SFace on each frame. Face found in ≥ 50 % of frames where the head is ≥ 40 px and turned
+≤ 30°; nearest-character accuracy ≥ 0.90 (against the four portraits); all pairs of character
+mean embeddings < 0.363 cosine.
+
+**Known limits.** No articulation (no walking legs or gestures yet); the face is a flat projection,
+so it degrades at large yaw; a point cloud is not a photoreal head.
