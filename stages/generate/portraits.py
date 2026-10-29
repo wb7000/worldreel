@@ -53,10 +53,12 @@ def appearance_words(ident: Identity, description: str = "") -> list[str]:
             a["hair_length"], ("very short", "short", "medium length", "long", "very long")
         )
         words.append(f"{length} {tone} hair")
-    if who != "woman" and a["facial_hair"] > 0.7:
-        words.append("full beard")
-    elif who != "woman" and a["facial_hair"] > 0.4:
-        words.append("moustache")
+    if who != "woman":
+        # four steps, not two: 0.4-0.7 all read "moustache", and a moustache dominated two
+        # otherwise different men's rendered faces (D-8.10)
+        words.append(
+            _pick(a["facial_hair"], ("clean-shaven", "light stubble", "moustache", "full beard"))
+        )
     words.append(_pick(a["build"], ("slim", "lean", "average build", "sturdy", "heavy-set")))
     words.append(_pick(a["face_width"], ("narrow face", "oval face", "broad face")))
     # the remaining face traits of the bible, when clearly high or low (D-8.10: without them the

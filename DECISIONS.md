@@ -1879,3 +1879,29 @@ Fix: the bible's remaining face traits (jaw, brows, eye size, nose length / widt
 lips) go into the prompt when clearly high (> 0.75) or low (< 0.25); 6 candidates per character.
 First set kept in `runs/kaggle/portraits_run1/`. Distinctness of the *rendered* avatars is the
 D-8.0 measure; portraits only bound it.
+
+### D-8.10b Rendered avatars: chosen by rendered faces, finer facial-hair scale (2026-10-29, measured)
+Avatar A-14 (bible body + portrait projected on an ellipsoid head), measured with
+`eval/face_metrics.py` on the D-8.0 grid (6 distances 1.0–3.5 m × 5 yaws 0–40°, 854 × 480, no fog).
+- Run 2 (portrait set at 0.346, 6 mm points, 7 mm splats): detection 0.956, identity 1.0, but
+  Ade–Tomas rendered at **0.516** — 0.42–0.50 at every head size, so not a resolution problem only.
+- Points at 3 mm / 3.5 mm splats (splats are z-tested discs: face detail was bounded by the 7 mm
+  splat): detection 1.0; 2 mm was not better (0.388 vs 0.371), so 3 mm is kept.
+- `choose_portraits --rendered`: candidates scored by their rendered avatar's mean face, not the
+  portrait. Best Ade × Tomas of 36 combinations 0.371 (median 0.463): a structural gap.
+- Eye-anchored uniform mapping (keeps the portrait's proportions; the box mapping squeezes faces
+  into the head's oval) rendered *less* distinct (0.367–0.433 worst pair over 4 eye height /
+  spacing settings) → not adopted; the box mapping stays.
+- Cause found in the prompt: facial hair had two steps (moustache > 0.4, beard > 0.7), so Ade
+  (0.49) and Tomas (0.60) both got a large moustache. Now four steps (clean-shaven / light stubble
+  / moustache / full beard); only Ade's prompt changed; 6 new Ade candidates (Kaggle T4, 54 s,
+  10.52 GB), others reused. Identity seeds unchanged (voices untouched).
+- Run 3 (`choice`: C01_5, C02_3 new, C03_0, C04_0): detection **1.0** (68 eligible frames),
+  identity **1.0** (114 faces), worst pair **0.296** (Ade–Tomas) → passes all three D-8.0 marks.
+- Selection bias checked: the set was chosen on the same 30 views. Held-out grid (1.25–3.25 m ×
+  yaw 5–35°, 20 views): detection 0.978, identity 0.987, Ade–Tomas **0.383 — fails**. Dense grid
+  (11 × 9 = 99 views): Ade–Tomas 0.340 (passes). By yaw: 0.21–0.26 at 0–10°, 0.34–0.37 at
+  15–35°, 0.409 at 40°. Status: **marginal pass**; the eval grid is not changed after the fact.
+  Known limitation: the face is a flat projection on an egg, so oblique views carry little
+  identity. Fix for later (8.3 follow-up / 8.4 blocking): head relief from the portrait, or
+  blocking that keeps faces within ~20° of the camera when identity matters.

@@ -1,6 +1,6 @@
 # Job: portrait candidates for every character of the sample script (A-14, D-8.10).
 # Kandinsky 2.2 (prior 9fc51ad5732a + decoder 9ae140d347fe, Apache-2.0), fp16, 512 x 512, 50 steps,
-# 4 seeded candidates per character from appearance-only prompts. Choosing the set is done locally.
+# CANDIDATES seeded candidates per character (ONLY: the characters to redo, [] = all) from appearance-only prompts. Choosing the set is done locally.
 #   python -m tools.kaggle_runner run training/kaggle/jobs/portraits.py
 import json
 import subprocess
@@ -19,12 +19,14 @@ r = subprocess.run([*UV, "pip", "install", "--python", str(py), "diffusers", "tr
                     "accelerate", "safetensors", "torch"], capture_output=True, text=True)  # fmt: skip
 log(f"img install rc={r.returncode} {r.stderr[-300:] if r.returncode else ''}")
 
+ONLY = ["C02"]  # D-8.10: Ade's prompt changed (facial-hair scale); the others are unchanged
 chars = read_wscript(CODE / "eval" / "scripts" / "lantern_keeper.wscript").header["dictionary"][
     "characters"
 ]
 items = [
     {"file": f"portraits/{cid}_{k}.png", "cid": cid, "prompt": portrait_prompt(c), "seed": s}
     for cid, c in sorted(chars.items())
+    if not ONLY or cid in ONLY
     for k, s in enumerate(candidate_seeds(c))
 ]
 (OUT / "portraits").mkdir(exist_ok=True)

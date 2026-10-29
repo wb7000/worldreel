@@ -66,8 +66,12 @@ def portrait_face(
     face = faces.find(bgr)
     if face is None:
         raise ValueError(f"no face in {path}")
-    box = (float(face[0]), float(face[1]), float(face[2]), float(face[3]))
-    return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), box, faces.embed(bgr, face)
+    return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), box_of(face), faces.embed(bgr, face)
+
+
+def box_of(face: np.ndarray) -> tuple[float, float, float, float]:
+    """YuNet row -> face box (x, y, w, h) in image pixels."""
+    return (float(face[0]), float(face[1]), float(face[2]), float(face[3]))
 
 
 def _scene(av: Avatar) -> Scene:

@@ -2,7 +2,7 @@
 
 Local frame as `tools.make_sample_wreel.person_cloud`: feet at the origin, +Y up, facing -Z.
 Primitive body parts (legs, torso, arms, neck, ellipsoid head) are sampled as surface points
-every ~6 mm, sized from height and build, coloured from skin / hair / a seeded clothing palette;
+every ~3 mm, sized from height and build, coloured from skin / hair / a seeded clothing palette;
 the chosen portrait's face box is projected onto the front of the head. Points are marked
 `generated` (provenance) with full confidence.
 """
@@ -19,8 +19,8 @@ from formats.wreel import PROVENANCE_CLASSES, PointCloud
 from stages.generate.bible import Identity
 
 GENERATED = PROVENANCE_CLASSES.index("generated")
-SPACING = 0.006  # metres between surface points
-POINT_SIZE = 0.007
+SPACING = 0.003  # metres between surface points (6 mm blurred faces below SFace detail, D-8.10)
+POINT_SIZE = 0.0035
 F64 = npt.NDArray[np.float64]
 
 SKIN_LIGHT = np.array([241, 206, 180], np.float64)
@@ -125,6 +125,7 @@ def build_avatar(
         h_img, w_img = portrait.shape[:2]
         fx, fy, fw, fh = face_box
         # expand the detector's box to forehead / chin / ears, then map the head's front onto it
+        # (a uniform eye-anchored scale was tried: characters rendered less distinct, D-8.10)
         x0, x1 = fx - 0.18 * fw, fx + 1.18 * fw
         y0, y1 = fy - 0.30 * fh, fy + 1.12 * fh
         front = rel[:, 2] < -0.15
