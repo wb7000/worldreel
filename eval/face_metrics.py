@@ -36,6 +36,15 @@ W, H, FOV = 854, 480, 50.0
 SAME_PERSON = 0.363  # OpenCV's SFace cosine threshold
 
 
+def imread(path: Path) -> np.ndarray:
+    """cv2.imread that raises instead of returning None (BGR uint8)."""
+    img = cv2.imread(str(path))
+    if img is None:
+        raise FileNotFoundError(path)
+    out: np.ndarray = img
+    return out
+
+
 class Faces:
     def __init__(self) -> None:
         self.det = cv2.FaceDetectorYN.create(YUNET, "", (W, H), 0.6)

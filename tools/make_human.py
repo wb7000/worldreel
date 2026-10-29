@@ -18,15 +18,15 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from eval.face_metrics import Faces
+from eval.face_metrics import Faces, imread
 from formats.wscript import read_wscript
 from stages.generate.bible import expand
-from stages.generate.face_projection import align, body_colour, landmarks, skin_colour
+from stages.generate.face_projection import align, body_colour, hair_colour, landmarks, skin_colour
 from stages.generate.human_preset import human_preset
 from tools.make_sample_wscript import OUT
 from tools.toolpaths import find_tool
 
-SCRIPT = Path(__file__).with_name("blender_human.py").resolve()
+SCRIPT = Path(__file__).with_name("blender") / "human.py"
 SKINS = Path("portable/extensions/.user/user_default/mpfb/data/skins")
 SKIN_STRENGTH = 0.6  # body skin texture pulled this far toward the shared skin albedo
 
@@ -50,21 +50,29 @@ def main(argv: list[str] | None = None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     c = read_wscript(OUT).header["dictionary"]["characters"][a.cid]
     preset = human_preset(expand(int(c["identity"]["seed"]), str(c["identity"]["requested"])))
+    faces = Faces()
+    pimg = imread(a.portrait)
+    p_face = faces.find(pimg)
+    if p_face is None:
+        raise RuntimeError(f"no face in {a.portrait}")
+    if preset["hair"]:  # the hair colour the portrait shows, not the bible's word for it
+        preset["worldreel"]["hair_rgb"] = [
+            round(v, 4) for v in hair_colour(pimg, landmarks(p_face))
+        ]
     (out / "preset.json").write_text(json.dumps(preset, indent=1))
     _blender(["-b", "--factory-startup", "-P", str(SCRIPT), "--", "build",
               str(out / "preset.json"), str(out)])  # fmt: skip
-    faces = Faces()
-    render = cv2.imread(str(out / "face.png"))
-    pimg = cv2.imread(str(a.portrait))
-    r_face, p_face = faces.find(render), faces.find(pimg)
-    if r_face is None or p_face is None:
-        raise RuntimeError(
-            f"no face found (render {r_face is not None}, portrait {p_face is not None})"
-        )
+    render = imread(out / "face.png")
+    r_face = faces.find(render)
+    if r_face is None:
+        raise RuntimeError("no face in the face-camera render")
     skin_dir = (
         Path(str(find_tool("blender"))).parent / SKINS / preset["skin_mhmat"].removesuffix(".mhmat")
     )
-    tex = cv2.imread(str(next(skin_dir.glob("*diffuse*.png"))), cv2.IMREAD_UNCHANGED)
+    tex_img = cv2.imread(str(next(skin_dir.glob("*diffuse*.png"))), cv2.IMREAD_UNCHANGED)
+    if tex_img is None:
+        raise FileNotFoundError(skin_dir)
+    tex: np.ndarray = tex_img
     opaque = tex[..., 3] > 128 if tex.shape[2] == 4 else tex[..., :3].sum(2) > 30
     tb = np.median(tex[..., :3][opaque].astype(np.float64), 0) / 255
     tex_rgb = (float(tb[2]), float(tb[1]), float(tb[0]))

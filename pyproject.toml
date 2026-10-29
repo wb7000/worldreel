@@ -48,7 +48,7 @@ python_version = "3.12"
 strict = true
 files = ["formats", "pipeline", "stages", "tools", "eval", "training", "tests"]
 # Runs inside Blender against the untyped bpy API; covered by the Blender integration test.
-exclude = ['tools/blender/gen_scene\.py', 'training/kaggle/']
+exclude = ['tools/blender/gen_scene\.py', 'tools/blender/human\.py', 'tools/blender/views\.py', 'training/kaggle/']
 
 [[tool.mypy.overrides]]
 module = ["cv2", "cv2.*", "torch", "torch.*", "gsplat", "gsplat.*", "transformers", "transformers.*", "sam2", "sam2.*", "onnxruntime", "onnxruntime.*", "pyloudnorm", "pyloudnorm.*", "numba", "numba.*", "opentimelineio", "opentimelineio.*", "peft", "peft.*", "soundfile", "torchaudio", "torchaudio.*", "whisper", "speechbrain", "speechbrain.*", "huggingface_hub", "huggingface_hub.*", "pyworld"]

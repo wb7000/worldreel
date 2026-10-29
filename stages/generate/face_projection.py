@@ -1,7 +1,7 @@
 """Portrait -> MPFB face (A-14 v2, D-8.11).
 
 Blender renders the built human straight on through a fixed orthographic face camera
-(`tools/blender_human.py build`). Here the chosen portrait is warped into that render's pixels:
+(`tools/blender/human.py build`). Here the chosen portrait is warped into that render's pixels:
 YuNet's five landmarks (eyes, nose tip, mouth corners) on both images drive a similarity fit
 plus a thin-plate-spline correction, so the portrait's eyes / nose / mouth land on the mesh's.
 The warped portrait gets a feathered face-oval alpha and its colour is matched to the body skin
@@ -55,7 +55,9 @@ def _warp(img: U8, src: F64, dst: F64, size: tuple[int, int]) -> tuple[U8, float
     mapped = tps(np.vstack([dst, frame]), np.vstack([moved, frame]), grid)
     mx = mapped[:, 0].reshape(h, w).astype(np.float32)
     my = mapped[:, 1].reshape(h, w).astype(np.float32)
-    out: U8 = cv2.remap(sim, mx, my, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    out = np.asarray(
+        cv2.remap(sim, mx, my, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE), np.uint8
+    )
     err = float(np.mean(np.linalg.norm(moved - dst, axis=1)))
     return out, err
 
@@ -99,7 +101,7 @@ def face_mask(lm: F64, size: tuple[int, int]) -> npt.NDArray[np.float32]:
     mask = np.zeros((h, w), np.float32)
     cv2.ellipse(mask, (int(centre[0]), int(centre[1])), axes, angle, 0, 360, 1.0, -1)
     k = int(0.35 * ipd) | 1
-    out: npt.NDArray[np.float32] = cv2.GaussianBlur(mask, (0, 0), k / 2)
+    out = np.asarray(cv2.GaussianBlur(mask, (0, 0), k / 2), np.float32)
     return out
 
 
@@ -114,6 +116,19 @@ def skin_colour(portrait: U8, lm: F64) -> tuple[float, float, float]:
     return (float(bgr[2]), float(bgr[1]), float(bgr[0]))
 
 
+PHOTO_TO_ALBEDO = 0.75
+
+
+def hair_colour(portrait: U8, lm: F64) -> tuple[float, float, float]:
+    """sRGB 0-1 median above the forehead (the hair the image model actually drew)."""
+    ipd = float(np.linalg.norm(lm[1] - lm[0]))
+    x, y = (lm[0] + lm[1]) / 2 - (0, 1.3 * ipd)
+    yy, xx = np.mgrid[: portrait.shape[0], : portrait.shape[1]]
+    px = portrait[np.hypot(xx - x, yy - max(y, 0.2 * ipd)) < 0.3 * ipd].astype(np.float64)
+    bgr = np.median(px, 0) / 255.0
+    return (float(bgr[2]), float(bgr[1]), float(bgr[0]))
+
+
 def body_colour(
     texture_rgb: tuple[float, float, float], portrait_rgb: tuple[float, float, float]
 ) -> tuple[float, float, float]:
@@ -124,7 +139,10 @@ def body_colour(
     for rgb in (texture_rgb, portrait_rgb):
         px = np.array([[[rgb[2], rgb[1], rgb[0]]]], np.float32)
         lab.append(cv2.cvtColor(px, cv2.COLOR_BGR2LAB)[0, 0])
-    mixed = np.array([lab[0][0], (lab[0][1] + lab[1][1]) / 2, (lab[0][2] + lab[1][2]) / 2])
+    # lightness: the texture's, but never above the portrait's at studio exposure (~1.33x an
+    # albedo) — light skin textures alone rendered chalk-white (D-8.11)
+    light = min(lab[0][0], PHOTO_TO_ALBEDO * lab[1][0])
+    mixed = np.array([light, (lab[0][1] + lab[1][1]) / 2, (lab[0][2] + lab[1][2]) / 2])
     bgr = cv2.cvtColor(mixed.astype(np.float32).reshape(1, 1, 3), cv2.COLOR_LAB2BGR)[0, 0]
     b, g, r = (float(np.clip(c, 0, 1)) for c in bgr)
     return (r, g, b)
@@ -140,7 +158,7 @@ def _match_colour(src: U8, target_rgb: tuple[float, float, float],
     ]
     for c in range(3):
         a[..., c] += t[c] - np.median(a[..., c][region])
-    out: U8 = cv2.cvtColor(np.clip(a, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
+    out = np.asarray(cv2.cvtColor(np.clip(a, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR), np.uint8)
     return out
 
 

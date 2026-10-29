@@ -4,7 +4,7 @@ MPFB2 (GPL code, CC0 assets) builds a real human mesh in Blender from macro slid
 (gender / age / height / weight / muscle / proportions / ethnic blend) and named shape targets.
 This module only writes the preset dict that `HumanService.deserialize_from_dict` reads
 (keys from MPFB 2.0.18 `services/humanservice.py`); Blender runs it in
-`tools/blender_human.py`. Pure Python, so the mapping is testable without Blender.
+`tools/blender/human.py`. Pure Python, so the mapping is testable without Blender.
 """
 
 from __future__ import annotations
@@ -67,8 +67,14 @@ def phenotype(ident: Identity) -> dict[str, Any]:
     }
 
 
+# MPFB's default eyes are wide open; portraits (calm studio faces) are not, and the projected
+# lids then sat around staring mesh eyes (D-8.11). Applied to every character.
+LIDS = (("l-eye-height2-decr", 0.6), ("r-eye-height2-decr", 0.6),
+        ("l-eye-eyefold-down", 0.4), ("r-eye-eyefold-down", 0.4))  # fmt: skip
+
+
 def face_targets(ident: Identity) -> list[dict[str, Any]]:
-    out = []
+    out = [{"target": t, "value": v} for t, v in LIDS]
     for trait, pairs in FACE_TARGETS.items():
         v = 2 * (ident.appearance[trait] - 0.5) * STRENGTH
         if abs(v) < 0.05:
@@ -79,13 +85,14 @@ def face_targets(ident: Identity) -> list[dict[str, Any]]:
 
 
 # MakeHuman system assets (CC0, makehuman_system_assets pack) by file name; MPFB finds them
-HAIR_SHORT = ("short01", "short02", "short03", "short04")
+HAIR_SHORT = ("short02", "short03", "short04")  # short01 renders as a flat cap
 HAIR_MEDIUM = ("bob01", "bob02")
-HAIR_LONG = ("long01", "ponytail01", "braid01")
+HAIR_LONG = ("long01", "ponytail01")  # braid01 has a fringe over one eye
 EYEBROWS = tuple(f"eyebrow{n:03d}" for n in range(1, 13))
-CLOTHES_MALE = ("male_casualsuit01", "male_casualsuit02", "male_casualsuit03", "male_casualsuit04",
-                "male_casualsuit05", "male_casualsuit06", "male_worksuit01")  # fmt: skip
-CLOTHES_FEMALE = ("female_casualsuit01", "female_casualsuit02", "female_sportsuit01")
+# casual suits 02 / 04 (male) and 01 / 02 (female) carry the MakeHuman logo: left out
+CLOTHES_MALE = ("male_casualsuit01", "male_casualsuit03", "male_casualsuit05",
+                "male_casualsuit06", "male_worksuit01")  # fmt: skip
+CLOTHES_FEMALE = ("female_elegantsuit01", "female_sportsuit01")
 SHOES = tuple(f"shoes0{n}" for n in range(1, 7))
 
 
@@ -118,7 +125,12 @@ def human_preset(ident: Identity) -> dict[str, Any]:
             else HAIR_LONG
         )
         hair = group[ident.seed % len(group)] + ".mhclo"
-    clothes = CLOTHES_FEMALE if female else CLOTHES_MALE
+    if female:  # only two logo-free outfits: the sport one for the young
+        clothes: tuple[str, ...] = (
+            CLOTHES_FEMALE[1] if age_years(ident) < 30 else CLOTHES_FEMALE[0],
+        )
+    else:
+        clothes = CLOTHES_MALE
     skin = skin_name(ident)
     return {
         "phenotype": phenotype(ident),
@@ -141,7 +153,7 @@ def human_preset(ident: Identity) -> dict[str, Any]:
         ],
         "skin_material_settings": {},
         "alternative_materials": {},
-        # read by tools/blender_human.py, not by MPFB
+        # read by tools/blender/human.py, not by MPFB
         "worldreel": {"height_m": round(1.50 + 0.45 * a["height"], 3), "hair_rgb": hair_rgb(ident)},
     }
 

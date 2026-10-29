@@ -1,8 +1,8 @@
 """Build one MPFB2 human from a preset and render a look-test (A-14 v2, D-8.11). Runs inside
 Blender 4.2+ with the MPFB extension installed:
 
-    blender -b --factory-startup -P tools/blender_human.py -- build preset.json out_dir
-    blender -b out_dir/human.blend -P tools/blender_human.py -- portrait aligned.png out_dir \
+    blender -b --factory-startup -P tools/blender/human.py -- build preset.json out_dir
+    blender -b out_dir/human.blend -P tools/blender/human.py -- portrait aligned.png out_dir \
         [--iris R,G,B]
 
 `build` makes the human, scales it to the bible height, colours hair and eyes, renders
