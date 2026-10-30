@@ -1905,3 +1905,35 @@ Avatar A-14 (bible body + portrait projected on an ellipsoid head), measured wit
   Known limitation: the face is a flat projection on an egg, so oblique views carry little
   identity. Fix for later (8.3 follow-up / 8.4 blocking): head relief from the portrait, or
   blocking that keeps faces within ~20° of the camera when identity matters.
+
+### D-8.11 Avatars v2: real humans from MPFB2 with the portrait projected on the face (2026-10-30, measured)
+Owner on the A-14 point avatars (D-8.10b): "it doesn't look like a human … what is it" — the
+primitive body with a pasted photo is retired as a result; it was a placeholder, and passing the
+face marks did not make it human (the owner's look-test decides, as for voices).
+- Tooling: Blender 4.2.23 LTS (portable, `data/tools/`, SHA-256 verified; MPFB2 needs ≥ 4.2, the
+  owner's 3.6 is untouched), MPFB 2.0.18 (code GPL), MakeHuman system assets (CC0). Licences from
+  the official pages; listed in `docs/MODELS.md`. Nothing of MPFB ships in our files.
+- `stages/generate/human_preset.py`: bible → MPFB preset (macro sliders, face targets at mild
+  strength 0.4, skin texture by age / tone band / sex, hair / brows / outfit / shoes).
+  Assumption: MPFB's age slider (0 / 0.1875 / 0.5 / 1.0 = baby / child / young / old) is mapped
+  with MakeHuman's year anchors 1 / 11 / 25 / 90.
+- `tools/make_human.py` + `tools/blender/human.py`: build, scale to the bible height, render a
+  fixed orthographic face view; `stages/generate/face_projection.py` warps the portrait onto that
+  view (YuNet 5 landmarks: similarity + thin-plate spline), feathered face oval, colour matched;
+  Blender projects it from the face camera into the skin shader (faded by facing angle).
+- Fixes found by looking: lighting counted twice when the face was matched to a lit render;
+  studio-photo skin used as albedo bleached everything → skin lightness = min(texture,
+  0.75 × portrait); the group's colour tint flattened the portrait → portrait mixed after it;
+  portrait neck shadow painted on the neck → oval ends at the chin; MPFB's wide-open eyes
+  stared → lids lowered for all; hair colour sampled from the portrait (the bible's word gave a
+  blonde Lio and an orange Tomas); logo outfits and the cap-like `short01` / fringe `braid01`
+  hair left out.
+- Face marks (`eval/human_faces.py`, 15 views each: 1 / 2 / 3 m × yaw 0–40°, 854 × 480,
+  fov 50): detection **1.0** (32 eligible frames), identity **1.0** (60 faces), own-portrait
+  cosine 0.38–0.49; distinctness **fails**: Mira–Lio **0.599**, Ade–Tomas **0.523** (others
+  0.30–0.41). Likely causes: Mira and Lio share the same long hair asset and similar framing;
+  the four faces share one base head shape under the projection.
+- Limits of the open assets: no curly or wavy hair, two logo-free women's outfits (one a
+  cropped sports top), so hair and clothes cannot yet follow the portraits closely.
+- Status: real humans; owner look-test pending; distinctness open (next: give each cast member
+  a different hair asset and outfit, and stronger face-shape fitting to the portrait).
