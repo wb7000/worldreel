@@ -15,6 +15,7 @@ head.png (three-point light, EEVEE). All outputs are git-ignored.
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -85,6 +86,158 @@ def _tint(ob: object, rgb: list[float]) -> None:
             nt.links.new(rng.outputs["Result"], comb.inputs[ch])
         nt.links.new(comb.outputs["Color"], mix.inputs["A"])
         nt.links.new(mix.outputs["Result"], bsdf.inputs["Base Color"])
+        # a broad white sheen (roughness 0.7) lifted black hair to grey (D-8.11c)
+        bsdf.inputs["Roughness"].default_value = 0.65
+        bsdf.inputs["Specular IOR Level"].default_value = 0.2
+
+
+HAIR_ASSETS = "datafiles/assets/geometry_nodes/procedural_hair_node_assets.blend"
+
+
+def _hair_groups() -> dict[str, object]:
+    path = bpy.utils.resource_path("LOCAL") + "/" + HAIR_ASSETS
+    want = ("Generate Hair Curves", "Frizz Hair Curves", "Curl Hair Curves", "Hair Curves Noise",
+            "Set Hair Curve Profile", "Displace Hair Curves", "Shrinkwrap Hair Curves")  # fmt: skip
+    missing = [n for n in want if n not in bpy.data.node_groups]
+    if missing:
+        with bpy.data.libraries.load(path) as (_src, dst):
+            dst.node_groups = missing
+    return {n: bpy.data.node_groups[n] for n in want}
+
+
+def _strand_material(rgb: list[float]) -> object:
+    """Per-strand brightness variation (Curves Info random) around the hair colour."""
+    mat = bpy.data.materials.new("strands")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+    # thin strands catch white highlights and read grey: low specular, matte
+    bsdf.inputs["Roughness"].default_value = 0.6
+    bsdf.inputs["Specular IOR Level"].default_value = 0.08
+    info = nt.nodes.new("ShaderNodeHairInfo")
+    rng = nt.nodes.new("ShaderNodeMapRange")
+    # fine strands scatter a lot of light: darker on average than the hair's albedo colour, or
+    # auburn rendered bright orange (D-8.11c)
+    rng.inputs["To Min"].default_value, rng.inputs["To Max"].default_value = 0.45, 0.85
+    mix = nt.nodes.new("ShaderNodeMix")
+    mix.data_type, mix.blend_type = "RGBA", "MULTIPLY"
+    mix.inputs["Factor"].default_value = 1.0
+    mix.inputs["A"].default_value = _linear(rgb)
+    comb = nt.nodes.new("ShaderNodeCombineColor")
+    nt.links.new(info.outputs["Random"], rng.inputs["Value"])
+    for ch in ("Red", "Green", "Blue"):
+        nt.links.new(rng.outputs["Result"], comb.inputs[ch])
+    nt.links.new(comb.outputs["Color"], mix.inputs["B"])
+    nt.links.new(mix.outputs["Result"], bsdf.inputs["Base Color"])
+    return mat
+
+
+def hairline(azimuth_deg: float) -> float:
+    """Hairline height above the eyes (in units of k = height / 1.75 m) around the head:
+    0 deg = front, 90 = over the ears, 180 = nape."""
+    a = abs(azimuth_deg)
+    if a <= 60:
+        return 0.065
+    if a <= 110:
+        return 0.065 - (a - 60) / 50 * 0.015  # down to 0.05 above the ears
+    return 0.05 - (a - 110) / 70 * 0.12  # down to the nape (-0.07)
+
+
+def _scalp_group(human: object, face_z: float, k: float) -> None:
+    """Vertex group 'scalp' on the body mesh, above a hairline that runs around the head
+    (D-8.11c: a front / side / back split put roots over the ears down to the jaw)."""
+    mods = [(m, m.show_viewport) for m in human.modifiers]  # type: ignore[attr-defined]
+    for m, _ in mods:
+        m.show_viewport = False
+    ev = human.evaluated_get(bpy.context.evaluated_depsgraph_get())  # type: ignore[attr-defined]
+    world = [ev.matrix_world @ v.co for v in ev.data.vertices]
+    for m, shown in mods:
+        m.show_viewport = shown
+    # body vertices only: MakeHuman's hidden helper geometry includes a bob-shaped
+    # `helper-hair` shell, and roots on it hung the hair down to the jaw (D-8.11c)
+    body_g = human.vertex_groups["body"].index  # type: ignore[attr-defined]
+    real = [any(g.group == body_g for g in v.groups) for v in human.data.vertices]  # type: ignore[attr-defined]
+    skull = [co for co, r in zip(world, real, strict=True) if r and co.z > face_z]
+    xc = sum(c.x for c in skull) / len(skull)
+    yc = sum(c.y for c in skull) / len(skull)
+    idx = []
+    for i, co in enumerate(world):
+        if not real[i] or co.z < face_z - 0.1 * k:
+            continue
+        x, y = co.x - xc, co.y - yc
+        if math.hypot(x, y) > 0.13 * k:
+            continue  # shoulders / not the head
+        azimuth = math.degrees(math.atan2(abs(x), -y))  # the human faces -Y
+        ear = abs(x) > 0.06 * k and -0.03 * k < y < 0.035 * k and co.z < face_z + 0.045 * k
+        if not ear and co.z > face_z + hairline(azimuth) * k:
+            idx.append(i)
+    vg = human.vertex_groups.get("scalp") or human.vertex_groups.new(name="scalp")  # type: ignore[attr-defined]
+    vg.add(idx, 1.0, "REPLACE")
+
+
+def _strand_hair(human: object, rgb: list[float], curl: float, length: float, k: float,
+                 seed: int) -> None:  # fmt: skip
+    """Real strands from the scalp (Blender's procedural hair node assets): MakeHuman hair is a
+    few large cards and read as a plastic helmet (owner, D-8.11c). Length from the bible,
+    curl from the portrait, a backward / downward lie, frizz and noise for a natural look."""
+    g = _hair_groups()
+    curves = bpy.data.hair_curves.new("strands")
+    ob = bpy.data.objects.new("strands", curves)
+    bpy.context.collection.objects.link(ob)
+    ob.matrix_world = human.matrix_world.copy()  # type: ignore[attr-defined]
+    tree = bpy.data.node_groups.new("strands", "GeometryNodeTree")
+    tree.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+    tree.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+    nodes, links = tree.nodes, tree.links
+    out = nodes.new("NodeGroupOutput")
+
+    def group(name: str) -> object:
+        n = nodes.new("GeometryNodeGroup")
+        n.node_tree = g[name]
+        return n
+
+    scalp = nodes.new("GeometryNodeInputNamedAttribute")
+    scalp.data_type = "FLOAT"
+    scalp.inputs["Name"].default_value = "scalp"
+    gen = group("Generate Hair Curves")
+    gen.inputs[1].default_value = human  # the "Surface" object input
+    gen.inputs["Hair Length"].default_value = length
+    gen.inputs["Density"].default_value = 300000.0 / (k * k)
+    gen.inputs["Control Points"].default_value = 10
+    gen.inputs["Seed"].default_value = seed
+    gen.inputs["Hair Material"].default_value = _strand_material(rgb)
+    links.new(scalp.outputs[0], gen.inputs["Density Mask"])
+    lie = group("Displace Hair Curves")  # comb back and down, more towards the tips
+    lie.inputs["Factor"].default_value = 1.0
+    lie.inputs["Shape"].default_value = 0.4
+    lie.inputs["Displace Vector"].default_value = (0.0, 1.0 * length, -0.3 * length)
+    links.new(gen.outputs[0], lie.inputs["Geometry"])
+    # lay the combed strands onto the head with some volume (straight out they read as a
+    # porcupine); curls add their own volume
+    wrap = group("Shrinkwrap Hair Curves")
+    wrap.inputs[2].default_value = human  # the "Surface" object input
+    wrap.inputs["Offset Distance"].default_value = (0.003 + 0.004 * curl) * k
+    wrap.inputs["Smoothing Steps"].default_value = 2
+    links.new(lie.outputs[0], wrap.inputs["Geometry"])
+    last = wrap
+    frizz = group("Frizz Hair Curves")
+    # curls as strong frizz + noise: the Curl asset either clumps strands to shared guides
+    # (spikes) or, with per-strand guides, does nothing visible (D-8.11c)
+    frizz.inputs["Factor"].default_value = 0.4 + 0.2 * curl
+    frizz.inputs["Distance"].default_value = (0.0015 + 0.0012 * curl) * k
+    links.new(last.outputs[0], frizz.inputs["Geometry"])
+    noise = group("Hair Curves Noise")
+    noise.inputs["Factor"].default_value = 0.5 + 0.3 * curl
+    noise.inputs["Distance"].default_value = (0.002 + 0.002 * curl) * k
+    noise.inputs["Scale"].default_value = 30.0 + 40.0 * curl
+    links.new(frizz.outputs[0], noise.inputs["Geometry"])
+    prof = group("Set Hair Curve Profile")
+    prof.inputs["Replace Radius"].default_value = True
+    prof.inputs["Radius"].default_value = 0.0002 * k
+    links.new(noise.outputs[0], prof.inputs["Geometry"])
+    links.new(prof.outputs[0], out.inputs[0])
+    mod = ob.modifiers.new("strands", "NODES")
+    mod.node_group = tree
 
 
 def _iris(human: object, rgb: list[float]) -> None:
@@ -102,8 +255,8 @@ def _scene_setup(target: Vector) -> None:
     scene.world = scene.world or bpy.data.worlds.new("world")
     scene.world.color = (0.18, 0.18, 0.19)
     scene.view_settings.view_transform = "AgX"
-    _light("key", (1.5, -2.0, 2.4), 300.0, 1.5, target)
-    _light("fill", (-2.0, -1.5, 1.6), 120.0, 2.0, target)
+    _light("key", (1.5, -2.0, 2.4), 300.0, 3.0, target)  # large and soft: no hard nose shadow
+    _light("fill", (-2.0, -1.5, 1.6), 200.0, 3.0, target)
     _light("rim", (0.5, 2.0, 2.2), 200.0, 1.0, target)
 
 
@@ -133,10 +286,17 @@ def build(preset: Path, out: Path) -> None:
     for ob in human.children:
         if hair and ob.name.endswith("." + hair) and extra.get("hair_rgb"):
             _tint(ob, extra["hair_rgb"])
+            hair_ob = ob
         if "eyebrow" in ob.name and extra.get("hair_rgb"):
             _tint(ob, extra["hair_rgb"])
     k = top / 1.75
     face_z = top - 0.115 * k  # roughly the eyes
+    if hair and extra.get("hair_rgb"):
+        _scalp_group(human, face_z, k)
+        length = float(extra.get("hair_len_m", 0.015)) * k
+        _strand_hair(human, extra["hair_rgb"], float(extra.get("curl", 0.0)), length, k, len(hair))
+        if extra.get("strands_only"):  # short hair: the strands replace the card helmet
+            hair_ob.hide_render = hair_ob.hide_viewport = True
     _scene_setup(Vector((0.0, 0.0, face_z)))
     cam = _camera("facecam", ortho=0.30 * k)
     _look(cam, Vector((0.0, 0.0, face_z - 0.02 * k)), Vector((0.0, -1.0, 0.0)))
@@ -164,26 +324,6 @@ def _camera_uv(ob: object, cam: object) -> None:
         uv.data[loop.index].uv = (p.x, p.y)
 
 
-def _portrait_eyes(eyes: object, cam: object, img: object) -> None:
-    """The eyeballs show the portrait's own eyes (iris, gaze, lid shadow) instead of MPFB's
-    shared procedural eye: every character had identical eyes (D-8.11b)."""
-    _camera_uv(eyes, cam)
-    mat = bpy.data.materials.new("portrait_eyes")
-    mat.use_nodes = True
-    nt = mat.node_tree
-    bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
-    bsdf.inputs["Roughness"].default_value = 0.12  # wet cornea highlight
-    uvn = nt.nodes.new("ShaderNodeUVMap")
-    uvn.uv_map = "portrait"
-    tex = nt.nodes.new("ShaderNodeTexImage")
-    tex.image = img
-    tex.extension = "EXTEND"
-    nt.links.new(uvn.outputs["UV"], tex.inputs["Vector"])
-    nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
-    for slot in eyes.material_slots:  # type: ignore[attr-defined]
-        slot.material = mat
-
-
 def _project(human: object, cam: object, image: Path) -> None:
     """The skin group mixes the portrait in by its alpha times a facing term (fades out
     towards the ears); the eyeballs take the portrait's eyes."""
@@ -197,16 +337,18 @@ def _project(human: object, cam: object, image: Path) -> None:
     uvn.uv_map = "portrait"
     img = g.nodes.new("ShaderNodeTexImage")
     img.image = bpy.data.images.load(str(image))
-    for ob in human.children:  # type: ignore[attr-defined]
-        if ob.name.endswith(".high-poly"):
-            _portrait_eyes(ob, cam, img.image)
+    # the eyeballs keep MPFB's procedural eye with the portrait's iris colour: projecting the
+    # portrait onto them (D-8.11b) looked glassy and misplaced, because the eyeball is larger
+    # than the visible eye opening (owner look-test round, D-8.11c)
     img.extension = "CLIP"
     geo = g.nodes.new("ShaderNodeNewGeometry")
     dot = g.nodes.new("ShaderNodeVectorMath")
     dot.operation = "DOT_PRODUCT"
     dot.inputs[1].default_value = (0.0, -1.0, 0.0)  # towards the face camera
     face = g.nodes.new("ShaderNodeMapRange")
-    face.inputs["From Min"].default_value, face.inputs["From Max"].default_value = 0.25, 0.65
+    # keep the portrait down the nose sides (fading early showed the body texture as grey
+    # patches there, D-8.11c); fade only where the surface turns well away from the camera
+    face.inputs["From Min"].default_value, face.inputs["From Max"].default_value = 0.0, 0.3
     fac = g.nodes.new("ShaderNodeMath")
     fac.operation = "MULTIPLY"
     mix = g.nodes.new("ShaderNodeMix")
@@ -232,6 +374,17 @@ def portrait(image: Path, out: Path, iris: list[float] | None, skin: list[float]
             ob.hide_render = True
     if iris:
         _iris(human, iris)
+    # skin sheen: with the large soft key light the coat layer and broad specular laid a grey
+    # veil over dark and red details (moustache, nose sides, under the eyes) (D-8.11c)
+    skin_node = human.material_slots[0].material.node_tree.nodes[
+        human.material_slots[0].material.name
+    ]
+    skin_node.inputs["Clearcoat"].default_value = 0.0
+    skin_node.inputs["Roughness"].default_value = 0.6
+    group = bpy.data.node_groups[human.material_slots[0].material.name]
+    for n in group.nodes:
+        if n.type == "BSDF_PRINCIPLED":
+            n.inputs["Specular IOR Level"].default_value = 0.3
     if skin:  # body skin toward the portrait's colour (the group's own colorMixIn input)
         node = human.material_slots[0].material.node_tree.nodes[
             human.material_slots[0].material.name

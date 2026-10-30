@@ -117,16 +117,108 @@ def skin_colour(portrait: U8, lm: F64) -> tuple[float, float, float]:
 
 
 PHOTO_TO_ALBEDO = 0.75
+DELIGHT = 1.0
+FLOOR = 22.0  # Lab lightness units
 
 
-def hair_colour(portrait: U8, lm: F64) -> tuple[float, float, float]:
-    """sRGB 0-1 median above the forehead (the hair the image model actually drew)."""
+def hair_colour(
+    portrait: U8, lm: F64, wanted: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    """sRGB 0-1: the bible's hair colour (`wanted`, what the portrait prompt asked for), darkened
+    to the portrait's hair lightness when the image model drew it darker (Lio's "light brown"
+    came out dark brown). Colours sampled from the photo alone were unreliable — highlights,
+    shadowed curls and background through partings turned black hair grey, white hair grey
+    and auburn black (D-8.11c)."""
     ipd = float(np.linalg.norm(lm[1] - lm[0]))
     x, y = (lm[0] + lm[1]) / 2 - (0, 1.3 * ipd)
     yy, xx = np.mgrid[: portrait.shape[0], : portrait.shape[1]]
-    px = portrait[np.hypot(xx - x, yy - max(y, 0.2 * ipd)) < 0.3 * ipd].astype(np.float64)
-    bgr = np.median(px, 0) / 255.0
-    return (float(bgr[2]), float(bgr[1]), float(bgr[0]))
+    sel = np.hypot(xx - x, yy - max(y, 0.2 * ipd)) < 0.3 * ipd
+    photo_l = float(np.median(cv2.cvtColor(portrait, cv2.COLOR_BGR2LAB)[sel][:, 0]))
+    px = np.array([[[wanted[2], wanted[1], wanted[0]]]], np.float32)
+    wanted_l = float(cv2.cvtColor(px, cv2.COLOR_BGR2LAB)[0, 0, 0])  # float input: L 0-100
+    # scale RGB (keeps the hue; lowering Lab lightness clipped red to pure dark red), at most
+    # by half
+    f = float(np.clip(photo_l * 100 / 255 / max(wanted_l, 1e-3), 0.5, 1.0))
+    r, g, b = (float(c * f) for c in wanted)
+    return (r, g, b)
+
+
+def skin_above_eyes(bgr: U8, lm: F64) -> npt.NDArray[np.float32]:
+    """1 where a pixel looks like skin, else 0 — only above the eyes, so the portrait's own hair
+    at the hairline is not painted onto the forehead (D-8.11c). Below the eyes everything stays
+    (moustache and beard are part of the face). Skin = within Lab distance 18 of the forehead /
+    cheek median, feathered."""
+    ipd = float(np.linalg.norm(lm[1] - lm[0]))
+    eyes = (lm[0] + lm[1]) / 2
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB).astype(np.float64)
+    yy, xx = np.mgrid[: bgr.shape[0], : bgr.shape[1]]
+    ref_spots = [lm[0] + (0, 0.55 * ipd), lm[1] + (0, 0.55 * ipd), eyes - (0, 0.45 * ipd)]
+    ref = np.zeros(bgr.shape[:2], bool)
+    for x, y in ref_spots:
+        ref |= np.hypot(xx - x, yy - y) < 0.12 * ipd
+    skin = np.median(lab[ref], 0)
+    dist = np.linalg.norm((lab - skin) * (0.5, 1.0, 1.0), axis=2)  # lightness counts half
+    keep = (dist < 18).astype(np.float32)
+    keep[yy > eyes[1] - 0.2 * ipd] = 1.0
+    out = np.asarray(cv2.GaussianBlur(keep, (0, 0), 0.06 * ipd), np.float32)
+    return out
+
+
+def delight(bgr: U8, lm: F64, strength: float = DELIGHT) -> U8:
+    """Remove the photo's broad studio shading (nose-side, cheekbone and jaw shadows): Blender
+    lights the 3D face itself, so baked shadows rendered as black patches (owner, D-8.11c).
+    Shading = median filter of Lab lightness (0.45 IPD wide, so eyes, brows and the moustache do
+    not count as shadow; a plain blur lit up the eye sockets), smoothed; lightness minus shading
+    plus its median: wrinkles, pores, stubble, brows and eyes stay."""
+    ipd = float(np.linalg.norm(lm[1] - lm[0]))
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB).astype(np.float64)
+    small = cv2.resize(lab[..., 0].astype(np.uint8), None, fx=0.25, fy=0.25)
+    ksize = max(3, int(0.45 * ipd * 0.25) | 1)
+    med = cv2.medianBlur(small, min(ksize, 255)).astype(np.float64)
+    med = np.asarray(
+        cv2.resize(med, (bgr.shape[1], bgr.shape[0]), interpolation=cv2.INTER_LINEAR), np.float64
+    )
+    shade = cv2.GaussianBlur(med, (0, 0), 0.15 * ipd)
+    eyes = (lm[0] + lm[1]) / 2
+    yy, xx = np.mgrid[: bgr.shape[0], : bgr.shape[1]]
+    face = np.hypot(xx - eyes[0], yy - eyes[1] - 0.6 * ipd) < 1.0 * ipd
+    lab[..., 0] += strength * (np.median(shade[face]) - shade)
+    # leftover mid-scale shadows (nose sides, cheek folds) rendered as dark patches: skin may
+    # not fall more than FLOOR below the face's median lightness, except where the face really
+    # is dark (eyes, brows, nostrils, mouth, moustache)
+    feature = np.zeros(bgr.shape[:2], bool)
+    for eye in lm[:2]:
+        feature |= np.hypot(xx - eye[0], yy - eye[1]) < 0.38 * ipd
+    feature |= (np.abs(xx - eyes[0]) < 0.95 * ipd) & (
+        np.abs(yy - (eyes[1] - 0.3 * ipd)) < 0.18 * ipd
+    )
+    mouth = (lm[3] + lm[4]) / 2
+    feature |= (
+        (np.abs(xx - mouth[0]) < 0.75 * ipd)
+        & (yy > lm[2][1] - 0.1 * ipd)
+        & (yy < mouth[1] + 0.3 * ipd)
+    )
+    floor = np.median(lab[..., 0][face]) - FLOOR
+    lab[..., 0] = np.where(feature, lab[..., 0], np.maximum(lab[..., 0], floor))
+    out = np.asarray(
+        cv2.cvtColor(np.clip(lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR), np.uint8
+    )
+    return out
+
+
+def curliness(portrait: U8, lm: F64) -> float:
+    """0 straight / smooth .. 1 tight curls: band-pass energy of the hair above the forehead
+    (scale ~ IPD / 40 .. IPD / 10). Calibrated on the four Lantern Keeper portraits (D-8.11c):
+    0.03 short smooth, 0.14-0.15 waves / curls in a dark photo, 0.24 tight curls."""
+    ipd = float(np.linalg.norm(lm[1] - lm[0]))
+    x, y = (lm[0] + lm[1]) / 2 - (0, 1.3 * ipd)
+    r = int(0.3 * ipd)
+    cy = int(max(y, r))
+    g = cv2.cvtColor(portrait, cv2.COLOR_BGR2GRAY).astype(np.float64)
+    patch = g[cy - r : cy + r, int(x) - r : int(x) + r]
+    band = cv2.GaussianBlur(patch, (0, 0), ipd / 40) - cv2.GaussianBlur(patch, (0, 0), ipd / 10)
+    energy = float(band.std() / (patch.mean() + 1))
+    return float(np.clip((energy - 0.05) / 0.15, 0.0, 1.0))
 
 
 def body_colour(
@@ -189,7 +281,8 @@ def align(
     size = (render.shape[1], render.shape[0])
     src, dst = landmarks(p_face), landmarks(r_face)
     warped, err = _warp(portrait, src, dst, size)
-    mask = face_mask(dst, size)
+    warped = delight(warped, dst)
+    mask = face_mask(dst, size) * skin_above_eyes(warped, dst)
     # cheeks / forehead of the warped portrait sit where the render's are
     yy, xx = np.mgrid[: size[1], : size[0]]
     ipd = float(np.linalg.norm(dst[1] - dst[0]))

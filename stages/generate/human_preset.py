@@ -191,7 +191,16 @@ def human_preset(ident: Identity) -> dict[str, Any]:
         "skin_material_settings": {},
         "alternative_materials": {},
         # read by tools/blender/human.py, not by MPFB
-        "worldreel": {"height_m": round(1.50 + 0.45 * a["height"], 3), "hair_rgb": hair_rgb(ident)},
+        "worldreel": {
+            "height_m": round(1.50 + 0.45 * a["height"], 3),
+            "hair_rgb": hair_rgb(ident),
+            # scalp strands (tools/blender/human.py): short hair is all strands; long hair keeps
+            # the card style for its shape with a short strand layer over the crown
+            "hair_len_m": round(0.012 + 0.05 * a["hair_length"], 3)
+            if a["hair_length"] < 0.4
+            else 0.02,
+            "strands_only": a["hair_length"] < 0.4,
+        },
     }
 
 

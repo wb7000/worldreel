@@ -1952,3 +1952,30 @@ face marks did not make it human (the owner's look-test decides, as for voices).
   0.599); others 0.23–0.41 → distinctness still **fails** (< 0.363 needed).
 - Look: dark hair renders grey (the hair tint multiplies the texture's brightness, and the
   portrait's black hair is sampled as lit grey); no curly / wavy hair in the pack.
+
+### D-8.11c Owner: "black spots on the skin … no lighting, why black" + "make the hair good" (2026-10-30, measured)
+The black spots were the portrait photo's own studio shadows projected onto a face that Blender
+lights again. Fixed in steps, each checked by rendering:
+- `face_projection.delight`: Lab lightness minus a median-filtered shading estimate (0.45 IPD
+  window: eyes and brows do not count as shadow; a plain blur lit up the eye sockets), plus a
+  floor (skin ≤ 22 L below the face median, except eyes / brows / nostrils / mouth / moustache).
+- `skin_above_eyes`: the portrait's own hair at the hairline is not painted on the forehead.
+- Portrait fade by surface angle starts later (the body texture showed as grey nose-side patches).
+- The remaining grey veil was skin sheen (coat 0.4 + broad specular under softer lights) →
+  coat 0, roughness 0.6, specular 0.3. Lights: key / fill area size 3 m, fill 200 W.
+- Hair: real strands (Blender 4.2's bundled procedural hair node assets: Generate, Displace,
+  Shrinkwrap, Frizz, Noise, Profile) from a scalp vertex group with a hairline around the head
+  (front +6.5 cm, over the ears +5 cm above the eyes, down to the nape; never on the ears).
+  Found by looking: roots on MakeHuman's hidden `helper-hair` shell (bob-shaped) hung hair to the
+  jaw → body vertices only; the Curl asset pulls strands to shared 10 cm guides (spikes) →
+  curls by frizz + noise scaled by a portrait curliness measure (band-pass energy; 0.03 smooth
+  … 0.24 tight curls). Short hair: strands only; long hair: matte cards + a crown strand layer.
+  Colour: the bible's hair colour scaled down (hue kept, at most half) to the portrait's hair
+  lightness; photo-sampled colours turned black hair grey, white grey, auburn black / orange.
+- Portrait-on-eyeball (D-8.11b) reverted: glassy and misplaced (eyeball larger than the
+  opening); MPFB procedural eyes with the portrait's iris colour.
+- Face marks (15 views each): detection **1.0**, identity **0.983** (60 faces), own-portrait
+  cosine **0.44–0.56** (was 0.34–0.54); worst pairs Mira–Lio 0.553, Ade–Lio 0.537, Ade–Tomas
+  0.506 → distinctness still **fails**.
+- Open: irises render pale grey (iris colour sampled from small, lit portrait eyes is
+  desaturated); Lio's long curly hair is a ponytail asset; Tomas's curls read as short frizz.

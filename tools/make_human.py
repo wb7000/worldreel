@@ -21,7 +21,14 @@ import numpy as np
 from eval.face_metrics import Faces, imread
 from formats.wscript import read_wscript
 from stages.generate.bible import expand
-from stages.generate.face_projection import align, body_colour, hair_colour, landmarks, skin_colour
+from stages.generate.face_projection import (
+    align,
+    body_colour,
+    curliness,
+    hair_colour,
+    landmarks,
+    skin_colour,
+)
 from stages.generate.human_preset import cast_presets
 from tools.make_sample_wscript import OUT
 from tools.toolpaths import find_tool
@@ -58,9 +65,11 @@ def main(argv: list[str] | None = None) -> int:
     if p_face is None:
         raise RuntimeError(f"no face in {a.portrait}")
     if preset["hair"]:  # the hair colour the portrait shows, not the bible's word for it
-        preset["worldreel"]["hair_rgb"] = [
-            round(v, 4) for v in hair_colour(pimg, landmarks(p_face))
-        ]
+        # the bible's colour, darkened to the portrait's where it is darker (hair_colour)
+        wanted = preset["worldreel"]["hair_rgb"]
+        hair = hair_colour(pimg, landmarks(p_face), (wanted[0], wanted[1], wanted[2]))
+        preset["worldreel"]["hair_rgb"] = [round(v, 4) for v in hair]
+        preset["worldreel"]["curl"] = round(curliness(pimg, landmarks(p_face)), 3)
     (out / "preset.json").write_text(json.dumps(preset, indent=1))
     _blender(["-b", "--factory-startup", "-P", str(SCRIPT), "--", "build",
               str(out / "preset.json"), str(out)])  # fmt: skip
