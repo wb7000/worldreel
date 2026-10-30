@@ -78,3 +78,15 @@ def test_body_colour_keeps_texture_lightness() -> None:
         return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
 
     assert abs(lum(out) - lum(tex)) < 0.06  # not the bright studio-lit portrait
+
+
+def test_cast_presets_spread_hair_and_shoes() -> None:
+    from stages.generate.human_preset import cast_presets
+
+    cast = {f"C{n:02d}": expand(seed, "") for n, seed in enumerate((3, 10, 17, 24), start=1)}
+    presets = cast_presets(cast)
+    shoes = [p["clothes"][1] for p in presets.values()]
+    assert len(set(shoes)) == len(shoes)
+    hair = [p["hair"] for p in presets.values() if p["hair"]]
+    long_or_short = {h for h in hair}
+    assert len(long_or_short) >= min(len(hair), 2)

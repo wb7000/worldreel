@@ -1937,3 +1937,18 @@ face marks did not make it human (the owner's look-test decides, as for voices).
   cropped sports top), so hair and clothes cannot yet follow the portraits closely.
 - Status: real humans; owner look-test pending; distinctness open (next: give each cast member
   a different hair asset and outfit, and stronger face-shape fitting to the portrait).
+
+### D-8.11b Portrait eyes and a cast-wide asset spread (2026-10-30, measured)
+- Face-shape fitting to the portrait tried and **not adopted**: proportions measured from YuNet
+  landmarks differed by up to 18 % (Mira's eyes-to-mouth), but MPFB's `mouth-trans`,
+  `nose-trans` and `mouth-scale-horiz` targets at full weight moved them ≤ 5 %, some against
+  their names (calibration build of Mira) — too weak and too noisy to fit.
+- Every character had MPFB's identical procedural eyeballs over the portrait's eyes; the
+  eyeballs now carry the portrait itself (same face-camera projection).
+- `cast_presets`: hair, outfit and shoes chosen across the cast so no two share one where the
+  pack allows (Mira long01, Lio ponytail01; Ade short04, Tomas short02; four different shoes).
+- Face marks (same 15 views each): detection **1.0**, identity **1.0** (60 faces), own-portrait
+  cosine 0.34–0.54; worst pairs Ade–Tomas **0.463** (was 0.523), Mira–Lio **0.461** (was
+  0.599); others 0.23–0.41 → distinctness still **fails** (< 0.363 needed).
+- Look: dark hair renders grey (the hair tint multiplies the texture's brightness, and the
+  portrait's black hair is sampled as lit grey); no curly / wavy hair in the pack.

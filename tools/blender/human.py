@@ -145,24 +145,49 @@ def build(preset: Path, out: Path) -> None:
     bpy.ops.wm.save_as_mainfile(filepath=str(out / "human.blend"))
 
 
-def _project(human: object, cam: object, image: Path) -> None:
-    """UV map 'portrait' = each vertex seen through the face camera; the skin group mixes the
-    portrait in by its alpha times a facing term (fades out towards the ears)."""
-    mods = [(m, m.show_viewport) for m in human.modifiers]  # type: ignore[attr-defined]
+def _camera_uv(ob: object, cam: object) -> None:
+    """UV map 'portrait' = each vertex as the face camera sees it (shape keys applied)."""
+    mods = [(m, m.show_viewport) for m in ob.modifiers]  # type: ignore[attr-defined]
     for m, _ in mods:
         m.show_viewport = False
     deps = bpy.context.evaluated_depsgraph_get()
-    ev = human.evaluated_get(deps)  # type: ignore[attr-defined]
-    world = [ev.matrix_world @ v.co for v in ev.data.vertices]  # shape keys applied
+    ev = ob.evaluated_get(deps)  # type: ignore[attr-defined]
+    world = [ev.matrix_world @ v.co for v in ev.data.vertices]
     for m, shown in mods:
         m.show_viewport = shown
     scene = bpy.context.scene
     proj = [world_to_camera_view(scene, cam, co) for co in world]
-    mesh = human.data  # type: ignore[attr-defined]
+    mesh = ob.data  # type: ignore[attr-defined]
     uv = mesh.uv_layers.get("portrait") or mesh.uv_layers.new(name="portrait", do_init=False)
     for loop in mesh.loops:
         p = proj[loop.vertex_index]
         uv.data[loop.index].uv = (p.x, p.y)
+
+
+def _portrait_eyes(eyes: object, cam: object, img: object) -> None:
+    """The eyeballs show the portrait's own eyes (iris, gaze, lid shadow) instead of MPFB's
+    shared procedural eye: every character had identical eyes (D-8.11b)."""
+    _camera_uv(eyes, cam)
+    mat = bpy.data.materials.new("portrait_eyes")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+    bsdf.inputs["Roughness"].default_value = 0.12  # wet cornea highlight
+    uvn = nt.nodes.new("ShaderNodeUVMap")
+    uvn.uv_map = "portrait"
+    tex = nt.nodes.new("ShaderNodeTexImage")
+    tex.image = img
+    tex.extension = "EXTEND"
+    nt.links.new(uvn.outputs["UV"], tex.inputs["Vector"])
+    nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    for slot in eyes.material_slots:  # type: ignore[attr-defined]
+        slot.material = mat
+
+
+def _project(human: object, cam: object, image: Path) -> None:
+    """The skin group mixes the portrait in by its alpha times a facing term (fades out
+    towards the ears); the eyeballs take the portrait's eyes."""
+    _camera_uv(human, cam)
     g = bpy.data.node_groups[human.material_slots[0].material.name]  # type: ignore[attr-defined]
     # after the group's colour tint (texture -> Mix with colorMixIn), so the tint never
     # flattens the portrait's detail
@@ -172,6 +197,9 @@ def _project(human: object, cam: object, image: Path) -> None:
     uvn.uv_map = "portrait"
     img = g.nodes.new("ShaderNodeTexImage")
     img.image = bpy.data.images.load(str(image))
+    for ob in human.children:  # type: ignore[attr-defined]
+        if ob.name.endswith(".high-poly"):
+            _portrait_eyes(ob, cam, img.image)
     img.extension = "CLIP"
     geo = g.nodes.new("ShaderNodeNewGeometry")
     dot = g.nodes.new("ShaderNodeVectorMath")

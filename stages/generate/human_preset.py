@@ -111,6 +111,43 @@ def skin_name(ident: Identity) -> str:
     return f"{band}_{tone}_{sex}"
 
 
+def _first_free(options: tuple[str, ...], start: int, used: set[str]) -> str:
+    """The seeded option, or the next one no other cast member has (all taken: the seeded one)."""
+    for k in range(len(options)):
+        o = options[(start + k) % len(options)]
+        if o not in used:
+            return o
+    return options[start % len(options)]
+
+
+def cast_presets(idents: dict[str, Identity]) -> dict[str, dict[str, Any]]:
+    """Presets for a whole cast: hair, outfit and shoes differ between characters where the
+    asset pack allows (D-8.11b: Mira and Lio shared one long-hair asset and rendered alike)."""
+    used: dict[str, set[str]] = {"hair": set(), "clothes": set(), "shoes": set()}
+    out = {}
+    for cid in sorted(idents):
+        ident = idents[cid]
+        p = human_preset(ident)
+        a = ident.appearance
+        if p["hair"]:
+            group = (
+                HAIR_SHORT
+                if a["hair_length"] < 0.4
+                else HAIR_MEDIUM
+                if a["hair_length"] < 0.6
+                else HAIR_LONG
+            )
+            p["hair"] = _first_free(group, ident.seed, used["hair"]) + ".mhclo"
+        if a["presentation"] >= 0.5:
+            p["clothes"][0] = _first_free(CLOTHES_MALE, ident.seed, used["clothes"]) + ".mhclo"
+        p["clothes"][1] = _first_free(SHOES, ident.seed // 7, used["shoes"]) + ".mhclo"
+        used["hair"].add(p["hair"].removesuffix(".mhclo"))
+        used["clothes"].add(p["clothes"][0].removesuffix(".mhclo"))
+        used["shoes"].add(p["clothes"][1].removesuffix(".mhclo"))
+        out[cid] = p
+    return out
+
+
 def human_preset(ident: Identity) -> dict[str, Any]:
     """The full MPFB preset for one character (seeded choices use the identity seed)."""
     a = ident.appearance

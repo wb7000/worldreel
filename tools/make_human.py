@@ -22,7 +22,7 @@ from eval.face_metrics import Faces, imread
 from formats.wscript import read_wscript
 from stages.generate.bible import expand
 from stages.generate.face_projection import align, body_colour, hair_colour, landmarks, skin_colour
-from stages.generate.human_preset import human_preset
+from stages.generate.human_preset import cast_presets
 from tools.make_sample_wscript import OUT
 from tools.toolpaths import find_tool
 
@@ -48,8 +48,10 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     out = a.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    c = read_wscript(OUT).header["dictionary"]["characters"][a.cid]
-    preset = human_preset(expand(int(c["identity"]["seed"]), str(c["identity"]["requested"])))
+    chars = read_wscript(OUT).header["dictionary"]["characters"]
+    cast = {cid: expand(int(c["identity"]["seed"]), str(c["identity"]["requested"]))
+            for cid, c in chars.items()}  # fmt: skip
+    preset = cast_presets(cast)[a.cid]  # hair / outfit differ across the cast
     faces = Faces()
     pimg = imread(a.portrait)
     p_face = faces.find(pimg)
