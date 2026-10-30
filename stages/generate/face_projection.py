@@ -198,6 +198,15 @@ def delight(bgr: U8, lm: F64, strength: float = DELIGHT) -> U8:
         & (yy > lm[2][1] - 0.1 * ipd)
         & (yy < mouth[1] + 0.3 * ipd)
     )
+    # the photo's key light came from one side: left and right halves differed by up to 7 L and
+    # the owner saw two different sides (D-8.11d). Even out the large-scale lightness across the
+    # face's midline (mirror about the eyes' centre), keeping each side's detail.
+    mx = (2 * eyes[0] - xx).astype(np.float32)
+    for sigma in (0.5, 0.25):  # broad, then cheek-sized shading; finer detail stays one-sided
+        big = cv2.GaussianBlur(lab[..., 0], (0, 0), sigma * ipd).astype(np.float32)
+        mirrored = cv2.remap(big, mx, yy.astype(np.float32), cv2.INTER_LINEAR,
+                             borderMode=cv2.BORDER_REPLICATE)  # fmt: skip
+        lab[..., 0] += (mirrored - big) / 2
     floor = np.median(lab[..., 0][face]) - FLOOR
     lab[..., 0] = np.where(feature, lab[..., 0], np.maximum(lab[..., 0], floor))
     out = np.asarray(
@@ -252,6 +261,26 @@ def _match_colour(src: U8, target_rgb: tuple[float, float, float],
         a[..., c] += t[c] - np.median(a[..., c][region])
     out = np.asarray(cv2.cvtColor(np.clip(a, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR), np.uint8)
     return out
+
+
+def eye_texture(portrait: U8, lm: F64, skin_tone: float) -> str:
+    """MakeHuman eye texture name (CC0 pack: brown, brownlight, blue, ...). The portraits' irises
+    measure nearly colourless (Lab a, b within 6 of neutral: small, lit eyes), so a rule, not a
+    colour match: deep skin or dark irises -> brown; a warm tint -> brownlight (hazel); else
+    blue. MPFB's procedural eye rendered every iris pale blue-grey (owner, D-8.11d)."""
+    ipd = float(np.linalg.norm(lm[1] - lm[0]))
+    lab = cv2.cvtColor(portrait, cv2.COLOR_BGR2LAB).astype(np.float64)
+    yy, xx = np.mgrid[: portrait.shape[0], : portrait.shape[1]]
+    rings = []
+    for e in lm[:2]:
+        r = np.hypot(xx - e[0], yy - e[1])
+        rings.append(lab[(r > 0.04 * ipd) & (r < 0.09 * ipd)])
+    px = np.vstack(rings)
+    keep = (px[:, 0] > np.percentile(px[:, 0], 30)) & (px[:, 0] < np.percentile(px[:, 0], 80))
+    lightness, _, b = np.median(px[keep], 0)
+    if skin_tone > 0.6 or lightness < 40:
+        return "brown"
+    return "brownlight" if b - 128 > 1.5 else "blue"
 
 
 def iris_colour(portrait: U8, lm: F64) -> tuple[float, float, float]:

@@ -25,6 +25,7 @@ from stages.generate.face_projection import (
     align,
     body_colour,
     curliness,
+    eye_texture,
     hair_colour,
     landmarks,
     skin_colour,
@@ -91,13 +92,13 @@ def main(argv: list[str] | None = None) -> int:
     body_rgb = body_colour(tex_rgb, port_rgb)
     al = align(pimg, p_face, render, r_face, body_rgb)
     cv2.imwrite(str(out / "aligned.png"), al.rgba)
-    iris = ",".join(f"{v:.4f}" for v in al.iris_rgb)
+    eye = eye_texture(pimg, landmarks(p_face), cast[a.cid].appearance["skin_tone"])
     _blender(["-b", str(out / "human.blend"), "-P", str(SCRIPT), "--", "portrait",
-              str(out / "aligned.png"), str(out), "--iris", iris,
+              str(out / "aligned.png"), str(out), "--eye", eye,
               "--skin", ",".join(f"{v:.4f}" for v in (*body_rgb, SKIN_STRENGTH))])  # fmt: skip
     info = {"cid": a.cid, "portrait": str(a.portrait),
             "similarity_residual_px": round(al.fit_error_px, 1),
-            "iris_rgb": [round(v, 3) for v in al.iris_rgb],
+            "eye_texture": eye,
             "skin_texture_rgb": [round(v, 3) for v in tex_rgb],
             "portrait_skin_rgb": [round(v, 3) for v in port_rgb],
             "body_rgb": [round(v, 3) for v in body_rgb]}  # fmt: skip

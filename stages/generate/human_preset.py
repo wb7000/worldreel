@@ -175,7 +175,7 @@ def human_preset(ident: Identity) -> dict[str, Any]:
         "skin_mhmat": f"{skin}.mhmat",
         "skin_material_type": "ENHANCED_SSS",
         "eyes": "high-poly.mhclo",
-        "eyes_material_type": "PROCEDURAL_EYES",
+        "eyes_material_type": "MAKESKIN",  # textured eyes; tools/make_human picks the texture
         "eyes_material_settings": {},
         "eyebrows": _pick(a["brow"], EYEBROWS) + ".mhclo",
         "eyelashes": ("eyelashes02" if female else "eyelashes01") + ".mhclo",

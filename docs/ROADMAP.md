@@ -51,3 +51,9 @@ verification before the next. Full acceptance criteria are in `docs/MASTER_PROMP
 - Desktop player.
 - Own-likeness feature behind consent/liveness check.
 - "AI edits" in `.wedit` round-trip.
+
+- **Realism pass (D-8.12):** a `refine` stage after export that re-paints rendered video with an
+  open video diffusion model (Wan2.1-T2V-1.3B video-to-video at strength ~0.35; later Wan VACE
+  with depth / pose and the character portraits as references). Needs: chunking for long clips
+  with overlap, pinned revisions, identity and flicker checks per shot, provenance label
+  "AI-generated" kept.

@@ -3,7 +3,7 @@ Blender 4.2+ with the MPFB extension installed:
 
     blender -b --factory-startup -P tools/blender/human.py -- build preset.json out_dir
     blender -b out_dir/human.blend -P tools/blender/human.py -- portrait aligned.png out_dir \
-        [--iris R,G,B]
+        [--eye NAME] [--skin R,G,B,STRENGTH]
 
 `build` makes the human, scales it to the bible height, colours hair and eyes, renders
 out_dir/face.png through the fixed orthographic face camera and saves out_dir/human.blend.
@@ -240,24 +240,17 @@ def _strand_hair(human: object, rgb: list[float], curl: float, length: float, k:
     mod.node_group = tree
 
 
-def _iris(human: object, rgb: list[float]) -> None:
-    for ob in human.children:  # type: ignore[attr-defined]
-        for slot in ob.material_slots:
-            for n in slot.material.node_tree.nodes:
-                if n.type == "GROUP" and "IrisMajorColor" in n.inputs:
-                    n.inputs["IrisMajorColor"].default_value = _linear(rgb)
-                    n.inputs["IrisMinorColor"].default_value = _linear([0.6 * c for c in rgb])
-
-
 def _scene_setup(target: Vector) -> None:
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_EEVEE_NEXT"
     scene.world = scene.world or bpy.data.worlds.new("world")
     scene.world.color = (0.18, 0.18, 0.19)
     scene.view_settings.view_transform = "AgX"
-    _light("key", (1.5, -2.0, 2.4), 300.0, 3.0, target)  # large and soft: no hard nose shadow
-    _light("fill", (-2.0, -1.5, 1.6), 200.0, 3.0, target)
-    _light("rim", (0.5, 2.0, 2.2), 200.0, 1.0, target)
+    # look-test light: two soft keys mirrored left / right, so neither half of the face reads
+    # as a different person (owner, D-8.11d); scene lighting comes from the world later (8.4)
+    _light("key", (1.0, -2.2, 2.3), 250.0, 3.0, target)
+    _light("fill", (-1.0, -2.2, 2.3), 250.0, 3.0, target)
+    _light("rim", (0.0, 2.0, 2.2), 200.0, 1.0, target)  # centred: off to one side it lit one cheek
 
 
 def _render(cam: object, path: Path, w: int, h: int) -> None:
@@ -337,7 +330,7 @@ def _project(human: object, cam: object, image: Path) -> None:
     uvn.uv_map = "portrait"
     img = g.nodes.new("ShaderNodeTexImage")
     img.image = bpy.data.images.load(str(image))
-    # the eyeballs keep MPFB's procedural eye with the portrait's iris colour: projecting the
+    # the eyeballs keep their own textured eye (chosen by `eye_texture`): projecting the
     # portrait onto them (D-8.11b) looked glassy and misplaced, because the eyeball is larger
     # than the visible eye opening (owner look-test round, D-8.11c)
     img.extension = "CLIP"
@@ -364,7 +357,19 @@ def _project(human: object, cam: object, image: Path) -> None:
     g.links.new(mix.outputs["Result"], link.to_socket)
 
 
-def portrait(image: Path, out: Path, iris: list[float] | None, skin: list[float] | None) -> None:
+def _eye_texture(human: object, name: str) -> None:
+    """Swap the textured eye material's image for the chosen CC0 eye texture."""
+    for ob in human.children:  # type: ignore[attr-defined]
+        if not ob.name.endswith(".high-poly"):
+            continue
+        for slot in ob.material_slots:
+            for n in slot.material.node_tree.nodes:
+                if n.type == "TEX_IMAGE" and n.image and n.image.filepath.endswith("_eye.png"):
+                    path = Path(bpy.path.abspath(n.image.filepath)).with_name(f"{name}_eye.png")
+                    n.image = bpy.data.images.load(str(path))
+
+
+def portrait(image: Path, out: Path, eye: str | None, skin: list[float] | None) -> None:
     human = bpy.data.objects["Human"]
     build_info = json.loads((out / "build.json").read_text())
     top, face_z = build_info["height_m"], build_info["face_z"]
@@ -372,8 +377,8 @@ def portrait(image: Path, out: Path, iris: list[float] | None, skin: list[float]
     for ob in human.children:  # the portrait carries its own eyebrows
         if "eyebrow" in ob.name:
             ob.hide_render = True
-    if iris:
-        _iris(human, iris)
+    if eye:
+        _eye_texture(human, eye)
     # skin sheen: with the large soft key light the coat layer and broad specular laid a grey
     # veil over dark and red details (moustache, nose sides, under the eyes) (D-8.11c)
     skin_node = human.material_slots[0].material.node_tree.nodes[
@@ -411,13 +416,11 @@ def main(argv: list[str]) -> None:
         out.mkdir(parents=True, exist_ok=True)
         build(Path(argv[1]).resolve(), out)
     elif argv[0] == "portrait":
-        iris = None
-        if "--iris" in argv:
-            iris = [float(c) for c in argv[argv.index("--iris") + 1].split(",")]
+        eye = argv[argv.index("--eye") + 1] if "--eye" in argv else None
         skin = None
         if "--skin" in argv:
             skin = [float(c) for c in argv[argv.index("--skin") + 1].split(",")]
-        portrait(Path(argv[1]).resolve(), Path(argv[2]).resolve(), iris, skin)
+        portrait(Path(argv[1]).resolve(), Path(argv[2]).resolve(), eye, skin)
 
 
 if __name__ == "__main__":

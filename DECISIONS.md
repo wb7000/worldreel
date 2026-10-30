@@ -1979,3 +1979,37 @@ lights again. Fixed in steps, each checked by rendering:
   0.506 → distinctness still **fails**.
 - Open: irises render pale grey (iris colour sampled from small, lit portrait eyes is
   desaturated); Lio's long curly hair is a ponytail asset; Tomas's curls read as short frizz.
+
+### D-8.11d Owner: the two sides of each face looked different (2026-10-30, measured)
+Cheek lightness (Lab L, landmark windows) in the front render, left / right: Ade 124 / 133,
+Lio 132 / 140. Traced by elimination: the bare mesh render was even (157 / 158), the projected
+texture nearly even (62 / 60); with the portrait switched off the render was still uneven
+(140 / 147) → the look-test **rim light sat 0.5 m to one side** and grazed one cheek. Fixes: rim
+centred; key / fill mirrored left / right (250 W, 3 m each); the portraits' own one-sided studio
+light evened across the face midline at two scales (σ 0.5 and 0.25 IPD; finer detail stays).
+After: Ade 129 / 127, Lio 146 / 148.
+Eyes: MPFB's procedural eye rendered every iris pale blue-grey; now the CC0 photographic eye
+textures, chosen by a rule (deep skin or dark iris → brown; warm tint → brownlight; else blue —
+the portraits' irises measure nearly colourless, so not a colour match): Mira brownlight,
+Ade brown, Tomas blue, Lio brown.
+Face marks (15 views each): detection **1.0**, identity **1.0** (60 faces), own-portrait cosine
+0.45–0.56; worst pairs Ade–Tomas 0.540, Mira–Lio 0.514 → distinctness still **fails**.
+
+### D-8.12 Higgsfield studied; realism pass with open weights tested (2026-10-30, measured)
+Owner asked how Higgsfield makes realistic animation. From its own pages (vendor claims, no
+independent tests found): it is a suite over closed video models (Veo, Kling, Seedance, WAN)
+whose strength is fixing choices before generation — camera-move presets, lens, aperture,
+lighting presets, genre — and Soul ID references for the same face across shots. Realism comes
+from the large video models trained on real footage.
+For WorldReel the 3D world already fixes camera, blocking, light and identity exactly; missing
+is the photographic look. Test: Ade's Blender orbit (33 frames, 832 × 480, ±25° yaw) re-painted
+by Wan2.1-T2V-1.3B (Apache-2.0) with diffusers `WanVideoToVideoPipeline` on a Kaggle T4
+(run 1 out of memory in the fp32 VAE; run 2 with VAE tiling + expandable segments).
+- Look: clearly photographic at strength 0.35 and 0.5 (skin, eyes, mouth), camera and pose kept.
+- SFace vs the portrait, all 33 frames: render mean 0.573 (min 0.544); s0.35 **0.577** (0.537);
+  s0.50 0.536 (0.499). Frame-to-frame same-person cosine: render 0.982, s0.35 0.978, s0.50 0.976
+  (no flicker in identity).
+- Cost: 262 s (s0.35) / 318 s (s0.50) for 2 s of video, peak 14.98 GB.
+Status: **experimental, promising**. Strength 0.35 keeps identity at the render's level while
+adding realism. Not yet in the pipeline (ROADMAP: a `refine` stage after export; next: owner
+look-test, longer clips / chunking, pinned revision, VACE depth + reference for larger moves).
