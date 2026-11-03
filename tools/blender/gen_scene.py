@@ -125,7 +125,9 @@ def setup_render(scene: bpy.types.Scene, args: argparse.Namespace, out: Path) ->
         scene.cycles.device = "CPU"
         scene.cycles.samples = args.samples
     else:
-        scene.render.engine = "BLENDER_EEVEE"
+        engines = scene.render.bl_rna.properties["engine"].enum_items  # renamed in Blender 4.2
+        next_gen = "BLENDER_EEVEE_NEXT" in engines
+        scene.render.engine = "BLENDER_EEVEE_NEXT" if next_gen else "BLENDER_EEVEE"
         scene.eevee.taa_render_samples = args.samples
     scene.render.image_settings.file_format = "PNG"
     scene.view_settings.view_transform = "Standard"  # plain sRGB, no Filmic tone curve

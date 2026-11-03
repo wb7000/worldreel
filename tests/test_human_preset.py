@@ -90,3 +90,35 @@ def test_cast_presets_spread_hair_and_shoes() -> None:
     hair = [p["hair"] for p in presets.values() if p["hair"]]
     long_or_short = {h for h in hair}
     assert len(long_or_short) >= min(len(hair), 2)
+
+
+def test_facial_hair_kind_follows_portrait_words() -> None:
+    from stages.generate.face_projection import facial_hair_kind
+
+    assert facial_hair_kind({"presentation": 0.1, "facial_hair": 0.9}) == "clean-shaven"
+    assert facial_hair_kind({"presentation": 0.9, "facial_hair": 0.1}) == "clean-shaven"
+    assert facial_hair_kind({"presentation": 0.9, "facial_hair": 0.49}) == "light stubble"
+    assert facial_hair_kind({"presentation": 0.9, "facial_hair": 0.6}) == "moustache"
+    assert facial_hair_kind({"presentation": 0.9, "facial_hair": 0.9}) == "full beard"
+
+
+def test_facial_hair_masks_keep_lips_clear() -> None:
+    from stages.generate.face_landmarks import LIPS_OUTER, NOSE_BASE, OVAL
+    from stages.generate.face_projection import facial_hair_masks
+
+    # a synthetic face: oval circle, nose base above a lip ring, in a 1000 px image
+    lm = np.zeros((478, 2))
+    th = np.linspace(0, 2 * np.pi, len(OVAL), endpoint=False)
+    lm[list(OVAL)] = np.stack([500 + 300 * np.sin(th), 500 - 400 * np.cos(th)], 1)
+    th = np.linspace(0, 2 * np.pi, len(LIPS_OUTER), endpoint=False)
+    lm[list(LIPS_OUTER)] = np.stack([500 - 100 * np.cos(th), 680 + 30 * np.sin(th)], 1)
+    lm[list(NOSE_BASE)] = [[500, 600], [470, 595], [530, 595]]
+    lm[13] = [500, 665]
+    assert facial_hair_masks(lm, (1000, 1000), "clean-shaven") == []
+    pieces = dict(facial_hair_masks(lm, (1000, 1000), "light stubble"))
+    assert set(pieces) == {"stubble"}
+    assert pieces["stubble"][680, 500] < 128  # the lips stay clear
+    assert pieces["stubble"][780, 500] > 128  # the chin has stubble
+    assert pieces["stubble"][400, 500] == 0  # nothing above the nose base
+    assert set(dict(facial_hair_masks(lm, (1000, 1000), "moustache"))) == {"moustache"}
+    assert set(dict(facial_hair_masks(lm, (1000, 1000), "full beard"))) == {"moustache", "beard"}

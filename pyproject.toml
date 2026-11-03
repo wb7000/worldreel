@@ -13,6 +13,7 @@ dependencies = [
     "jsonschema>=4.23",
     "cryptography>=43",
     "opencv-python-headless>=4.9,<6",
+    "mediapipe>=1.2,<2",  # dense face landmarks (Face Mesh V2, Apache-2.0), D-8.11e
     "scipy>=1.13",
     "pyloudnorm>=0.1",  # ITU-R BS.1770-4 loudness, MIT
     "numba>=0.59",  # offline renderer kernels (Phase 6), BSD
@@ -48,8 +49,8 @@ python_version = "3.12"
 strict = true
 files = ["formats", "pipeline", "stages", "tools", "eval", "training", "tests"]
 # Runs inside Blender against the untyped bpy API; covered by the Blender integration test.
-exclude = ['tools/blender/gen_scene\.py', 'tools/blender/human\.py', 'tools/blender/views\.py', 'tools/blender/orbit\.py', 'training/kaggle/']
+exclude = ['tools/blender/gen_scene\.py', 'tools/blender/human\.py', 'tools/blender/views\.py', 'tools/blender/orbit\.py', 'tools/blender/depth_orbit\.py', 'training/kaggle/']
 
 [[tool.mypy.overrides]]
-module = ["cv2", "cv2.*", "torch", "torch.*", "gsplat", "gsplat.*", "transformers", "transformers.*", "sam2", "sam2.*", "onnxruntime", "onnxruntime.*", "pyloudnorm", "pyloudnorm.*", "numba", "numba.*", "opentimelineio", "opentimelineio.*", "peft", "peft.*", "soundfile", "torchaudio", "torchaudio.*", "whisper", "speechbrain", "speechbrain.*", "huggingface_hub", "huggingface_hub.*", "pyworld"]
+module = ["cv2", "cv2.*", "torch", "torch.*", "gsplat", "gsplat.*", "transformers", "transformers.*", "sam2", "sam2.*", "onnxruntime", "onnxruntime.*", "pyloudnorm", "pyloudnorm.*", "numba", "numba.*", "opentimelineio", "opentimelineio.*", "peft", "peft.*", "soundfile", "torchaudio", "torchaudio.*", "whisper", "speechbrain", "speechbrain.*", "huggingface_hub", "huggingface_hub.*", "pyworld", "mediapipe", "mediapipe.*"]
 ignore_missing_imports = true

@@ -16,6 +16,8 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
+from stages.generate.face_landmarks import LIPS_OUTER, NOSE_BASE, OVAL, WARP
+
 U8 = npt.NDArray[np.uint8]
 F64 = npt.NDArray[np.float64]
 
@@ -23,6 +25,7 @@ F64 = npt.NDArray[np.float64]
 @dataclass(frozen=True)
 class Aligned:
     rgba: U8  # BGRA in the face render's pixels
+    facial_hair: list[tuple[str, U8]]  # (moustache / stubble / beard, 0-255 mask, render px)
     iris_rgb: tuple[float, float, float]  # sRGB 0-1, sampled from the portrait
     fit_error_px: float  # mean landmark residual after the similarity fit, before the spline
 
@@ -38,13 +41,28 @@ def _similarity(src: F64, dst: F64) -> F64:
     return out
 
 
-def _warp(img: U8, src: F64, dst: F64, size: tuple[int, int]) -> tuple[U8, float]:
-    """Similarity, then a thin-plate spline on the residuals (anchored by a fixed frame so the
-    correction stays local to the face)."""
+def _warp(
+    img: U8,
+    src: F64,
+    dst: F64,
+    size: tuple[int, int],
+    src_dense: F64 | None = None,
+    dst_dense: F64 | None = None,
+) -> tuple[U8, float]:
+    """Similarity on the five YuNet points, then a thin-plate spline on the residuals (anchored
+    by a fixed frame so the correction stays local to the face). With dense landmarks (478,
+    `face_landmarks.WARP` subset) the spline matches lips, eyes, brows, nose and jaw line
+    (D-8.11e: five points left the portrait's lips above / below the mesh's)."""
     m = _similarity(src, dst)
     w, h = size
     sim = cv2.warpAffine(img, m, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
     moved = src @ m[:, :2].T + m[:, 2]
+    err = float(np.mean(np.linalg.norm(moved - dst, axis=1)))
+    if src_dense is not None and dst_dense is not None:
+        idx = list(WARP)
+        moved = src_dense[idx] @ m[:, :2].T + m[:, 2]
+        dst = dst_dense[idx]
+        err = float(np.mean(np.linalg.norm(moved - dst, axis=1)))
     frame = np.array(
         [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1],
          [w / 2, 0], [w / 2, h - 1], [0, h / 2], [w - 1, h / 2]], np.float64
@@ -58,7 +76,6 @@ def _warp(img: U8, src: F64, dst: F64, size: tuple[int, int]) -> tuple[U8, float
     out = np.asarray(
         cv2.remap(sim, mx, my, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE), np.uint8
     )
-    err = float(np.mean(np.linalg.norm(moved - dst, axis=1)))
     return out, err
 
 
@@ -299,27 +316,99 @@ def iris_colour(portrait: U8, lm: F64) -> tuple[float, float, float]:
     return (float(bgr[2]), float(bgr[1]), float(bgr[0]))
 
 
+FACIAL_HAIR = ("clean-shaven", "light stubble", "moustache", "full beard")  # as portraits.py
+# strand length (m at 1.75 m height) and density (per m2) per piece
+STUBBLE = (0.002, 160000.0)  # sparse: dense stubble read as fur
+MOUSTACHE = (0.006, 2500000.0)
+BEARD = (0.02, 1500000.0)
+
+
+def facial_hair_kind(appearance: dict[str, float]) -> str:
+    """The same four steps the portrait prompt used (portraits.appearance_words), so the
+    strands follow what the image model was asked to draw."""
+    if appearance["presentation"] < 0.35:
+        return "clean-shaven"
+    v = appearance["facial_hair"]
+    return FACIAL_HAIR[min(int(v * len(FACIAL_HAIR)), len(FACIAL_HAIR) - 1)]
+
+
+def facial_hair_masks(dense_lm: F64, size: tuple[int, int], kind: str) -> list[tuple[str, U8]]:
+    """Template regions from the 478 landmarks (D-8.11e: colour thresholds flooded shaded
+    cheeks and chins): `moustache` between the nose base and the upper lip, reaching a little
+    past and below the mouth corners; `beard` the face oval below the nose base minus the lips.
+    Returns [(piece, 0-255 mask in render pixels)]."""
+    w, h = size
+    lm = dense_lm
+    left, right = lm[61], lm[291]
+    mouth_w = float(np.linalg.norm(right - left))
+    out: list[tuple[str, U8]] = []
+    beard = np.zeros((h, w), np.uint8)
+    cv2.fillPoly(beard, [np.round(lm[list(OVAL)]).astype(np.int32)], 255)
+    beard[: int(np.max(lm[list(NOSE_BASE)][:, 1])), :] = 0
+    lips = np.zeros((h, w), np.uint8)
+    cv2.fillPoly(lips, [np.round(lm[list(LIPS_OUTER)]).astype(np.int32)], 255)
+    beard[lips > 0] = 0
+    blur_s = 0.05 * mouth_w + 1
+    if kind in ("moustache", "full beard"):
+        # roots end a little above the upper lip's edge (on it the hair curtained over the lip)
+        lip_h = float(np.linalg.norm(lm[0] - lm[13]))
+        upper = [
+            lm[i] - np.array([0.0, 0.35 * lip_h])
+            for i in (61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291)
+        ]
+        tip = 0.12 * mouth_w
+
+        def off(p: F64, dx: float, dy: float) -> F64:
+            out: F64 = p + np.array([dx, dy])
+            return out
+
+        poly = [off(left, -tip, 0.25 * tip), off(left, -0.6 * tip, -0.8 * tip), lm[98], lm[2],
+                lm[327], off(right, 0.6 * tip, -0.8 * tip),
+                off(right, tip, 0.25 * tip)]  # fmt: skip
+        poly += upper[::-1]
+        m = np.zeros((h, w), np.uint8)
+        cv2.fillPoly(m, [np.round(np.array(poly)).astype(np.int32)], 255)
+        m[lips > 0] = 0
+        out.append(("moustache", np.asarray(cv2.GaussianBlur(m, (0, 0), 0.4 * blur_s), np.uint8)))
+    if kind == "light stubble":
+        out.append(("stubble", np.asarray(cv2.GaussianBlur(beard, (0, 0), blur_s), np.uint8)))
+    if kind == "full beard":
+        out.append(("beard", np.asarray(cv2.GaussianBlur(beard, (0, 0), blur_s), np.uint8)))
+    return out
+
+
 def align(
     portrait: U8,
     p_face: npt.NDArray[np.float32],
     render: U8,
     r_face: npt.NDArray[np.float32],
     body_rgb: tuple[float, float, float],
+    p_dense: F64 | None = None,
+    r_dense: F64 | None = None,
+    kind: str = "clean-shaven",
 ) -> Aligned:
-    """`body_rgb`: the body skin's albedo after tinting (sRGB 0-1); the face is matched to it."""
+    """`body_rgb`: the body skin's albedo after tinting (sRGB 0-1); the face is matched to it.
+    `p_dense` / `r_dense`: 478 MediaPipe landmarks of portrait and render (face_landmarks)."""
     size = (render.shape[1], render.shape[0])
     src, dst = landmarks(p_face), landmarks(r_face)
-    warped, err = _warp(portrait, src, dst, size)
-    warped = delight(warped, dst)
-    mask = face_mask(dst, size) * skin_above_eyes(warped, dst)
-    # cheeks / forehead of the warped portrait sit where the render's are
+    warped, err = _warp(portrait, src, dst, size, p_dense, r_dense)
     yy, xx = np.mgrid[: size[1], : size[0]]
     ipd = float(np.linalg.norm(dst[1] - dst[0]))
     eyes = (dst[0] + dst[1]) / 2
     spots = [dst[0] + (0, 0.55 * ipd), dst[1] + (0, 0.55 * ipd), eyes - (0, 0.55 * ipd)]
-    region = np.zeros(mask.shape, bool)
+    region = np.zeros(size[::-1], bool)
     for x, y in spots:
         region |= np.hypot(xx - x, yy - y) < 0.15 * ipd
+    pieces: list[tuple[str, U8]] = []
+    if r_dense is not None and kind != "clean-shaven":
+        pieces = facial_hair_masks(r_dense, size, kind)
+        for name, m in pieces:
+            if name in ("moustache", "beard"):  # long hair: grown as strands, not painted
+                hole = (m > 40).astype(np.uint8)
+                radius = max(3, int(0.06 * ipd))
+                warped = np.asarray(cv2.inpaint(warped, hole, radius, cv2.INPAINT_TELEA), np.uint8)
+    warped = delight(warped, dst)
+    mask = face_mask(dst, size) * skin_above_eyes(warped, dst)
     warped = _match_colour(warped, body_rgb, region)
     rgba = np.dstack([warped, np.round(mask * 255).astype(np.uint8)])
-    return Aligned(rgba, iris_colour(portrait, src), err)
+    return Aligned(rgba, pieces, iris_colour(portrait, src), err)

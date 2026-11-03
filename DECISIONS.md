@@ -2013,3 +2013,38 @@ by Wan2.1-T2V-1.3B (Apache-2.0) with diffusers `WanVideoToVideoPipeline` on a Ka
 Status: **experimental, promising**. Strength 0.35 keeps identity at the render's level while
 adding realism. Not yet in the pipeline (ROADMAP: a `refine` stage after export; next: owner
 look-test, longer clips / chunking, pinned revision, VACE depth + reference for larger moves).
+
+### D-8.11e Dense landmarks, strand facial hair (2026-11-03, stopped)
+After "the hair lips and mustack is fucked up": MediaPipe's 478 landmarks replaced YuNet's five
+points for the portrait warp; moustache / stubble / beard became strands on landmark template
+regions by the bible's four facial-hair steps (colour thresholds flooded shaded skin); hair
+locks chain frizz → clump → noise. Code kept and tested, but the owner then rejected the method
+itself ("your trying to copy the image fully"), so no final face marks were taken on it and
+portrait projection is **stopped** as the way to make faces (D-8.13).
+
+### D-8.13 Hero still → video replaces painting the photo on a mesh (2026-11-03, measured)
+Owner: stop copying the image on the model; generate a realistic character as Higgsfield does.
+Higgsfield's order (its own pages, D-8.12): a clean image of the character first, then video from
+that image. All on Wan2.1-VACE-1.3B (Apache-2.0), diffusers `WanVACEPipeline`, Kaggle T4, 33
+frames 832 × 480, 30 steps, guidance 5, seed 11, about 812 s per clip, peak 6.59 GB. Prompts are
+encoded first and the text encoder freed (run 1: out of memory in the VAE encode; the fix worked,
+the inferred cause was not separately tested).
+Depth orbit alone (scale 1.0, portrait as reference): **failed**. Output copied the bald depth
+render; faces detected in 0, 0, 1, 1 of 33 frames.
+Next grid, fixed before the run (`hero_motion.py`), SFace against the portrait:
+| run | faces | mean (min) | frame-to-frame | look |
+|---|---|---|---|---|
+| A first frame kept, C01 | 33/33 | 0.926 (0.895) | 0.986 | real person, same hair |
+| A C02 | 33/33 | 0.948 (0.927) | 0.984 | real person |
+| A C03 | 33/33 | 0.911 (0.879) | 0.984 | real person, moustache and curls kept |
+| A C04 | 33/33 | 0.919 (0.859) | 0.981 | real person; bright band on the outpainted left |
+| B depth, scale 0.5, C03 | 33/33 | 0.287 (0.196) | 0.971 | real, but **another person** |
+| C first frame + depth 0.6, C03 | 33/33 | 0.547 (0.384) | 0.947 | hair and clothes change; seam on frame 0 |
+A's identity numbers are helped by frame 0 being the portrait, and each clip lasts 2 s, so they
+show no long-run stability. Distinctness (D-8.0 < 0.363), A videos: C01–C02 **0.404 fails**;
+others 0.102–0.350. Portraits themselves: C02–C03 **0.429 fails**, others 0.118–0.329.
+Limits of A: the prompt's camera move mostly came out as head and framing drift, so the camera is
+**not controlled**, which WorldReel's free viewpoint needs; mouths open though nobody was asked
+to speak; 13.5 minutes for 2 s on a T4. Status: **experimental; owner look-test pending**. Not in
+the pipeline. Open questions before it can be: camera control, longer clips, distinctness,
+model revision pin.

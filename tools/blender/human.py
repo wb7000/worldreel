@@ -97,7 +97,8 @@ HAIR_ASSETS = "datafiles/assets/geometry_nodes/procedural_hair_node_assets.blend
 def _hair_groups() -> dict[str, object]:
     path = bpy.utils.resource_path("LOCAL") + "/" + HAIR_ASSETS
     want = ("Generate Hair Curves", "Frizz Hair Curves", "Curl Hair Curves", "Hair Curves Noise",
-            "Set Hair Curve Profile", "Displace Hair Curves", "Shrinkwrap Hair Curves")  # fmt: skip
+            "Set Hair Curve Profile", "Displace Hair Curves", "Shrinkwrap Hair Curves",
+            "Clump Hair Curves")  # fmt: skip
     missing = [n for n in want if n not in bpy.data.node_groups]
     if missing:
         with bpy.data.libraries.load(path) as (_src, dst):
@@ -107,7 +108,7 @@ def _hair_groups() -> dict[str, object]:
 
 def _strand_material(rgb: list[float]) -> object:
     """Per-strand brightness variation (Curves Info random) around the hair colour."""
-    mat = bpy.data.materials.new("strands")
+    mat = bpy.data.materials.new("strands")  # one per strand object
     mat.use_nodes = True
     nt = mat.node_tree
     bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
@@ -122,7 +123,9 @@ def _strand_material(rgb: list[float]) -> object:
     mix = nt.nodes.new("ShaderNodeMix")
     mix.data_type, mix.blend_type = "RGBA", "MULTIPLY"
     mix.inputs["Factor"].default_value = 1.0
-    mix.inputs["A"].default_value = _linear(rgb)
+    # strands multiply-scatter and saturate: auburn rendered bright red, so mute the colour
+    lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+    mix.inputs["A"].default_value = _linear([lum + 0.7 * (c - lum) for c in rgb])
     comb = nt.nodes.new("ShaderNodeCombineColor")
     nt.links.new(info.outputs["Random"], rng.inputs["Value"])
     for ch in ("Red", "Green", "Blue"):
@@ -176,16 +179,19 @@ def _scalp_group(human: object, face_z: float, k: float) -> None:
 
 
 def _strand_hair(human: object, rgb: list[float], curl: float, length: float, k: float,
-                 seed: int) -> None:  # fmt: skip
+                 seed: int, vgroup: str = "scalp", density: float = 300000.0,
+                 comb: tuple[float, float] = (1.0, -0.3), offset: float | None = None,
+                 radius: float = 0.0002, name: str = "strands",
+                 wiggle: float | None = None) -> None:  # fmt: skip
     """Real strands from the scalp (Blender's procedural hair node assets): MakeHuman hair is a
     few large cards and read as a plastic helmet (owner, D-8.11c). Length from the bible,
     curl from the portrait, a backward / downward lie, frizz and noise for a natural look."""
     g = _hair_groups()
-    curves = bpy.data.hair_curves.new("strands")
-    ob = bpy.data.objects.new("strands", curves)
+    curves = bpy.data.hair_curves.new(name)
+    ob = bpy.data.objects.new(name, curves)
     bpy.context.collection.objects.link(ob)
     ob.matrix_world = human.matrix_world.copy()  # type: ignore[attr-defined]
-    tree = bpy.data.node_groups.new("strands", "GeometryNodeTree")
+    tree = bpy.data.node_groups.new(name, "GeometryNodeTree")
     tree.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
     tree.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
     nodes, links = tree.nodes, tree.links
@@ -198,11 +204,11 @@ def _strand_hair(human: object, rgb: list[float], curl: float, length: float, k:
 
     scalp = nodes.new("GeometryNodeInputNamedAttribute")
     scalp.data_type = "FLOAT"
-    scalp.inputs["Name"].default_value = "scalp"
+    scalp.inputs["Name"].default_value = vgroup
     gen = group("Generate Hair Curves")
     gen.inputs[1].default_value = human  # the "Surface" object input
     gen.inputs["Hair Length"].default_value = length
-    gen.inputs["Density"].default_value = 300000.0 / (k * k)
+    gen.inputs["Density"].default_value = density / (k * k)
     gen.inputs["Control Points"].default_value = 10
     gen.inputs["Seed"].default_value = seed
     gen.inputs["Hair Material"].default_value = _strand_material(rgb)
@@ -210,13 +216,15 @@ def _strand_hair(human: object, rgb: list[float], curl: float, length: float, k:
     lie = group("Displace Hair Curves")  # comb back and down, more towards the tips
     lie.inputs["Factor"].default_value = 1.0
     lie.inputs["Shape"].default_value = 0.4
-    lie.inputs["Displace Vector"].default_value = (0.0, 1.0 * length, -0.3 * length)
+    lie.inputs["Displace Vector"].default_value = (0.0, comb[0] * length, comb[1] * length)
     links.new(gen.outputs[0], lie.inputs["Geometry"])
     # lay the combed strands onto the head with some volume (straight out they read as a
     # porcupine); curls add their own volume
     wrap = group("Shrinkwrap Hair Curves")
     wrap.inputs[2].default_value = human  # the "Surface" object input
-    wrap.inputs["Offset Distance"].default_value = (0.003 + 0.004 * curl) * k
+    wrap.inputs["Offset Distance"].default_value = (
+        offset if offset is not None else (0.003 + 0.004 * curl) * k
+    )
     wrap.inputs["Smoothing Steps"].default_value = 2
     links.new(lie.outputs[0], wrap.inputs["Geometry"])
     last = wrap
@@ -225,15 +233,31 @@ def _strand_hair(human: object, rgb: list[float], curl: float, length: float, k:
     # (spikes) or, with per-strand guides, does nothing visible (D-8.11c)
     frizz.inputs["Factor"].default_value = 0.4 + 0.2 * curl
     frizz.inputs["Distance"].default_value = (0.0015 + 0.0012 * curl) * k
+    if wiggle is not None:  # short facial hair: wobble relative to length (fixed 2-4 mm made
+        frizz.inputs["Distance"].default_value = wiggle * length  # 2.5 mm stubble a beard)
     links.new(last.outputs[0], frizz.inputs["Geometry"])
+    last = frizz
+    if wiggle is None:  # head hair: locks, not straw (owner: "hair fucked up", D-8.11e)
+        clump = group("Clump Hair Curves")
+        clump.inputs["Existing Guide Map"].default_value = False
+        clump.inputs["Guide Distance"].default_value = 0.006 * k  # small locks; 10 cm = spikes
+        clump.inputs["Factor"].default_value = 0.55
+        clump.inputs["Tip Spread"].default_value = 0.001 * k
+        clump.inputs["Seed"].default_value = seed
+        links.new(last.outputs[0], clump.inputs["Geometry"])
+        last = clump
     noise = group("Hair Curves Noise")
     noise.inputs["Factor"].default_value = 0.5 + 0.3 * curl
     noise.inputs["Distance"].default_value = (0.002 + 0.002 * curl) * k
     noise.inputs["Scale"].default_value = 30.0 + 40.0 * curl
-    links.new(frizz.outputs[0], noise.inputs["Geometry"])
+    if wiggle is not None:
+        noise.inputs["Distance"].default_value = 0.5 * wiggle * length
+    links.new(last.outputs[0], noise.inputs["Geometry"])
     prof = group("Set Hair Curve Profile")
     prof.inputs["Replace Radius"].default_value = True
-    prof.inputs["Radius"].default_value = 0.0002 * k
+    prof.inputs["Radius"].default_value = radius * k
+    prof.inputs["Factor Min"].default_value = 0.25  # tapered tips (blunt ends read as straw)
+    prof.inputs["Factor Min"].default_value = 0.25  # tapered tips (blunt ends read as straw)
     links.new(noise.outputs[0], prof.inputs["Geometry"])
     links.new(prof.outputs[0], out.inputs[0])
     mod = ob.modifiers.new("strands", "NODES")
@@ -317,6 +341,39 @@ def _camera_uv(ob: object, cam: object) -> None:
         uv.data[loop.index].uv = (p.x, p.y)
 
 
+def _mask_group(human: object, cam: object, mask: Path, name: str) -> int:
+    """Vertex group from a mask in the face camera's pixels (body vertices facing the camera);
+    returns how many vertices got a weight."""
+    img = bpy.data.images.load(str(mask))
+    w, h = img.size
+    px = list(img.pixels)  # RGBA floats, bottom row first
+    mods = [(m, m.show_viewport) for m in human.modifiers]  # type: ignore[attr-defined]
+    for m, _ in mods:
+        m.show_viewport = False
+    ev = human.evaluated_get(bpy.context.evaluated_depsgraph_get())  # type: ignore[attr-defined]
+    verts = [
+        (ev.matrix_world @ v.co, ev.matrix_world.to_3x3() @ v.normal) for v in ev.data.vertices
+    ]
+    for m, shown in mods:
+        m.show_viewport = shown
+    body_g = human.vertex_groups["body"].index  # type: ignore[attr-defined]
+    real = [any(g.group == body_g for g in v.groups) for v in human.data.vertices]  # type: ignore[attr-defined]
+    vg = human.vertex_groups.get(name) or human.vertex_groups.new(name=name)  # type: ignore[attr-defined]
+    scene = bpy.context.scene
+    n = 0
+    for i, (co, nor) in enumerate(verts):
+        if not real[i] or nor.y > -0.2:  # only the front of the face
+            continue
+        p = world_to_camera_view(scene, cam, co)
+        x, y = int(p.x * (w - 1)), int(p.y * (h - 1))
+        if 0 <= x < w and 0 <= y < h:
+            v = px[(y * w + x) * 4]
+            if v > 0.15:
+                vg.add([i], float(v), "REPLACE")
+                n += 1
+    return n
+
+
 def _project(human: object, cam: object, image: Path) -> None:
     """The skin group mixes the portrait in by its alpha times a facing term (fades out
     towards the ears); the eyeballs take the portrait's eyes."""
@@ -369,7 +426,11 @@ def _eye_texture(human: object, name: str) -> None:
                     n.image = bpy.data.images.load(str(path))
 
 
-def portrait(image: Path, out: Path, eye: str | None, skin: list[float] | None) -> None:
+Beard = list[tuple[Path, list[float], float, float, str]]  # mask, sRGB, length, density, piece
+
+
+def portrait(image: Path, out: Path, eye: str | None, skin: list[float] | None,
+             beard: Beard | None = None) -> None:  # fmt: skip
     human = bpy.data.objects["Human"]
     build_info = json.loads((out / "build.json").read_text())
     top, face_z = build_info["height_m"], build_info["face_z"]
@@ -379,6 +440,14 @@ def portrait(image: Path, out: Path, eye: str | None, skin: list[float] | None) 
             ob.hide_render = True
     if eye:
         _eye_texture(human, eye)
+    k = top / 1.75
+    for path, rgb, length, density, piece in beard or []:  # moustache / stubble / beard strands
+        if _mask_group(human, bpy.data.objects["facecam"], path, piece) > 10:
+            # combed down, lying close on the skin; moustache back towards the lip, not over it
+            comb = (-0.5, -0.5) if piece == "moustache" else (-0.2, -1.0)
+            _strand_hair(human, rgb, 0.0, length * k, k, 7, vgroup=piece, density=density,
+                         comb=comb, offset=0.0004 * k, radius=0.00007, name=piece,
+                         wiggle=0.15)  # fmt: skip
     # skin sheen: with the large soft key light the coat layer and broad specular laid a grey
     # veil over dark and red details (moustache, nose sides, under the eyes) (D-8.11c)
     skin_node = human.material_slots[0].material.node_tree.nodes[
@@ -420,7 +489,13 @@ def main(argv: list[str]) -> None:
         skin = None
         if "--skin" in argv:
             skin = [float(c) for c in argv[argv.index("--skin") + 1].split(",")]
-        portrait(Path(argv[1]).resolve(), Path(argv[2]).resolve(), eye, skin)
+        beard = []
+        for i, arg in enumerate(argv):
+            if arg == "--beard":
+                path, rgb, length, density, piece = argv[i + 1].split("@")
+                beard.append((Path(path).resolve(), [float(c) for c in rgb.split(",")],
+                              float(length), float(density), piece))  # fmt: skip
+        portrait(Path(argv[1]).resolve(), Path(argv[2]).resolve(), eye, skin, beard)
 
 
 if __name__ == "__main__":
