@@ -2048,3 +2048,34 @@ Limits of A: the prompt's camera move mostly came out as head and framing drift,
 to speak; 13.5 minutes for 2 s on a T4. Status: **experimental; owner look-test pending**. Not in
 the pipeline. Open questions before it can be: camera control, longer clips, distinctness,
 model revision pin.
+
+### D-8.13b Owner approves the hero-still look; next, length (2026-11-03)
+Owner's look-test of the four A clips: "Yes, build on this". This approves the look only.
+**Conflict with D-8.0:** D-8.0 makes the output a `.wreel` world rendered by the player and maps
+portraits onto avatars; a hero-still clip is flat video with no controlled camera. Default until
+measured otherwise (assumption): generated clips become **input** to the Phase 3-4 reconstruction
+stages, so the world still comes from a video. Not tested yet. D-8.0's thresholds are unchanged,
+including face distinctness, which D-8.13 fails on one pair.
+Next test, fixed before the run (`hero_chain.py`, C03 only): 6 segments of 33 frames, each
+keeping the last 5 frames of the one before and the portrait as reference, seed 11 + segment,
+173 frames at 16 fps (10.8 s, within the 10 s rung's 25 % margin). The prompt drops the role text
+(a role line such as "talks when nervous" may be why mouths opened) and asks for a closed mouth
+and a fixed camera.
+Reported: SFace against the portrait per segment, faces found, jump at each join against the
+jump inside segments, and the owner's look-test.
+
+### D-8.13c Chained 10 s clip: runs, but identity drifts (2026-11-03, measured)
+`hero_chain.py` as fixed in D-8.13b: 173 frames (10.8 s), faces found 173 / 173, frame-to-frame
+0.990, about 846 s per segment (84.6 min in all), peak 6.57 GB.
+SFace against the portrait per segment, mean (min): 0.918 (0.881), 0.911 (0.901), 0.899 (0.887),
+0.837 (0.798), 0.776 (0.753), 0.695 (0.664). All stay above the same-person mark 0.363, but the
+fall is steady and speeds up, so it cannot be assumed to hold past this length.
+Pixel jump at the five joins 2.32-3.78 (mean absolute, 0-255), inside segments median 0.94, p95
+1.83: every join is larger than the p95, so joins may be visible; the owner's look-test decides.
+Asking for a closed mouth and dropping the role text gave closed mouths in the 12 frames checked
+(which of the two changes did it is not separated). The frown from the portrait stays.
+Cost: 28 new frames per 846 s is about 8 minutes of T4 per second of video, so the 10 min rung
+would need about 80 GPU hours for one character on screen at this setting.
+Idea, untested: shots are short, so restart each shot from the portrait to limit drift.
+Status: **experimental; owner look-test pending**. Camera control and the route to a `.wreel`
+world are still untested.
