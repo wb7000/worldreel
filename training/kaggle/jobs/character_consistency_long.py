@@ -28,6 +28,7 @@ log(f"long consistency env install rc={r.returncode} {r.stderr[-300:] if r.retur
 # Download face models from OpenCV Zoo
 MODEL_DIR = WORK / "models"
 MODEL_DIR.mkdir(exist_ok=True)
+import urllib.request
 for name, url in (
     ("face_detection_yunet_2023mar.onnx",
      "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"),
@@ -35,11 +36,16 @@ for name, url in (
      "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"),
 ):
     dst = MODEL_DIR / name
-    if not dst.exists():
-        r = subprocess.run(
-            ["curl", "-sL", "-o", str(dst), url],
-            capture_output=True, text=True)
-        log(f"download {name} rc={r.returncode} size={dst.stat().st_size if dst.exists() else 0}")
+    if not dst.exists() or dst.stat().st_size < 10000:
+        try:
+            urllib.request.urlretrieve(url, str(dst))
+        except Exception as e:
+            log(f"download {name} failed: {e}")
+            continue
+        size = dst.stat().st_size if dst.exists() else 0
+        log(f"download {name} size={size}")
+        if size < 10000:
+            log(f"WARNING: {name} download too small ({size} bytes), may be error page")
 
 chars = read_wscript(CODE / "eval" / "scripts" / "lantern_keeper.wscript").header["dictionary"][
     "characters"
