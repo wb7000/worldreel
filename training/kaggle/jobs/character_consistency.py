@@ -45,12 +45,18 @@ for name, url in (
         log(f"download {name} rc={r.returncode} size={dst.stat().st_size if dst.exists() else 0}")
 
 root = WORK / "cast"
-marker = next(INPUT.rglob("C01.png"), None)
+# Look for any portrait file matching this character (C01_*.png, C01.png, etc.)
+marker = next(INPUT.rglob(f"{cid}_*.png"), None) or next(INPUT.rglob(f"{cid}.png"), None)
 if marker is None:
-    z = next(p for p in INPUT.rglob("data.zip") if "vacecast" in str(p))
-    with zipfile.ZipFile(z) as zf:
-        zf.extractall(root)
-    marker = next(root.rglob("C01.png"))
+    # Fallback: look for data.zip with vacecast in path
+    zip_files = list(INPUT.rglob("data.zip"))
+    vace_zips = [p for p in zip_files if "vacecast" in str(p)]
+    if vace_zips:
+        with zipfile.ZipFile(vace_zips[0]) as zf:
+            zf.extractall(root)
+        marker = next(root.rglob(f"{cid}_*.png"), None) or next(root.rglob(f"{cid}.png"), None)
+if marker is None:
+    raise FileNotFoundError(f"no portrait file for {cid} found in mounted datasets")
 root = marker.parent
 
 chars = read_wscript(CODE / "eval" / "scripts" / "lantern_keeper.wscript").header["dictionary"][
