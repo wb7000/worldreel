@@ -46,7 +46,7 @@ for name, url in (
 
 root = WORK / "cast"
 # Look for any portrait file matching this character (C01_*.png, C01.png, etc.)
-marker = next(INPUT.rglob(f"{a['cid']}_*.png"), None) or next(INPUT.rglob(f"{a['cid']}.png"), None)
+marker = next(INPUT.rglob(f"{args['cid']}_*.png"), None) or next(INPUT.rglob(f"{args['cid']}.png"), None)
 if marker is None:
     # Fallback: look for data.zip with vacecast in path
     zip_files = list(INPUT.rglob("data.zip"))
