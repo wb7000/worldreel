@@ -52,9 +52,9 @@ describe("first person vs third person (brief Phase 5 acceptance)", () => {
 
 describe("scheduling", () => {
   const events: AudioEvent[] = [
-    { t: 0.5, type: "footstep", position: [0, 0, 0], attributes: { clip: "a.wav" } },
-    { t: 1.0, type: "footstep", position: [0, 0, 0], attributes: { clip: "a.wav" } },
-    { t: 1.1, type: "door" }, // no position / clip: never scheduled
+    { id: "e1", t: 0.5, type: "footstep", position: [0, 0, 0], attributes: { clip: "a.wav" } },
+    { id: "e2", t: 1.0, type: "footstep", position: [0, 0, 0], attributes: { clip: "a.wav" } },
+    { id: "e3", t: 1.1, type: "door" }, // no position / clip: never scheduled
   ];
 
   it("takes each event once, in its window", () => {

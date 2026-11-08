@@ -45,7 +45,7 @@ from pipeline.registry import VIDEO_PIPELINE, build_stages
 from pipeline.runner import Runner
 from pipeline.stage import Item
 from stages.actors.common import read_tracks
-from stages.safety.hook import PassThroughSafety
+from stages.safety.hook import EnforcedSafety
 from tools.synth import actor_masks
 
 # Stage crashes are logged with their traceback at DEBUG; show them in the kernel log.
@@ -85,7 +85,7 @@ res = Runner(
     work,
     build_stages(VIDEO_PIPELINE, {n: impl.get(n, "mock") for n in VIDEO_PIPELINE}),
     config=cfg,
-    safety=PassThroughSafety(work),
+    safety=EnforcedSafety(work, cfg.get("safety", {})),
 ).run(item)
 report["pipeline_s"] = round(time.time() - t, 1)
 report["stages"] = {n: (r.status, r.error) for n, r in res.stages.items()}

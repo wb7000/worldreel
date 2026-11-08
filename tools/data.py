@@ -23,7 +23,7 @@ from pathlib import Path
 from pipeline.registry import VIDEO_PIPELINE, PipelineConfig, build_stages
 from pipeline.runner import Runner, RunResult
 from stages.ingest.store import DataStore, DataStoreError
-from stages.safety.hook import PassThroughSafety
+from stages.safety.hook import EnforcedSafety
 from tools import datasets
 from tools.toolpaths import REPO_ROOT
 
@@ -43,7 +43,7 @@ def process(
         config=config.stage,
         seed=config.seed,
         max_workers=config.max_workers,
-        safety=PassThroughSafety(store.processed),
+        safety=EnforcedSafety(store.processed, config.stage.get("safety", {})),
     )
     rows = [r for r in store.active() if r.media_type == "video" and (ids is None or r.id in ids)]
     if ids:

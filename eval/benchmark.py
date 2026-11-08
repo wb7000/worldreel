@@ -48,7 +48,7 @@ from pipeline.registry import VIDEO_PIPELINE, build_stages
 from pipeline.runner import Runner
 from pipeline.stage import Item
 from stages.camera.classical import OBSERVATIONS, SPARSE_POINTS, load_frames
-from stages.safety.hook import PassThroughSafety
+from stages.safety.hook import EnforcedSafety
 from tools.synth import backproject
 
 THRESHOLDS = Path(__file__).with_name("thresholds.toml")
@@ -120,7 +120,7 @@ def run(
         upload_rights="synthetic",
     )
     stages = build_stages(VIDEO_PIPELINE, {name: IMPL.get(name, "mock") for name in VIDEO_PIPELINE})
-    result = Runner(work, stages, config=config, safety=PassThroughSafety(work)).run(item)
+    result = Runner(work, stages, config=config, safety=EnforcedSafety(work, config)).run(item)
     if not result.ok:
         failed = {n: r.error for n, r in result.stages.items() if r.status != "done"}
         raise RuntimeError(f"pipeline failed: {failed}")

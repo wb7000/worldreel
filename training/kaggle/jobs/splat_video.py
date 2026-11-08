@@ -26,7 +26,7 @@ from stages.actors.common import static_masks
 from stages.camera.classical import SPARSE_COLORS, SPARSE_POINTS, load_frames
 from stages.reconstruct.planesweep import cv_pose
 from stages.reconstruct.splat_train import SplatConfig, train_splats
-from stages.safety.hook import PassThroughSafety
+from stages.safety.hook import EnforcedSafety
 
 FLIP = np.diag([1.0, -1.0, -1.0])
 SEED = int(os.environ.get("WORLDREEL_SPLAT_SEED", "1"))
@@ -100,7 +100,7 @@ for meta_file in sorted(INPUT.rglob("item.json")):
         config=cfg.stage,
         seed=cfg.seed,
         max_workers=cfg.max_workers,
-        safety=PassThroughSafety(work),
+        safety=EnforcedSafety(work, cfg.get("safety", {})),
     )
     result = runner.run(item)
     log(

@@ -13,7 +13,7 @@ from pipeline.registry import IMPLEMENTATIONS, VIDEO_PIPELINE, PipelineConfig, b
 from pipeline.runner import Runner, topological_order
 from pipeline.stage import SOURCE, Impl, Item, Stage, StageContext, StageError
 from stages.frames.real import FramesStage
-from stages.safety.hook import SAFETY_LOG, PassThroughSafety
+from stages.safety.hook import SAFETY_LOG, EnforcedSafety
 from tests.media import HAS_FFMPEG, make_clip
 
 
@@ -45,7 +45,7 @@ def mock_runner(work: Path, stages: Sequence[Stage] | None = None, **kw: object)
         stages
         if stages is not None
         else build_stages(VIDEO_PIPELINE, PipelineConfig.all_mock().impl),
-        safety=PassThroughSafety(work),
+        safety=EnforcedSafety(work, {}),
         **kw,  # type: ignore[arg-type]
     )
 
@@ -193,7 +193,7 @@ def test_safety_hook_can_block(tmp_path: Path) -> None:
     item = make_item(tmp_path)
     work = tmp_path / "work"
 
-    class Deny(PassThroughSafety):
+    class Deny(EnforcedSafety):
         def decide(
             self, event: str, stage: str, item: Item, paths: Sequence[Path]
         ) -> tuple[bool, str]:
@@ -223,7 +223,7 @@ def test_real_frames_stage(tmp_path: Path) -> None:
     clip = make_clip(tmp_path / "clip.mp4", seconds=2.0)
     from pipeline.cache import file_sha256
 
-    item = Item(id="freal", sha256=file_sha256(clip), path=clip)
+    item = Item(id="freal", sha256=file_sha256(clip), path=clip, upload_rights="synthetic")
     work = tmp_path / "work"
     stages = build_stages(VIDEO_PIPELINE, {**PipelineConfig.all_mock().impl, "frames": "real"})
     result = mock_runner(work, stages, config={"frames": {"fps": 5.0}}).run(item)

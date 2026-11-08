@@ -77,7 +77,11 @@ export interface Provenance {
 export interface Rule {
   id: string;
   trigger: { type: "time" | "proximity" | "view_mode" | "select"; t?: number; actor_id?: string; radius?: number; mode?: string };
-  action: { type: "switch_pov" | "set_tension" | "play_event" | "branch"; preset_id?: string; value?: number };
+  action:
+    | { type: "switch_pov"; preset_id: string }
+    | { type: "set_tension"; value: number }
+    | { type: "play_event"; event: string }
+    | { type: "branch"; branch_id: string };
 }
 
 export interface FileEntry {
@@ -107,7 +111,7 @@ export interface Manifest {
     mood: { t: number; tension: number }[];
     mix?: { ducking?: boolean; loudness_target_lufs?: number };
   };
-  interaction: { rules: Rule[] };
+  interaction: { rules: Rule[]; branches: { id: string; label?: string; description?: string; switch_to: string }[] };
   files: Record<string, FileEntry>;
 }
 
@@ -131,6 +135,7 @@ export interface AudioTrack {
 
 /** Spec §11 sound event; `attributes.clip` names the generated sound (Phase 5 engine). */
 export interface AudioEvent {
+  id: string;
   t: number;
   type: string;
   actor_id?: string;

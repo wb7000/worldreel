@@ -2130,3 +2130,25 @@ Rung results (The Lantern Keeper, seed 7):
 
 Remaining for Phase 8 close-out: owner look-tests of generated worlds, R2/R3 playlist assembly,
 and the full close-out test run (already green: 305 passed, 9 skipped; ruff; mypy 174 files clean).
+
+
+### D-9.1 Safety hook enforced (Phase 9, 2026-11-08)
+Replaced `PassThroughSafety` with `EnforcedSafety` in `stages/safety/hook.py`. The hook now
+blocks items whose `upload_rights` is not in {owner, licensed, public-domain, synthetic} and
+blocks items with `upload_rights == "removed"` (takedown). The likeness filter (`stages/safety/likeness.py`)
+is applied at character-request time in `stages/generate/bible.py`, not on the general `source`
+field. Wired into `tools/data.py`, `eval/benchmark.py`, `training/kaggle/jobs/{actors_sam2,splat_video}.py`,
+and `tests/test_pipeline.py`. All previously-passing tests still pass with enforced safety.
+
+
+### D-9.2 Player interaction rules (Phase 9, 2026-11-08)
+Extended `player/src/rules.ts` to support all spec §12 trigger/action types:
+- Triggers: `time`, `proximity`, `view_mode`, `select`
+- Actions: `set_tension`, `switch_pov`, `play_event`, `branch`
+Added `playEvent()` to `AudioEngine` (one-shot positional audio events), `current()` to
+`CameraDirector` (camera state for click-to-select), branch UI to `index.html`, and
+click-to-select on actors in `main.ts`. Types updated in `wreel/types.ts` (discriminated
+union for Rule action, `id` on AudioEvent, `branches` on interaction). All 35 player tests pass.
+
+Kaggle status: all training complete (portraits, voices, director, script model, splats,
+hero chain, VACE characters). No new Kaggle upload needed for Phase 9 code.

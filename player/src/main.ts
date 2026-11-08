@@ -6,9 +6,15 @@ import { perspective, poseMatrix, viewMatrix, type Vec3 } from "./math";
 import { createRenderer, type DrawItem, type Renderer } from "./render/renderer";
 import { backToFront, reorder, splatInstances, type GaussianChunk } from "./wreel/gaussians";
 import type { PointChunk } from "./wreel/points";
-import { createRuleEngine, moodTension, type RuleEngine } from "./rules";
+import {
+  createRuleEngine,
+  moodTension,
+  type RuleEngine,
+  type RuleEffect,
+  branchTarget,
+} from "./rules";
 import { openWreel, WreelError, type OpenedWreel, type SignatureStatus } from "./wreel/reader";
-import { sampleTrack } from "./wreel/track";
+import { sampleCamera, sampleTrack } from "./wreel/track";
 import type { PovPreset } from "./wreel/types";
 
 const FOG_TOP: Vec3 = [0.86, 0.72, 0.98];
@@ -43,6 +49,7 @@ interface Player {
   playing: boolean;
   tension: number;
   fogStrength: number;
+  branch: string | null; // active story branch, null = main
 }
 
 const input: FreeInput = { dragX: 0, dragY: 0, wheel: 0, keys: new Set() };
@@ -92,6 +99,37 @@ function setupInput(): void {
   });
   window.addEventListener("keyup", (e) => input.keys.delete(e.code));
   window.addEventListener("blur", () => input.keys.clear());
+  canvas.addEventListener("click", (e) => {
+    if (!player || !renderer) return;
+    // Project each actor's current position to screen and check click proximity.
+    const cam = player.director.current();
+    if (!cam) return;
+    const cx = canvas.clientWidth / 2;
+    const cy = canvas.clientHeight / 2;
+    const f = (canvas.height / 2) / Math.tan((cam.fov * Math.PI) / 180 / 2);
+    for (const actor of player.wreel.manifest.actors) {
+      const track = player.wreel.tracks.get(actor.id);
+      if (!track) continue;
+      const pose = sampleTrack(track, player.time);
+      const dx = pose.position[0] - cam.eye[0];
+      const dy = pose.position[1] - cam.eye[1];
+      const dz = pose.position[2] - cam.eye[2];
+      // simple: only actors in front of camera
+      if (dz <= 0.1) continue;
+      const sx = cx + f * dx / dz;
+      const sy = cy + f * dy / dz;
+      const dist = Math.hypot(e.clientX - sx, e.clientY - sy);
+      if (dist < 60) {
+        // select event: fire rules
+        for (const eff of player.rules.onEvent("select", actor.id)) {
+          handleEffect(eff);
+        }
+        showMessage(`Selected: ${actor.label}`);
+        setTimeout(() => showMessage(null), 1500);
+        break;
+      }
+    }
+  });
 }
 
 function togglePlay(): void {
@@ -153,6 +191,38 @@ function buildMenu(wreel: OpenedWreel): void {
     btn.textContent = preset.name;
     btn.dataset.id = preset.id;
     btn.addEventListener("click", () => selectPreset(preset));
+    box.append(btn);
+  }
+}
+
+function buildBranches(wreel: OpenedWreel): void {
+  const box = $<HTMLDivElement>("branches");
+  box.replaceChildren();
+  const branchList = wreel.manifest.interaction.branches;
+  if (!branchList.length) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  const label = document.createElement("span");
+  label.textContent = "Story branches:";
+  label.style.fontWeight = "600";
+  label.style.marginRight = "8px";
+  box.append(label);
+  for (const b of branchList) {
+    const target = wreel.manifest.pov_presets.find((p) => p.id === b.switch_to);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = b.label || `Branch: ${target?.name ?? b.id}`;
+    btn.dataset.id = b.id;
+    btn.title = b.description ?? "";
+    btn.addEventListener("click", () => {
+      if (!player) return;
+      player.branch = b.id;
+      if (target) selectPreset(target);
+      showMessage(`Branch: ${target?.name ?? b.id}`);
+      setTimeout(() => showMessage(null), 2000);
+    });
     box.append(btn);
   }
 }
@@ -248,9 +318,11 @@ async function load(data: Uint8Array): Promise<void> {
     playing: true,
     tension: moodTension(wreel.manifest, 0),
     fogStrength: Number($<HTMLSelectElement>("fog").value),
+    branch: null,
   };
   $<HTMLInputElement>("scrub").max = String(wreel.manifest.duration);
   buildMenu(wreel);
+  buildBranches(wreel);
   showProvenance(wreel);
   selectPreset(initial);
   for (const w of wreel.warnings) console.warn(w);
@@ -298,8 +370,9 @@ function frame(now: number): void {
   }
   if (director.preset.mode === "interactive") {
     for (const effect of player.rules.step(prev, player.time)) {
-      if (effect.type === "set_tension") player.tension = effect.value;
-      else {
+      const handled = handleEffect(effect);
+      if (!handled && effect.type === "set_tension") player.tension = effect.value;
+      else if (!handled && effect.type === "switch_pov") {
         const target = wreel.manifest.pov_presets.find((p) => p.id === effect.presetId);
         if (target) selectPreset(target);
       }
@@ -383,6 +456,39 @@ async function loadFromUrl(url: string): Promise<void> {
     );
   }
   await load(new Uint8Array(await res.arrayBuffer()));
+}
+
+/** Apply a rule effect: set_tension, switch_pov, play_event, branch. Returns true if handled. */
+function handleEffect(effect: RuleEffect): boolean {
+  if (!player) return false;
+  const { wreel } = player;
+  switch (effect.type) {
+    case "set_tension":
+      player.tension = effect.value;
+      return true;
+    case "switch_pov": {
+      const target = wreel.manifest.pov_presets.find((p) => p.id === effect.presetId);
+      if (target) selectPreset(target);
+      return true;
+    }
+    case "play_event": {
+      // Play a one-shot audio event at the named event's position/time.
+      const ev = wreel.manifest.audio.events.find((e) => e.id === effect.eventId);
+      if (ev && audio) audio.playEvent(ev);
+      return true;
+    }
+    case "branch": {
+      const target = branchTarget(wreel.manifest, effect.branchId);
+      if (target) {
+        player.branch = effect.branchId;
+        selectPreset(target);
+        showMessage(`Story branch: ${target.name}`);
+        setTimeout(() => showMessage(null), 2000);
+      }
+      return true;
+    }
+  }
+  return false;
 }
 
 function reportError(err: unknown): void {

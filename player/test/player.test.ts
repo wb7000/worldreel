@@ -98,7 +98,7 @@ describe("rules", () => {
       { id: "r1", trigger: { type: "time", t: 2 }, action: { type: "set_tension", value: 7 } },
       { id: "r2", trigger: { type: "proximity", actor_id: "a1", radius: 1 }, action: { type: "set_tension", value: 9 } },
     ]);
-    expect(engine.skipped).toEqual(["r2 (proximity → set_tension)"]);
+    expect(engine.skipped).toEqual([]); // proximity is a supported trigger (fires via onEvent)
     expect(engine.step(1, 1.5)).toEqual([]);
     expect(engine.step(1.5, 2.1)).toEqual([{ type: "set_tension", value: 7 }]);
     expect(engine.step(2.1, 3)).toEqual([]);

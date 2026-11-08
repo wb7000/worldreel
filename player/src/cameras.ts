@@ -60,6 +60,11 @@ export class CameraDirector {
     this.state = { eye: [0, 2, 10], rotation: [0, 0, 0, 1], fov: 50 };
   }
 
+  /** Current camera state (for click-to-select actor projection). */
+  current(): CameraState | null {
+    return this.state;
+  }
+
   setPreset(preset: PovPreset): void {
     if (preset.id === this.preset.id) return;
     this.from = { ...this.state };

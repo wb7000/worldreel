@@ -180,4 +180,28 @@ export class AudioEngine {
   setVolume(v: number): void {
     this.master.gain.value = v;
   }
+
+  /** Play a one-shot positional audio event at its position (for branch/rule triggers). */
+  playEvent(event: AudioEvent): void {
+    if (!event.position || typeof event.attributes?.["clip"] !== "string") return;
+    const buffer = this.buffers.get(String(event.attributes["clip"]));
+    if (!buffer) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buffer;
+    const panner = new PannerNode(this.ctx, {
+      panningModel: "HRTF",
+      distanceModel: "inverse",
+      refDistance: REF_DISTANCE,
+      rolloffFactor: ROLLOFF,
+      positionX: event.position[0],
+      positionY: event.position[1],
+      positionZ: event.position[2],
+    });
+    src.connect(panner).connect(this.master);
+    src.start(this.ctx.currentTime);
+    src.onended = () => {
+      this.running = this.running.filter((s) => s !== src);
+    };
+    this.running.push(src);
+  }
 }
