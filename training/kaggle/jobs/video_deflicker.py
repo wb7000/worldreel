@@ -22,15 +22,15 @@ r = subprocess.run(
     capture_output=True, text=True)
 log(f"deflicker env install rc={r.returncode} {r.stderr[-300:] if r.returncode else ''}")
 
-# Find input video
-INPUT_VIDEO = Path("/kaggle/input/datasets/wb3none/worldreel-data-vacecast")
+# Find input video in all mounted Kaggle datasets
+INPUT = Path("/kaggle/input")
 video_path = None
-for p in INPUT_VIDEO.rglob("consistency_long.mp4"):
+for p in INPUT.rglob("consistency_long.mp4"):
     video_path = str(p)
     break
 if video_path is None:
     # Fallback: look for any mp4
-    for p in INPUT_VIDEO.rglob("*.mp4"):
+    for p in INPUT.rglob("*.mp4"):
         video_path = str(p)
         break
 
