@@ -93,6 +93,7 @@ step.write_text(
     from diffusers.utils import export_to_video
 
     a = json.load(open(sys.argv[1]))
+    log = print
     W, H, N = 832, 480, a["frames_per_shot"]
     model_id = "Wan-AI/Wan2.1-VACE-1.3B-diffusers"
     vae = AutoencoderKLWan.from_pretrained(model_id, subfolder="vae", torch_dtype=torch.float32)
