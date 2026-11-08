@@ -111,8 +111,20 @@ step.write_text(
     pipe.enable_model_cpu_offload()
     pipe.vae.enable_tiling()
 
-    det = cv2.FaceDetectorYN.create(a["yunet"], "", (W, H), 0.6)
-    rec = cv2.FaceRecognizerSF.create(a["sface"], "")
+    # Find model files in mounted datasets (search recursively)
+    import glob as _glob
+    yunet_path = a["yunet"]
+    sface_path = a["sface"]
+    for pattern in ["/kaggle/input/**/face_detection_yunet_2023mar.onnx",
+                    "/kaggle/input/**/face_recognition_sface_2021dec.onnx"]:
+        for found in _glob.glob(pattern, recursive=True):
+            if "face_detection_yunet" in found:
+                yunet_path = found
+            if "face_recognition_sface" in found:
+                sface_path = found
+    log(f"using yunet: {yunet_path}, sface: {sface_path}")
+    det = cv2.FaceDetectorYN.create(yunet_path, "", (W, H), 0.6)
+    rec = cv2.FaceRecognizerSF.create(sface_path, "")
 
     def embed(img_bgr):
         det.setInputSize((img_bgr.shape[1], img_bgr.shape[0]))
