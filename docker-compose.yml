@@ -1,0 +1,18 @@
+# WorldReel generation pipeline — local Docker Compose
+# This laptop has Intel Iris Xe (no NVIDIA), so runs CPU-only.
+# Kaggle jobs use the same dependency spec on T4 GPUs.
+
+services:
+  generation:
+    build:
+      context: .
+      dockerfile: Dockerfile.generation
+    image: worldreel-generation:latest
+    volumes:
+      - ./runs:/app/runs:rw
+      - ./data:/app/data:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - WORLDREEL_SIGNING_KEY=/app/runs/signing_key.pem
+    stdin_open: true
+    tty: true
