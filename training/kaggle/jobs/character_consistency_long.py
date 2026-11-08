@@ -25,27 +25,45 @@ r = subprocess.run(
     capture_output=True, text=True)
 log(f"long consistency env install rc={r.returncode} {r.stderr[-300:] if r.returncode else ''}")
 
-# Download face models from OpenCV Zoo
+# Download face models from OpenCV Zoo (with retry on multiple mirrors)
 MODEL_DIR = WORK / "models"
 MODEL_DIR.mkdir(exist_ok=True)
-import urllib.request
-for name, url in (
+import urllib.request, time as _time
+MIRRORS = [
+    "https://raw.githubusercontent.com/opencv/opencv_zoo/main/",
+    "https://github.com/opencv/opencv_zoo/raw/main/",
+]
+for name, path in (
     ("face_detection_yunet_2023mar.onnx",
-     "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"),
+     "models/face_detection_yunet/face_detection_yunet_2023mar.onnx"),
     ("face_recognition_sface_2021dec.onnx",
-     "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"),
+     "models/face_recognition_sface/face_recognition_sface_2021dec.onnx"),
 ):
     dst = MODEL_DIR / name
     if not dst.exists() or dst.stat().st_size < 10000:
-        try:
-            urllib.request.urlretrieve(url, str(dst))
-        except Exception as e:
-            log(f"download {name} failed: {e}")
+        downloaded = False
+        for mirror in MIRRORS:
+            url = mirror + path
+            for attempt in range(3):
+                try:
+                    urllib.request.urlretrieve(url, str(dst))
+                    size = dst.stat().st_size if dst.exists() else 0
+                    if size >= 10000:
+                        downloaded = True
+                        log(f"download {name} from {mirror} size={size}")
+                        break
+                    else:
+                        log(f"download {name} from {mirror} too small ({size} bytes), retrying...")
+                except Exception as e:
+                    log(f"download {name} from {mirror} attempt {attempt+1} failed: {str(e)[:100]}")
+                    _time.sleep(2)
+            if downloaded:
+                break
+        if not downloaded:
+            log(f"WARNING: could not download {name} from any mirror")
             continue
         size = dst.stat().st_size if dst.exists() else 0
-        log(f"download {name} size={size}")
-        if size < 10000:
-            log(f"WARNING: {name} download too small ({size} bytes), may be error page")
+        log(f"download {name} final size={size}")
 
 chars = read_wscript(CODE / "eval" / "scripts" / "lantern_keeper.wscript").header["dictionary"][
     "characters"
