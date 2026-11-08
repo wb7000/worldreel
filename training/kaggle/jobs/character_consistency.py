@@ -44,32 +44,16 @@ for name, url in (
             capture_output=True, text=True)
         log(f"download {name} rc={r.returncode} size={dst.stat().st_size if dst.exists() else 0}")
 
-root = WORK / "cast"
-# Look for any portrait file matching this character (C01_*.png, C01.png, etc.)
-marker = next(INPUT.rglob(f"{args['cid']}_*.png"), None) or next(INPUT.rglob(f"{args['cid']}.png"), None)
-if marker is None:
-    # Fallback: look for data.zip with vacecast in path
-    zip_files = list(INPUT.rglob("data.zip"))
-    vace_zips = [p for p in zip_files if "vacecast" in str(p)]
-    if vace_zips:
-        with zipfile.ZipFile(vace_zips[0]) as zf:
-            zf.extractall(root)
-        marker = next(root.rglob(f"{cid}_*.png"), None) or next(root.rglob(f"{cid}.png"), None)
-if marker is None:
-    raise FileNotFoundError(f"no portrait file for {cid} found in mounted datasets")
-root = marker.parent
-
 chars = read_wscript(CODE / "eval" / "scripts" / "lantern_keeper.wscript").header["dictionary"][
     "characters"
 ]
 cid = "C01"
 ident = expand(int(chars[cid]["identity"]["seed"]), str(chars[cid]["identity"]["requested"]))
 words = ", ".join(appearance_words(ident, str(chars[cid].get("description", ""))))
-portrait = str(root / f"{cid}_5.png")  # chosen portrait from D-8.10b
 
 args = {
     "cid": cid,
-    "portrait": portrait,
+    "portrait": None,  # filled in after finding the mounted file
     "yunet": str(MODEL_DIR / "face_detection_yunet_2023mar.onnx"),
     "sface": str(MODEL_DIR / "face_recognition_sface_2021dec.onnx"),
     "out": str(OUT),
@@ -83,6 +67,22 @@ args = {
     "blurry, deformed face, extra eyes, text, watermark, overexposed, dark blotches on skin, "
     "static, still picture, talking, open mouth, camera movement",
 }
+
+root = WORK / "cast"
+# Look for any portrait file matching this character (C01_0.png through C01_5.png, etc.)
+marker = next(INPUT.rglob(f"{args['cid']}_*.png"), None) or next(INPUT.rglob(f"{args['cid']}.png"), None)
+if marker is None:
+    # Fallback: look for data.zip with vacecast in path
+    zip_files = list(INPUT.rglob("data.zip"))
+    vace_zips = [p for p in zip_files if "vacecast" in str(p)]
+    if vace_zips:
+        with zipfile.ZipFile(vace_zips[0]) as zf:
+            zf.extractall(root)
+        marker = next(root.rglob(f"{args['cid']}_*.png"), None) or next(root.rglob(f"{args['cid']}.png"), None)
+if marker is None:
+    raise FileNotFoundError(f"no portrait file for {args['cid']} found in mounted datasets")
+root = marker.parent
+args["portrait"] = str(root / f"{args['cid']}_5.png")  # chosen portrait from D-8.10b
 step = WORK / "step_consistency.py"
 step.write_text(
     textwrap.dedent("""
