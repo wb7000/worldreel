@@ -77,6 +77,21 @@ step.write_text(
     a = json.load(open(sys.argv[1]))
     log = print
     W, H = 832, 480
+    # If portrait path is None (bug in outer script), search for it in mounted datasets
+    if a.get("portrait") is None:
+        from pathlib import Path as _P
+        import zipfile as _zipfile
+        INPUT2 = _P("/kaggle/input/datasets/wb3none/worldreel-data-vacecast")
+        marker2 = next(INPUT2.rglob(f"{a['cid']}_*.png"), None) or next(INPUT2.rglob(f"{a['cid']}.png"), None)
+        if marker2 is None:
+            for z in INPUT2.rglob("data.zip"):
+                if "vacecast" in str(z):
+                    with _zipfile.ZipFile(z) as zf:
+                        zf.extractall(INPUT2 / "cast")
+                    break
+            marker2 = next(INPUT2.rglob(f"{a['cid']}_*.png"), None)
+        a["portrait"] = str(marker2.parent / f"{a['cid']}_5.png")
+        log(f"found portrait at: {a['portrait']}")
     N = a["frames_per_segment"]
     OVERLAP = a["overlap_frames"]
     model_id = "Wan-AI/Wan2.1-VACE-1.3B-diffusers"
