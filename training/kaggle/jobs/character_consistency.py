@@ -24,6 +24,26 @@ r = subprocess.run(
     capture_output=True, text=True)
 log(f"consistency env install rc={r.returncode} {r.stderr[-300:] if r.returncode else ''}")
 
+# Download face models from OpenCV Zoo (not available on Kaggle by default)
+MODEL_DIR = WORK / "models"
+MODEL_DIR.mkdir(exist_ok=True)
+subprocess.run([
+    str(py), "-m", "pip", "install", "--python", str(py), "-q", "gdown"
+], capture_output=True, text=True)
+# YuNet face detector and SFace face recognizer from OpenCV Zoo
+for name, url in (
+    ("face_detection_yunet_2023mar.onnx",
+     "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"),
+    ("face_recognition_sface_2021dec.onnx",
+     "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"),
+):
+    dst = MODEL_DIR / name
+    if not dst.exists():
+        r = subprocess.run(
+            ["curl", "-sL", "-o", str(dst), url],
+            capture_output=True, text=True)
+        log(f"download {name} rc={r.returncode} size={dst.stat().st_size if dst.exists() else 0}")
+
 root = WORK / "cast"
 marker = next(INPUT.rglob("C01.png"), None)
 if marker is None:
@@ -44,6 +64,8 @@ portrait = str(root / f"{cid}_5.png")  # chosen portrait from D-8.10b
 args = {
     "cid": cid,
     "portrait": portrait,
+    "yunet": str(MODEL_DIR / "face_detection_yunet_2023mar.onnx"),
+    "sface": str(MODEL_DIR / "face_recognition_sface_2021dec.onnx"),
     "out": str(OUT),
     "shots": 3,
     "frames_per_shot": 33,  # ~2 s at 16 fps
@@ -58,12 +80,11 @@ args = {
 step = WORK / "step_consistency.py"
 step.write_text(
     textwrap.dedent("""
-    import gc, json, sys, time, torch
+    import gc, json, sys, time, torch, cv2, numpy as np
     from PIL import Image
     from diffusers import AutoencoderKLWan, WanVACEPipeline
     from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
     from diffusers.utils import export_to_video
-    import cv2, numpy as np
 
     a = json.load(open(sys.argv[1]))
     W, H, N = 832, 480, a["frames_per_shot"]
@@ -83,14 +104,9 @@ step.write_text(
     pipe.enable_model_cpu_offload()
     pipe.vae.enable_tiling()
 
-    ref = Image.open(a["portrait"]).convert("RGB")
-    x = (W - H) // 2
-    first = Image.new("RGB", (W, H), (128, 128, 128))
-    first.paste(ref.resize((H, H), Image.LANCZOS), (x, 0))
-
-    # SFace for identity measurement
-    det = cv2.FaceDetectorYN.create("data/models/face_detection_yunet_2023mar.onnx", "", (W, H), 0.6)
-    rec = cv2.FaceRecognizerSF.create("data/models/face_recognition_sface_2021dec.onnx", "")
+    # Face detection + recognition
+    det = cv2.FaceDetectorYN.create(a["yunet"], "", (W, H), 0.6)
+    rec = cv2.FaceRecognizerSF.create(a["sface"], "")
 
     def embed(img_bgr):
         det.setInputSize((img_bgr.shape[1], img_bgr.shape[0]))
@@ -102,18 +118,24 @@ step.write_text(
         feat = rec.feature(feat).ravel()
         return feat / np.linalg.norm(feat)
 
-    ref_emb = embed(cv2.imread(a["portrait"]))
+    ref = Image.open(a["portrait"]).convert("RGB")
+    ref_bgr = cv2.cvtColor(np.array(ref), cv2.COLOR_RGB2BGR)
+    ref_emb = embed(ref_bgr)
     if ref_emb is None:
         raise SystemExit("no face found in reference portrait")
+    log(f"reference face embedding norm: {float(np.linalg.norm(ref_emb)):.4f}")
+
+    x = (W - H) // 2
+    first = Image.new("RGB", (W, H), (128, 128, 128))
+    first.paste(ref.resize((H, H), Image.LANCZOS), (x, 0))
 
     all_frames = []
-    report = {"shots": [], "ref_embedding_norm": float(np.linalg.norm(ref_emb))}
+    report = {"shots": [], "reference_portrait": a["portrait"]}
     for s in range(a["shots"]):
         t0 = time.time()
         torch.cuda.reset_peak_memory_stats()
         if s == 0:
             video = [first, *[Image.new("RGB", (W, H), (128, 128, 128))] * (N - 1)]
-            mask = [Image.new("L", (W, H), 255)]  # regenerate all
             mask = [Image.new("L", (W, H), 0)] + [Image.new("L", (W, H), 255)] * (N - 1)
         else:
             video = [*all_frames[-5:], *[Image.new("RGB", (W, H), (128, 128, 128))] * (N - 5)]
@@ -129,19 +151,25 @@ step.write_text(
         frame_bgr = cv2.cvtColor(np.array(out[mid]), cv2.COLOR_RGB2BGR)
         emb = embed(frame_bgr)
         sim = float(emb @ ref_emb) if emb is not None else -1.0
-        report["shots"].append({
+        shot_report = {
             "shot": s,
             "seconds": round(time.time() - t0, 1),
             "peak_gb": round(torch.cuda.max_memory_allocated() / 1e9, 2),
             "sface_vs_ref": round(sim, 4),
             "face_found": emb is not None,
-        })
+            "passes_same_person": bool(emb is not None and sim >= 0.363),
+        }
+        report["shots"].append(shot_report)
+        log(f"shot {s}: SFace={sim:.4f} face_found={emb is not None} "
+            f"passes_same_person={shot_report['passes_same_person']}")
         gc.collect()
         torch.cuda.empty_cache()
 
     export_to_video(all_frames, f"{a['out']}/consistency.mp4", fps=16)
     json.dump(report, open(f"{a['out']}/consistency.json", "w"), indent=2)
-    print(json.dumps(report, indent=2))
+    log(f"consistency report: {json.dumps(report, indent=2)}")
+    all_pass = all(s["passes_same_person"] for s in report["shots"])
+    log(f"ALL SHOTS PASS SAME-PERSON MARK (0.363): {all_pass}")
     """),
     encoding="utf-8",
 )
