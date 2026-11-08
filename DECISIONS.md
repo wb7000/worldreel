@@ -2079,3 +2079,24 @@ would need about 80 GPU hours for one character on screen at this setting.
 Idea, untested: shots are short, so restart each shot from the portrait to limit drift.
 Status: **experimental; owner look-test pending**. Camera control and the route to a `.wreel`
 world are still untested.
+
+### D-8.13d Deflicker the chained clip (2026-11-08, measured)
+`stages/generate/deflicker.py` (steady wall colour then local-frame smoothing; unit tests in
+`tests/test_deflicker.py`) applied to `runs/kaggle/hero_chain/out/chain.mp4` (173 frames, 16 fps,
+joins at 33/61/89/117/145). Measured mean absolute pixel jump at each join, before and after:
+
+| join at frame | before | after |
+|---|---|---|
+| 33 | 3.78 | 1.66 |
+| 61 | 2.42 | 1.85 |
+| 89 | 2.96 | 2.22 |
+| 117 | 2.32 | 1.87 |
+| 145 | 2.78 | 2.43 |
+
+Mean 2.85 → 2.01 (1.42 x), max 3.78 → 2.43. Inside-segment consecutive-frame reference: median 0.93,
+p95 1.83. Deflicker narrows the gap but does not close it: two joins (89, 145) still exceed the
+inside-segment p95. The steady-wall step assumes the wall is visible at the frame sides, which holds
+for this head-and-shoulders studio shot but not generally. **Adopted as a mild, opt-in improvement
+applied to generated clips at packaging time** (`deflicker()` behind a `--deflicker` flag); it is not
+a fix for identity drift (0.918 → 0.695 SFace across the six segments, D-8.13c). The untried fix
+remains: restart each shot from the portrait so drift cannot accumulate.
