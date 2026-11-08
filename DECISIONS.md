@@ -2096,7 +2096,37 @@ joins at 33/61/89/117/145). Measured mean absolute pixel jump at each join, befo
 Mean 2.85 → 2.01 (1.42 x), max 3.78 → 2.43. Inside-segment consecutive-frame reference: median 0.93,
 p95 1.83. Deflicker narrows the gap but does not close it: two joins (89, 145) still exceed the
 inside-segment p95. The steady-wall step assumes the wall is visible at the frame sides, which holds
-for this head-and-shoulders studio shot but not generally. **Adopted as a mild, opt-in improvement
-applied to generated clips at packaging time** (`deflicker()` behind a `--deflicker` flag); it is not
-a fix for identity drift (0.918 → 0.695 SFace across the six segments, D-8.13c). The untried fix
-remains: restart each shot from the portrait so drift cannot accumulate.
+for this head-and-shoulders studio shot but not generally. **Available as a mild post-process** (`stages.generate.deflicker.deflicker`); demonstrated on the
+chained clip but not yet wired into the generate stage; it is not a fix for identity drift
+(0.918 → 0.695 SFace across the six segments, D-8.13c). The untried fix remains: restart each
+shot from the portrait so drift cannot accumulate.
+
+
+### D-8.14 Places, blocking, camera and the generate stage (8.4–8.5; 2026-11-08, implemented)
+Implemented A-9 (procedural places from location descriptions), blocking (character spots/motion
+from continuity and `=` moves), camera (director's cut from POV hints and speaker changes) and the
+real `generate` stage that assembles a signed `.wreel` world from places + bible avatars + voiced
+audio. Everything is `generated` provenance; portraits and voices are consumed from Kaggle outputs.
+
+- `stages/generate/places.py` (+ tests/test_places.py): five parametric templates (gate/arch,
+  rampart, ruin, room, tunnel) chosen and sized from location description words, deterministic per
+  seed, all `generated` provenance.
+- `stages/generate/blocking.py` (+ tests/test_blocking.py): spots per present character (incl.
+  mid-scene arrivals via `=` location changes), hold/walk tracks, eye targets.
+- `stages/generate/camera.py` (+ tests/test_camera.py): director's cut keyframes at statement times
+  with wide/speaker/POV placements, bookended at t=0 and duration.
+- `stages/generate/real.py` + `tools/generate_world.py`: assemble the `.wreel` (static place layer,
+  avatar layers, tracks, director camera, POV presets, per-character dialogue tracks sliced from the
+  voiced scene WAV, footsteps via A-6, ambience/music/foley stems), signed package.
+
+Rung results (The Lantern Keeper, seed 7):
+- R1 10 s (S001 opening): `runs/r1_s001.wreel`, 10.0 s, 2 actors, validates (0 errors), renders a
+  non-blank director frame, face metrics pass all D-8.0 marks (detection 1.0, identity 1.0,
+  distinctness max pair 0.296 < 0.363).
+- R2 1 min (S001 + S002): 51.35 + 14.21 ≈ 65 s, within ±25 % of 60 s. One `.wreel` per scene.
+- R3 10 min (all 10 scenes): one `.wreel` per scene in `runs/r3_S00*.wreel`, all validate;
+  total dialogue ≈ 370 s ≈ 6.2 min, below the 10 min target — the script's natural dialogue
+  length (7.15 min per D-7.2), so the target is a content/length question, not a pipeline gap.
+
+Remaining for Phase 8 close-out: owner look-tests of generated worlds, R2/R3 playlist assembly,
+and the full close-out test run (already green: 305 passed, 9 skipped; ruff; mypy 174 files clean).
