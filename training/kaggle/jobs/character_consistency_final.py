@@ -138,7 +138,7 @@ step.write_text(
     # Plain Python class (not nn.Module) to avoid nn.Module.__getattribute__
     # interfering with __getattr__ delegation to the base transformer.
     class FaceConditionedTransformer:
-        def __init__(self, base_transformer, face_embedding_dim=512):
+        def __init__(self, base_transformer, face_embedding_dim=128):
             self.base = base_transformer
             self.face_embedding_dim = face_embedding_dim
             hidden_dim = (getattr(base_transformer.config, "hidden_size", None)
