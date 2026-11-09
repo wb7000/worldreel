@@ -143,7 +143,9 @@ step.write_text(
             self.face_embedding_dim = face_embedding_dim
             hidden_dim = (getattr(base_transformer.config, "hidden_size", None)
                           or getattr(base_transformer.config, "inner_dim", None)
-                          or 1536)
+                          or getattr(base_transformer.config, "d_model", None)
+                          or getattr(base_transformer.config, "embed_dim", None)
+                          or 4096)  # UMT5-XXL / Wan2.1 transformer hidden dim
             self.hidden_dim = hidden_dim
             self.face_projector = nn.Linear(face_embedding_dim, hidden_dim)
             # Identity-mapping init: face embedding lands in first 512 hidden dims
