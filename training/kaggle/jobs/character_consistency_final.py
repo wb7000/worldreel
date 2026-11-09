@@ -132,7 +132,7 @@ step.write_text(
             reference_images = [ref]
         else:
             # Chain: keep last OVERLAP frames as reference + regenerate rest
-            video = [*prev_last_frame[-OVERLAP:], *[Image.new("RGB", (W, H), (128, 128, 128))] * (N - OVERLAP)]
+            video = [*prev_last_frame, *[Image.new("RGB", (W, H), (128, 128, 128))] * (N - OVERLAP)]
             mask = [Image.new("L", (W, H), 0)] * OVERLAP + [Image.new("L", (W, H), 255)] * (N - OVERLAP)
             reference_images = [ref, prev_last_frame[-1]]  # portrait + last frame of prev segment
         
@@ -144,7 +144,7 @@ step.write_text(
         
         new_frames = out[OVERLAP:] if s > 0 else out
         all_frames += new_frames
-        prev_last_frame = out[-1]
+        prev_last_frame = out[-OVERLAP:]
         
         # Measure identity on middle frame of new content
         mid = OVERLAP + (N - OVERLAP) // 2 if s > 0 else N // 2
