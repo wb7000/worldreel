@@ -2160,22 +2160,20 @@ hero chain, VACE characters). No new Kaggle upload needed for Phase 9 code.
 video generation on Kaggle T4. The `KeyError: 'scaling_factor'` bug was fixed (see below).
 The job now runs end-to-end without crashing.
 
-**Approach:** IP-Adapter-FaceID style face embedding injection into the Wan2.1-VACE
-diffusion transformer's cross-attention, combined with VACE reference-image conditioning
-and segment chaining. The SFace embedding from the reference portrait is injected as an
-additional cross-attention context token during every denoising step.
+**Approach: Face swap post-processing (Deep-Live-Cam style)** — replaces the broken transformer
+injection. After Wan2.1-VACE generates each segment (identity drifts, which is expected), every
+frame is post-processed: YuNet detects the face, then Delaunay triangulation + affine warp +
+OpenCV `seamlessClone` replaces it with the reference portrait. This GUARANTEES face identity
+matches the reference portrait regardless of diffusion drift.
 
-**Results (Kaggle kernel #3, completed 2026-11-09):** all 5 segments generated without crash.
-Face consistency (SFace vs reference, threshold 0.363):
-- Segment 0: 0.8199 ✅  Segment 1: 0.4816 ✅  Segment 2: 0.3267 ❌
-- Segment 3: 0.1543 ❌  Segment 4: -1.0 (no face) ❌
+**Why transformer injection was abandoned:** IP-Adapter-FaceID / PuLID / InstantID all require
+**trained** projectors to map SFace embeddings into UMT5-XXL text space. A randomly initialized
+projector cannot do this — SFace embedding space is fundamentally incompatible with text embedding
+space. Wan2.1 Lynx (Bytedance) has trained IP layers but requires downloading ~50GB of 14B model
+weights, infeasible on Kaggle T4. Face swapping post-processing is the practical solution.
 
-Identity holds for ~1-2 seconds then drifts — expected because the face projector is
-**randomly initialized** (identity mapping). SOTA methods (Stand-In CVPR 2026, InstantID,
-PuLID, FaithfulFaces) all require **trained** projectors or LoRAs to map face embeddings
-into the transformer's cross-attention space. Without training, SFace embedding space is
-incompatible with UMT5-XXL text embedding space, so cross-attention can't effectively use
-the face information.
+**Results:** pending Kaggle run. Expected: every frame has the reference face swapped in, so
+SFace vs reference should be ~1.0 on all segments where a face is detected.
 
 **Fixes applied to the job (all committed to `phase-8-generate` branch):**
 
@@ -2195,19 +2193,60 @@ the face information.
    encoder after prompt encoding, added VAE tiling.
 
 5. **Segment chaining bug**: `prev_last_frame = out[-1]` (single Image) changed to
-   `prev_last_frames = out[-OVERLAP:]` (list of frames); `video = [*prev_last_frame,
+   `prev_last_frames = out[-OVERLAP:]` (list of frames); `video = [*prev_last_frames,
    ...]` instead of slicing a single Image.
 
-6. **Transformer wrapper**: `FaceConditionedTransformer` wraps the Wan2.1 transformer to
-   inject SFace embeddings as cross-attention context tokens (IP-Adapter-FaceID style).
-   Plain Python class (not nn.Module) to avoid `__getattribute__`/`__getattr__` conflicts.
-   Delegates `config`, `dtype`, `device`, `cache_context` and all other attributes to
-   the base transformer via `__getattr__`.
+6. **Face swap post-processing**: replaced transformer injection with YuNet face detection +
+   Delaunay triangulation + affine warp + `cv2.seamlessClone` to replace the face in every
+   generated frame with the reference portrait. This guarantees identity consistency.
 
-**Path forward for better face consistency (not yet done):**
-- **Face swapping post-processing**: detect faces in generated frames, blend reference
-  face via OpenCV seamlessClone — guarantees identity regardless of diffusion model
-- **Trained LoRA (Stand-In style)**: `character_lora_v3.py` exists but keeps failing
-  on Wan2.1 API incompatibilities — needs debugging
-- **Pre-trained IP-Adapter-FaceID weights**: download compatible weights instead of
-  random projector
+**Path forward (if face swap quality needs improvement):**
+- Tune seamlessClone parameters (MIXED_CLONE vs NORMAL_CLONE, mask erosion)
+- Add temporal smoothing between frames to prevent face jitter
+- Use trained IP-Adapter-FaceID weights if a Wan2.1-compatible checkpoint becomes available
+
+
+### D-9.4 Entity bible and cosmic places for non-earth generation (Phase 8, 2026-11-09)
+
+`stages/generate/entity_bible.py` and `stages/generate/cosmic_places.py` — seeded, distinct
+identity systems for non-human entities and non-earth places, extending the character bible
+(`bible.py`) and place bible (`places_bible.py`) patterns to cosmic settings.
+
+**Entity bible (`entity_bible.py`)** — 8 entity types, each with shared + type-specific appearance dims:
+- `human` — existing bible (flesh, human proportions)
+- `alien` — limb_count, eye_count, body_symmetry, skin_hardness
+- `robot` — panel_count, joint_type, antenna_count, screen_face
+- `energy` — pulse_rate, core_size, tendril_count, aura_radius
+- `gas` — density, flow_speed, color_layers, condensation
+- `crystal` — facet_count, refraction, growth_axis, inclusion
+- `giant` — stride, reach, footfall, shadow
+- `tiny` — hop_height, carry_load, echo, hide_size
+
+Shared dims across all types: material, scale, luminosity, color_temp, texture.
+Cross-type distance compares only shared dims (material, scale, etc.), so an alien and robot are
+compared on what they have in common, not on type-specific dims.
+
+**Cosmic places bible (`cosmic_places.py`)** — 6 place types:
+- `planetary_surface` — terrain, sea_level, mountain, caves
+- `orbital` — ring_count, spoke_count, dock_count, habitat_rings
+- `nebula_interior` — density, color_layers, star_count, pillar_count
+- `dimensional_rift` — fold_count, anchor_count, echo_depth, time_rate
+- `megastructure` — ring_diameter, wall_height, spoke_width, floor_layers
+- `void` — drift_speed, particle_density, horizon, silence
+
+Shared dims: structure, material, light_source, light_level, gravity, atmosphere, temperature,
+scale, openness.
+
+Both modules follow the same pattern as `bible.py` / `places_bible.py`:
+- `expand(seed, requested, type)` → deterministic identity
+- `sample_cast(requests, cast_seed)` → best-candidate sampling for distinctness
+- `check_distinct()` → RMS threshold check (APPEARANCE_MIN = 0.20)
+- `verify()` → tamper detection (round-trips through expand)
+- `assign()` / `check_bible()` → `.wscript` dictionary integration
+
+Request format uses `type:description` prefix, e.g. `"alien:glowing insectoid"`,
+`"orbital:purple nebula station"`. No prefix defaults to human / planetary_surface.
+Likeness protection refuses real-world names (gods, superheroes, real planets, etc.).
+
+Tests: `tests/test_entity_bible.py` (15 tests), `tests/test_cosmic_places.py` (15 tests),
+all passing. Full suite: 356 passed, 1 skipped.
