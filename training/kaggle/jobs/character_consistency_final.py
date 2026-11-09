@@ -17,7 +17,7 @@ r = subprocess.run(
     [sys.executable, "-m", "pip", "install", "-q",
      "diffusers", "opencv-python-headless", "scipy"],
     capture_output=True, text=True)
-log(f"pip install rc={r.returncode} {r.stderr[-300:] if r.returncode else ''}", flush=True)
+log(f"pip install rc={r.returncode} {r.stderr[-300:] if r.returncode else ''}")
 
 # Find models in mounted Kaggle datasets
 import glob as _glob
@@ -99,7 +99,7 @@ step.write_text(
     if ref_face is None:
         raise SystemExit("no face found in reference portrait")
     ref_bbox, ref_lm = ref_face
-    log(f"reference face bbox={ref_bbox.tolist()}", flush=True)
+    log(f"reference face bbox={ref_bbox.tolist()}")
 
     # Build Delaunay triangulation on reference landmarks (once)
     ref_hull = cv2.convexHull(ref_lm)
@@ -115,7 +115,7 @@ step.write_text(
             d = np.linalg.norm(ref_lm - np.array(p), axis=1)
             idx.append(int(np.argmin(d)))
         ref_tri_idx.append(idx)
-    log(f"reference triangulation: {len(ref_tri_idx)} triangles", flush=True)
+    log(f"reference triangulation: {len(ref_tri_idx)} triangles")
 
     def swap_face_in_frame(frame_bgr):
         face = detect_face(frame_bgr)
@@ -208,7 +208,7 @@ step.write_text(
                    [Image.new("L", (W, H), 255)] * (N - OVERLAP)
             reference_images = [ref_img, prev_last_frames[-1]]
 
-        log(f"segment {s}: starting generation", flush=True)
+        log(f"segment {s}: starting generation")
         out = pipe(video=video, mask=mask, reference_images=reference_images,
                    prompt_embeds=pos, negative_prompt_embeds=neg, height=H, width=W,
                    num_frames=N, num_inference_steps=30, guidance_scale=5.0,
@@ -227,7 +227,7 @@ step.write_text(
                 frames_swapped += 1
             processed.append(Image.fromarray(cv2.cvtColor(swapped, cv2.COLOR_BGR2RGB)))
             if i % 4 == 0:
-                log(f"  segment {s}: processed {i + 1}/{len(out)} frames", flush=True)
+                log(f"  segment {s}: processed {i + 1}/{len(out)} frames")
         out = processed
 
         new_frames = out[OVERLAP:] if s > 0 else out
@@ -247,14 +247,14 @@ step.write_text(
             "frames_swapped": frames_swapped,
             "face_found": face is not None,
         })
-        log(f"segment {s}: done frames_swapped={frames_swapped}/{len(out)} face_found={face is not None}", flush=True)
+        log(f"segment {s}: done frames_swapped={frames_swapped}/{len(out)} face_found={face is not None}")
         gc.collect()
         torch.cuda.empty_cache()
 
     export_to_video(all_frames, f"{a['out']}/face_consistency.mp4", fps=16)
     json.dump(report, open(f"{a['out']}/face_consistency.json", "w"), indent=2)
-    log(f"face consistency report: {json.dumps(report, indent=2)}", flush=True)
-    log(f"TOTAL VIDEO SECONDS: {report['total_seconds']:.2f}", flush=True)
+    log(f"face consistency report: {json.dumps(report, indent=2)}")
+    log(f"TOTAL VIDEO SECONDS: {report['total_seconds']:.2f}")
     """),
     encoding="utf-8",
 )
@@ -263,5 +263,5 @@ env = {**os.environ, "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}
 r = subprocess.run([str(sys.executable), str(step), str(WORK / "face_swap_args.json")],
                    capture_output=True, text=True, timeout=6 * 3600, env=env)
 (OUT / "face_consistency.log").write_text(r.stdout[-20000:] + "\n" + r.stderr[-8000:] if r.returncode else r.stdout[-20000:], encoding="utf-8")
-log(f"face consistency job rc={r.returncode}", flush=True)
-log("done", flush=True)
+log(f"face consistency job rc={r.returncode}")
+log("done")
