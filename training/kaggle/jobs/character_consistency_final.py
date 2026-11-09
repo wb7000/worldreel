@@ -133,7 +133,7 @@ step.write_text(
     log(f"reference triangulation: {len(ref_tri_idx)} triangles")
 
     def swap_face_in_frame(frame_bgr):
-        """Detect face in frame, swap with reference, return blended frame."""
+        # Detect face in frame, swap with reference, return blended frame
         face = detect_face(frame_bgr)
         if face is None:
             return frame_bgr
