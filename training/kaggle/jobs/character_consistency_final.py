@@ -166,10 +166,13 @@ step.write_text(
 
         def __getattr__(self, name):
             # Delegate any attribute not found on wrapper to the base transformer
-            # (e.g. cache_context, forward hooks, etc. used by VACE pipeline)
-            # Direct __dict__ access avoids recursion during __init__
-            if 'base' in self.__dict__:
-                return getattr(self.__dict__['base'], name)
+            # (e.g. cache_context, forward hooks, etc. used by VACE pipeline).
+            # nn.Module stores Module values in _modules, not __dict__, so check both.
+            base = self.__dict__.get("base")
+            if base is None and "_modules" in self.__dict__:
+                base = self.__dict__["_modules"].get("base")
+            if base is not None:
+                return getattr(base, name)
             raise AttributeError(name)
 
         def forward(self, hidden_states=None, encoder_hidden_states=None,
