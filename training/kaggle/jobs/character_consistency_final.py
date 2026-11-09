@@ -119,7 +119,7 @@ step.write_text(
     with torch.no_grad():
         ref_latents = pipe.vae.encode(ref_tensor).latent_dist.sample()
         vae_config = pipe.vae.config
-        scaling_factor = vae_config["scaling_factor"] if isinstance(vae_config, dict) else vae_config.scaling_factor
+        scaling_factor = float(vae_config.get("scaling_factor", 0.18215)) if isinstance(vae_config, dict) else float(vae_config.scaling_factor)
         ref_latents = ref_latents * scaling_factor
 
     x = (W - H) // 2
