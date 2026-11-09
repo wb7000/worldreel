@@ -61,9 +61,9 @@ args = {
     "yunet": yunet_path,
     "sface": sface_path,
     "out": str(OUT),
-    "segments": 5,
-    "frames_per_segment": 16,
-    "overlap_frames": 10,
+    "segments": 3,
+    "frames_per_segment": 12,
+    "overlap_frames": 6,
     "prompt": f"real video footage of a {words}, standing still, breathing gently, blinking "
     "naturally, mouth closed, not speaking, fixed camera, head and shoulders, plain grey studio "
     "wall behind, soft even natural light, natural skin with pores, natural hair, sharp focus, "
@@ -247,12 +247,14 @@ step.write_text(
         # ================================================================
         processed = []
         frames_swapped = 0
-        for frame in out:
+        for i, frame in enumerate(out):
             frame_bgr = cv2.cvtColor(np.array(frame), cv2.COLOR_RGB2BGR)
             swapped = swap_face_in_frame(frame_bgr)
             if not np.array_equal(swapped, frame_bgr):
                 frames_swapped += 1
             processed.append(Image.fromarray(cv2.cvtColor(swapped, cv2.COLOR_BGR2RGB)))
+            if i % 4 == 0:
+                log(f"  segment {s}: processed {i+1}/{len(out)} frames", flush=True)
         out = processed
 
         new_frames = out[OVERLAP:] if s > 0 else out
