@@ -161,7 +161,7 @@ step.write_text(
         seg_seconds = (N - OVERLAP) / 16.0 if seg > 0 else N / 16.0
         report["total_seconds"] += seg_seconds
         report["segments"].append({
-            "segment": s,
+            "segment": seg,
             "seconds": round(time.time() - t0, 1),
             "video_seconds": round(seg_seconds, 2),
             "peak_gb": round(torch.cuda.max_memory_allocated() / 1e9, 2),
