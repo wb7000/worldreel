@@ -135,9 +135,10 @@ step.write_text(
     # --- Face identity injector (IP-Adapter-FaceID style) ---
     # Injects SFace embedding as extra cross-attention context tokens into
     # the Wan2.1 transformer during every denoising step.
-    class FaceConditionedTransformer(nn.Module):
+    # Plain Python class (not nn.Module) to avoid nn.Module.__getattribute__
+    # interfering with __getattr__ delegation to the base transformer.
+    class FaceConditionedTransformer:
         def __init__(self, base_transformer, face_embedding_dim=512):
-            super().__init__()
             self.base = base_transformer
             self.face_embedding_dim = face_embedding_dim
             hidden_dim = (getattr(base_transformer.config, "hidden_size", None)
@@ -146,10 +147,11 @@ step.write_text(
             self.hidden_dim = hidden_dim
             self.face_projector = nn.Linear(face_embedding_dim, hidden_dim)
             # Identity-mapping init: face embedding lands in first 512 hidden dims
-            self.face_projector.weight.data.zero_()
-            if face_embedding_dim <= hidden_dim:
-                self.face_projector.weight.data[:face_embedding_dim, :face_embedding_dim] = torch.eye(face_embedding_dim)
-            self.face_projector.bias.data.zero_()
+            with torch.no_grad():
+                self.face_projector.weight.zero_()
+                if face_embedding_dim <= hidden_dim:
+                    self.face_projector.weight[:face_embedding_dim, :face_embedding_dim] = torch.eye(face_embedding_dim)
+                self.face_projector.bias.zero_()
             self.scale = 10.0  # scale face tokens to match text embedding magnitude
 
         @property
@@ -166,17 +168,11 @@ step.write_text(
 
         def __getattr__(self, name):
             # Delegate any attribute not found on wrapper to the base transformer
-            # (e.g. cache_context, forward hooks, etc. used by VACE pipeline).
-            # nn.Module stores Module values in _modules, not __dict__, so check both.
-            base = self.__dict__.get("base")
-            if base is None and "_modules" in self.__dict__:
-                base = self.__dict__["_modules"].get("base")
-            if base is not None:
-                return getattr(base, name)
-            raise AttributeError(name)
+            # (e.g. cache_context, forward hooks, etc. used by VACE pipeline)
+            return getattr(self.base, name)
 
-        def forward(self, hidden_states=None, encoder_hidden_states=None,
-                    timestep=None, **kwargs):
+        def __call__(self, hidden_states=None, encoder_hidden_states=None,
+                     timestep=None, **kwargs):
             if encoder_hidden_states is not None:
                 device = hidden_states.device
                 dtype = hidden_states.dtype
