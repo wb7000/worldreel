@@ -183,9 +183,21 @@ def run(
                     f"still queued after {requeue_after:g} min: deleting and pushing again",
                     flush=True,
                 )
-                kaggle("kernels", "delete", f"{username()}/{kernel_slug(job)}", "-y")
-                _push(job, scenes, any_gpu)
-                started = time.time()
+                # Retry delete on Kaggle API errors (500/503 are common)
+                deleted = False
+                for attempt in range(3):
+                    try:
+                        kaggle("kernels", "delete", f"{username()}/{kernel_slug(job)}", "-y")
+                        deleted = True
+                        break
+                    except RuntimeError as e:
+                        print(f"delete attempt {attempt + 1}/3 failed: {e}", flush=True)
+                        time.sleep(10)
+                if not deleted:
+                    print("delete failed after 3 attempts, keeping queued job", flush=True)
+                else:
+                    _push(job, scenes, any_gpu)
+                    started = time.time()
             time.sleep(60)
     if wait:
         wait_for(job)
@@ -280,7 +292,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument(
         "--requeue-after",
         type=float,
-        default=20.0,
+        default=30.0,
         help="minutes queued before re-pushing (0 = never)",
     )
     for name in ("status", "fetch", "wait"):
