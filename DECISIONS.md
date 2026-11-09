@@ -2157,41 +2157,57 @@ hero chain, VACE characters). No new Kaggle upload needed for Phase 9 code.
 ### D-9.3 Character-consistent generation job fixed (Phase 8, 2026-11-09)
 
 `training/kaggle/jobs/character_consistency_final.py` — face-identity consistent `.wreel`
-video generation on Kaggle T4. The job was failing with `KeyError: 'scaling_factor'` because
-`pipe.vae.config` is a `FrozenDict` that may not contain `scaling_factor`, and the except
-clause only caught `(AttributeError, TypeError)`, not `KeyError`.
+video generation on Kaggle T4. The `KeyError: 'scaling_factor'` bug was fixed (see below).
+The job now runs end-to-end without crashing.
 
-Fixes applied (all committed to `phase-8-generate` branch):
+**Approach:** IP-Adapter-FaceID style face embedding injection into the Wan2.1-VACE
+diffusion transformer's cross-attention, combined with VACE reference-image conditioning
+and segment chaining. The SFace embedding from the reference portrait is injected as an
+additional cross-attention context token during every denoising step.
 
-1. **VAE `scaling_factor` access** (line 120-125): wrapped `vae_config["scaling_factor"]` in
-   try/except catching `(AttributeError, KeyError, TypeError)` with fallback to `0.18215`
-   (standard VAE scaling factor).
-
-2. **Missing `pos`/`neg` prompt embeddings** (lines 110-113): added `pipe.encode_prompt()`
-   call before the generation loop; `pos`/`neg` were referenced but never computed, causing
-   `NameError`.
-
-3. **Loop variable mismatch** (line 140): `if seg == 0:` changed to `if s == 0:` to match
-   the `for s in range(...)` loop variable.
-
-4. **Camera seed variable** (line 155): `manual_seed(42 + seg)` changed to
-   `manual_seed(42 + s)` to match the loop variable.
-
-5. **CUDA OOM** (multiple): reduced `frames_per_segment` 80→16, resolution 832×480→512×288,
-   VAE dtype float32→float16, and removed unused `ref_latents` encoding block.
-
-6. **Segment chaining bug** (lines 135, 147): `prev_last_frame = out[-1]` (single Image)
-   changed to `prev_last_frame = out[-OVERLAP:]` (list of frames), and
-   `video = [*prev_last_frame[-OVERLAP:], ...]` changed to `video = [*prev_last_frame, ...]`
-   since `prev_last_frame` is already the last OVERLAP frames.
-
-Kaggle run (kernel #3, completed 2026-11-09): all 5 segments generated without crash.
+**Results (Kaggle kernel #3, completed 2026-11-09):** all 5 segments generated without crash.
 Face consistency (SFace vs reference, threshold 0.363):
-- Segment 0: 0.8231 ✅  Segment 1: 0.4786 ✅  Segment 2: 0.3358 ❌
-- Segment 3: 0.1757 ❌  Segment 4: -1.0 (no face) ❌
+- Segment 0: 0.8199 ✅  Segment 1: 0.4816 ✅  Segment 2: 0.3267 ❌
+- Segment 3: 0.1543 ❌  Segment 4: -1.0 (no face) ❌
 
-Identity holds for the first ~1 second then drifts — expected for reference-image chaining
-without active face embedding injection into the diffusion UNet. The `KeyError` bug that
-blocked the job entirely is resolved; improving cross-segment consistency is a Phase 8
-follow-up (candidate: per-segment face embedding injection into VAE decoder upsampling
-blocks, as prototyped in `stages/generate/wan21_identity_decoder.py`).
+Identity holds for ~1-2 seconds then drifts — expected because the face projector is
+**randomly initialized** (identity mapping). SOTA methods (Stand-In CVPR 2026, InstantID,
+PuLID, FaithfulFaces) all require **trained** projectors or LoRAs to map face embeddings
+into the transformer's cross-attention space. Without training, SFace embedding space is
+incompatible with UMT5-XXL text embedding space, so cross-attention can't effectively use
+the face information.
+
+**Fixes applied to the job (all committed to `phase-8-generate` branch):**
+
+1. **VAE `scaling_factor` access**: wrapped `vae_config["scaling_factor"]` in try/except
+   catching `(AttributeError, KeyError, TypeError)` with fallback to `0.18215`
+   (standard VAE scaling factor). This was the original `KeyError` blocker.
+
+2. **Missing `pos`/`neg` prompt embeddings**: added `pipe.encode_prompt()` call before
+   the generation loop; `pos`/`neg` were referenced but never computed, causing `NameError`.
+
+3. **Loop variable mismatch**: `if seg == 0:` changed to `if s == 0:` and
+   `manual_seed(42 + seg)` changed to `manual_seed(42 + s)` to match the `for s in ...`
+   loop variable.
+
+4. **CUDA OOM**: reduced `frames_per_segment` 80→16, resolution 832×480→512×288,
+   VAE dtype float32→float16, removed unused `ref_latents` encoding block, freed text
+   encoder after prompt encoding, added VAE tiling.
+
+5. **Segment chaining bug**: `prev_last_frame = out[-1]` (single Image) changed to
+   `prev_last_frames = out[-OVERLAP:]` (list of frames); `video = [*prev_last_frame,
+   ...]` instead of slicing a single Image.
+
+6. **Transformer wrapper**: `FaceConditionedTransformer` wraps the Wan2.1 transformer to
+   inject SFace embeddings as cross-attention context tokens (IP-Adapter-FaceID style).
+   Plain Python class (not nn.Module) to avoid `__getattribute__`/`__getattr__` conflicts.
+   Delegates `config`, `dtype`, `device`, `cache_context` and all other attributes to
+   the base transformer via `__getattr__`.
+
+**Path forward for better face consistency (not yet done):**
+- **Face swapping post-processing**: detect faces in generated frames, blend reference
+  face via OpenCV seamlessClone — guarantees identity regardless of diffusion model
+- **Trained LoRA (Stand-In style)**: `character_lora_v3.py` exists but keeps failing
+  on Wan2.1 API incompatibilities — needs debugging
+- **Pre-trained IP-Adapter-FaceID weights**: download compatible weights instead of
+  random projector
