@@ -1,6 +1,6 @@
-# Job: Generate character-consistent video with face identity injection
-# Uses Wan2.1-VACE decoder with face embedding injection at every upsampling layer
-# This is the robust approach - no LoRA fine-tuning needed
+# Job: Generate character-consistent `.wreel` worlds using face embedding injection
+# Applies face portrait embedding into the WAN2.1 VAE decoder at every upsampling stage,
+# keeping character identity consistent across all segments without LoRA fine-tuning.
 #
 #   python -m tools.kaggle_runner run training/kaggle/jobs/character_consistency_final.py --scene data:vacecast --scene data:facemodels --wait
 import json
@@ -23,7 +23,7 @@ r = subprocess.run(
      "accelerate", "safetensors", "torch", "ftfy", "imageio", "imageio-ffmpeg",
      "sentencepiece", "opencv-python-headless"],
     capture_output=True, text=True)
-log(f"face-consistency env install rc={r.returncode} {r.stderr[-300:] if r.returncode else ''}")
+log(f"face consistency env install rc={r.returncode} {r.stderr[-300:] if r.returncode else ''}")
 
 # Find models in mounted Kaggle datasets
 import glob as _glob
@@ -56,9 +56,9 @@ args = {
     "yunet": yunet_path,
     "sface": sface_path,
     "out": str(OUT),
-    "segments": 5,  # 5 segments x 5 seconds = 25 seconds total
-    "frames_per_segment": 80,  # 5s at 16 fps
-    "overlap_frames": 10,  # keep last 10 frames as reference for chaining
+    "segments": 5,
+    "frames_per_segment": 80,
+    "overlap_frames": 10,
     "prompt": f"real video footage of a {words}, standing still, breathing gently, blinking "
     "naturally, mouth closed, not speaking, fixed camera, head and shoulders, plain grey studio "
     "wall behind, soft even natural light, natural skin with pores, natural hair, sharp focus, "
@@ -82,23 +82,15 @@ step.write_text(
     N = a["frames_per_segment"]
     OVERLAP = a["overlap_frames"]
     model_id = "Wan-AI/Wan2.1-VACE-1.3B-diffusers"
-    
-    # Load Wan2.1-VACE pipeline
     vae = AutoencoderKLWan.from_pretrained(model_id, subfolder="vae", torch_dtype=torch.float32)
     pipe = WanVACEPipeline.from_pretrained(model_id, vae=vae, torch_dtype=torch.float16)
     pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config, flow_shift=3.0)
     pipe.enable_model_cpu_offload()
     pipe.vae.enable_tiling()
 
-    # Encode text prompts once
-    with torch.no_grad():
-        pos, neg = pipe.encode_prompt(prompt=a["prompt"], negative_prompt=a["negative"],
-                                      do_classifier_free_guidance=True, device=torch.device("cuda"))
-
-    # Face detection + recognition
     det = cv2.FaceDetectorYN.create(a["yunet"], "", (W, H), 0.6)
     rec = cv2.FaceRecognizerSF.create(a["sface"], "")
-    
+
     def embed(img_bgr):
         det.setInputSize((img_bgr.shape[1], img_bgr.shape[0]))
         _, faces = det.detect(img_bgr)
@@ -108,57 +100,60 @@ step.write_text(
         feat = rec.alignCrop(img_bgr, f)
         feat = rec.feature(feat).ravel()
         return feat / np.linalg.norm(feat)
-    
-    # Load portrait and compute reference face embedding
+
     ref = Image.open(a["portrait"]).convert("RGB")
     ref_bgr = cv2.cvtColor(np.array(ref), cv2.COLOR_RGB2BGR)
     ref_emb = embed(ref_bgr)
     if ref_emb is None:
         raise SystemExit("no face found in reference portrait")
     log(f"reference face embedding norm: {float(np.linalg.norm(ref_emb)):.4f}")
-    
-    # Encode portrait to latent space for conditioning
+
+    # Encode text prompts
+    with torch.no_grad():
+        pos, neg = pipe.encode_prompt(prompt=a["prompt"], negative_prompt=a["negative"],
+                                      do_classifier_free_guidance=True, device=torch.device("cuda"))
+
+    # Encode reference portrait to latent space
     ref_tensor = torch.from_numpy(np.array(ref.resize((W, H)), dtype=np.float32) / 255.0)
     ref_tensor = ref_tensor.permute(2, 0, 1).unsqueeze(0).unsqueeze(2).to(torch.float32).to("cuda")
     with torch.no_grad():
         ref_latents = pipe.vae.encode(ref_tensor).latent_dist.sample()
-        ref_latents = ref_latents * pipe.vae.config.scaling_factor if hasattr(pipe.vae.config, "scaling_factor") else ref_latents * 0.18215
-    
+        vae_config = pipe.vae.config
+        scaling_factor = vae_config["scaling_factor"] if isinstance(vae_config, dict) else vae_config.scaling_factor
+        ref_latents = ref_latents * scaling_factor
+
     x = (W - H) // 2
     first = Image.new("RGB", (W, H), (128, 128, 128))
     first.paste(ref.resize((H, H), Image.LANCZOS), (x, 0))
-    
+
     all_frames = []
     report = {"segments": [], "reference_portrait": a["portrait"],
               "total_seconds": 0.0}
     prev_last_frame = first
-    
-    for seg in range(a["segments"]):
+
+    for s in range(a["segments"]):
         t0 = time.time()
         torch.cuda.reset_peak_memory_stats()
         
         if seg == 0:
-            # First segment: portrait as reference image
             video = [first] + [Image.new("RGB", (W, H), (128, 128, 128))] * (N - 1)
             mask = [Image.new("L", (W, H), 0)] + [Image.new("L", (W, H), 255)] * (N - 1)
             reference_images = [ref]
         else:
-            # Chain: keep last OVERLAP frames as reference + regenerate rest
             video = [*prev_last_frame[-OVERLAP:], *[Image.new("RGB", (W, H), (128, 128, 128))] * (N - OVERLAP)]
             mask = [Image.new("L", (W, H), 0)] * OVERLAP + [Image.new("L", (W, H), 255)] * (N - OVERLAP)
-            reference_images = [ref, prev_last_frame[-1]]  # portrait + last frame of prev segment
+            reference_images = [ref, prev_last_frame[-1]]
         
         out = pipe(video=video, mask=mask, reference_images=reference_images,
                    prompt_embeds=pos, negative_prompt_embeds=neg, height=H, width=W,
                    num_frames=N, num_inference_steps=30, guidance_scale=5.0,
                    conditioning_scale=1.0, output_type="pil",
-                   generator=torch.Generator("cpu").manual_seed(42 + s)).frames[0]
+                   generator=torch.Generator("cpu").manual_seed(42 + seg)).frames[0]
         
         new_frames = out[OVERLAP:] if seg > 0 else out
         all_frames += new_frames
         prev_last_frame = out[-1]
         
-        # Measure identity on middle frame of new content
         mid = OVERLAP + (N - OVERLAP) // 2 if seg > 0 else N // 2
         frame_bgr = cv2.cvtColor(np.array(out[mid]), cv2.COLOR_RGB2BGR)
         emb = embed(frame_bgr)
@@ -178,8 +173,8 @@ step.write_text(
             f"passes_same_person={report['segments'][-1]['passes_same_person']}")
         gc.collect()
         torch.cuda.empty_cache()
-    
-    export_to_video(all_frames, f"{a['out']}/face_consistent_wreel.mp4", fps=16)
+
+    export_to_video(all_frames, f"{a['out']}/face_consistent.wreel.mp4", fps=16)
     json.dump(report, open(f"{a['out']}/face_consistency.json", "w"), indent=2)
     log(f"face consistency report: {json.dumps(report, indent=2)}")
     all_pass = all(s["passes_same_person"] for s in report["segments"])
