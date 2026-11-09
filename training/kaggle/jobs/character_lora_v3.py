@@ -122,7 +122,9 @@ step.write_text(
         optimizer.zero_grad()
         with torch.no_grad():
             ref_latents = pipe.vae.encode(ref_tensor).latent_dist.sample()
-            ref_latents = ref_latents * pipe.vae.config.scaling_factor
+            vae_config = pipe.vae.config
+            scaling_factor = vae_config["scaling_factor"] if isinstance(vae_config, dict) else vae_config.scaling_factor
+            ref_latents = ref_latents * scaling_factor
         noise = torch.randn_like(ref_latents)
         timesteps = torch.randint(0, 1000, (1,), device="cuda")
         noisy_latents = ref_latents + noise * 0.1
