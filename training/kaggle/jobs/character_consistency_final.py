@@ -55,8 +55,8 @@ args = {
     "yunet": yunet_path,
     "sface": sface_path,
     "out": str(OUT),
-    "segments": 5,  # 5 segments x 2.5 seconds = 12.5 seconds total
-    "frames_per_segment": 40,  # 2.5s at 16 fps
+    "segments": 5,  # 5 segments x 1 second = 5 seconds total
+    "frames_per_segment": 16,  # 1s at 16 fps
     "overlap_frames": 10,  # keep last 10 frames as reference for chaining
     "prompt": f"real video footage of a {words}, standing still, breathing gently, blinking "
     "naturally, mouth closed, not speaking, fixed camera, head and shoulders, plain grey studio "
@@ -77,11 +77,11 @@ step.write_text(
 
     a = json.load(open(sys.argv[1]))
     log = print
-    W, H = 832, 480
+    W, H = 512, 288
     N = a["frames_per_segment"]
     OVERLAP = a["overlap_frames"]
     model_id = "Wan-AI/Wan2.1-VACE-1.3B-diffusers"
-    vae = AutoencoderKLWan.from_pretrained(model_id, subfolder="vae", torch_dtype=torch.float32)
+    vae = AutoencoderKLWan.from_pretrained(model_id, subfolder="vae", torch_dtype=torch.float16)
     pipe = WanVACEPipeline.from_pretrained(model_id, vae=vae, torch_dtype=torch.float16)
     pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config, flow_shift=3.0)
     pipe.enable_model_cpu_offload()
