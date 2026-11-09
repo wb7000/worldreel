@@ -164,6 +164,14 @@ step.write_text(
         def device(self):
             return self.base.device
 
+        def __getattr__(self, name):
+            # Delegate any attribute not found on wrapper to the base transformer
+            # (e.g. cache_context, forward hooks, etc. used by VACE pipeline)
+            # Direct __dict__ access avoids recursion during __init__
+            if 'base' in self.__dict__:
+                return getattr(self.__dict__['base'], name)
+            raise AttributeError(name)
+
         def forward(self, hidden_states=None, encoder_hidden_states=None,
                     timestep=None, **kwargs):
             if encoder_hidden_states is not None:
