@@ -1,12 +1,5 @@
 # Job: Generate character-consistent .wreel video with face swap post-processing.
-#
-# Strategy (proven by Deep-Live-Cam, DynamicFace ICCV 2025):
-#  1. Generate video with Wan2.1-VACE (identity will drift, that's expected)
-#  2. Post-process every frame: detect face, warp reference portrait onto it
-#     using YuNet 5-point landmarks + Delaunay triangulation + affine warp +
-#     seamlessClone
-#  3. This GUARANTEES face identity matches the reference portrait
-#
+# Uses Kaggle's system Python (PyTorch pre-installed) to avoid slow uv venv setup.
 #   python -m tools.kaggle_runner run training/kaggle/jobs/character_consistency_final.py --scene data:vacecast --scene data:facemodels --wait
 import json
 import os
@@ -19,16 +12,12 @@ from formats.wscript import read_wscript
 from stages.generate.bible import expand
 from stages.generate.portraits import appearance_words
 
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "uv"], check=True)
-UV = [sys.executable, "-m", "uv"]
-py = Path("/tmp/faceswap/bin/python")
-subprocess.run([*UV, "venv", "--python", "3.12", "/tmp/faceswap"], check=True)
+# Install only missing packages on Kaggle's system Python
 r = subprocess.run(
-    [*UV, "pip", "install", "--python", str(py), "diffusers", "transformers",
-     "accelerate", "safetensors", "torch", "ftfy", "imageio", "imageio-ffmpeg",
-     "sentencepiece", "opencv-python-headless", "scipy"],
+    [sys.executable, "-m", "pip", "install", "-q",
+     "diffusers", "opencv-python-headless", "scipy"],
     capture_output=True, text=True)
-log(f"face swap env install rc={r.returncode} {r.stderr[-300:] if r.returncode else ''}")
+log(f"pip install rc={r.returncode} {r.stderr[-300:] if r.returncode else ''}", flush=True)
 
 # Find models in mounted Kaggle datasets
 import glob as _glob
@@ -91,9 +80,6 @@ step.write_text(
 
     # ================================================================
     # FACE SWAP ENGINE (Deep-Live-Cam style)
-    # Detect face in each generated frame, warp reference portrait onto it
-    # using Delaunay triangulation + affine warp + seamlessClone.
-    # This GUARANTEES face identity matches the reference portrait.
     # ================================================================
     det = cv2.FaceDetectorYN.create(a["yunet"], "", (W, H), 0.6)
 
@@ -107,14 +93,13 @@ step.write_text(
         landmarks = f[4:14].reshape(5, 2).astype(int)
         return bbox, landmarks
 
-    # Load reference portrait
     ref_img = Image.open(a["portrait"]).convert("RGB")
     ref_bgr = cv2.cvtColor(np.array(ref_img), cv2.COLOR_RGB2BGR)
     ref_face = detect_face(ref_bgr)
     if ref_face is None:
         raise SystemExit("no face found in reference portrait")
     ref_bbox, ref_lm = ref_face
-    log(f"reference face bbox={ref_bbox.tolist()}")
+    log(f"reference face bbox={ref_bbox.tolist()}", flush=True)
 
     # Build Delaunay triangulation on reference landmarks (once)
     ref_hull = cv2.convexHull(ref_lm)
@@ -130,63 +115,50 @@ step.write_text(
             d = np.linalg.norm(ref_lm - np.array(p), axis=1)
             idx.append(int(np.argmin(d)))
         ref_tri_idx.append(idx)
-    log(f"reference triangulation: {len(ref_tri_idx)} triangles")
+    log(f"reference triangulation: {len(ref_tri_idx)} triangles", flush=True)
 
     def swap_face_in_frame(frame_bgr):
-        # Detect face in frame, swap with reference, return blended frame
         face = detect_face(frame_bgr)
         if face is None:
             return frame_bgr
         dst_bbox, dst_lm = face
 
         h, w = frame_bgr.shape[:2]
-
-        # Start with original frame, replace triangles with warped reference
         warped = frame_bgr.copy()
         dst_mask = np.zeros((h, w), dtype=np.uint8)
         cv2.fillConvexPoly(dst_mask, cv2.convexHull(dst_lm), 255)
 
         for tri_idx in ref_tri_idx:
-            # Source triangle in reference image coordinates
             src_pts = np.float32([ref_lm[i] for i in tri_idx])
-            # Destination triangle in frame coordinates
             dst_pts = np.float32([dst_lm[i] for i in tri_idx])
 
-            # Destination triangle bounding rect
             (dx, dy, dw, dh) = cv2.boundingRect(dst_pts)
             if dw <= 0 or dh <= 0:
                 continue
 
-            # Source triangle bounding rect
             (sx, sy, sw_, sh_) = cv2.boundingRect(src_pts)
             if sw_ <= 0 or sh_ <= 0:
                 continue
 
-            # Extract source patch from reference
-            src_patch = ref_bgr[sy:sy+sh_, sx:sx+sw_].copy()
+            src_patch = ref_bgr[sy:sy + sh_, sx:sx + sw_].copy()
 
-            # Local coordinates
-            src_pts_local = np.float32([[p[0]-sx, p[1]-sy] for p in src_pts])
-            dst_pts_local = np.float32([[p[0]-dx, p[1]-dy] for p in dst_pts])
+            src_pts_local = np.float32([[p[0] - sx, p[1] - sy] for p in src_pts])
+            dst_pts_local = np.float32([[p[0] - dx, p[1] - dy] for p in dst_pts])
 
-            # Affine transform: source -> destination
             M = cv2.getAffineTransform(src_pts_local, dst_pts_local)
             warped_patch = cv2.warpAffine(src_patch, M, (dw, dh),
                                           flags=cv2.INTER_LINEAR,
                                           borderMode=cv2.BORDER_REFLECT_101)
 
-            # Triangle mask in patch coordinates
             tri_mask = np.zeros((dh, dw), dtype=np.uint8)
             cv2.fillConvexPoly(tri_mask, np.int32(dst_pts_local), 255)
 
-            # Place warped patch into output frame
-            roi = warped[dy:dy+dh, dx:dx+dw]
+            roi = warped[dy:dy + dh, dx:dx + dw]
             roi_mask = tri_mask[:, :, None] > 0
-            warped[dy:dy+dh, dx:dx+dw] = np.where(roi_mask, warped_patch, roi)
+            warped[dy:dy + dh, dx:dx + dw] = np.where(roi_mask, warped_patch, roi)
 
-        # Seamless clone the warped face onto the original frame
         center = (int(dst_lm[:, 0].mean()), int(dst_lm[:, 1].mean()))
-        center = (max(10, min(w-10, center[0])), max(10, min(h-10, center[1])))
+        center = (max(10, min(w - 10, center[0])), max(10, min(h - 10, center[1])))
         try:
             result = cv2.seamlessClone(warped, frame_bgr, dst_mask, center, cv2.NORMAL_CLONE)
         except cv2.error:
@@ -236,6 +208,7 @@ step.write_text(
                    [Image.new("L", (W, H), 255)] * (N - OVERLAP)
             reference_images = [ref_img, prev_last_frames[-1]]
 
+        log(f"segment {s}: starting generation", flush=True)
         out = pipe(video=video, mask=mask, reference_images=reference_images,
                    prompt_embeds=pos, negative_prompt_embeds=neg, height=H, width=W,
                    num_frames=N, num_inference_steps=30, guidance_scale=5.0,
@@ -254,17 +227,16 @@ step.write_text(
                 frames_swapped += 1
             processed.append(Image.fromarray(cv2.cvtColor(swapped, cv2.COLOR_BGR2RGB)))
             if i % 4 == 0:
-                log(f"  segment {s}: processed {i+1}/{len(out)} frames", flush=True)
+                log(f"  segment {s}: processed {i + 1}/{len(out)} frames", flush=True)
         out = processed
 
         new_frames = out[OVERLAP:] if s > 0 else out
         all_frames += new_frames
         prev_last_frames = out
 
-        # Measure identity on middle frame of new content (should be ~1.0 after swap)
         mid = OVERLAP + (N - OVERLAP) // 2 if s > 0 else N // 2
         face = detect_face(cv2.cvtColor(np.array(out[mid]), cv2.COLOR_RGB2BGR))
-        sim = 1.0 if face is not None else -1.0  # face found = swap succeeded
+        sim = 1.0 if face is not None else -1.0
         seg_seconds = (N - OVERLAP) / 16.0 if s > 0 else N / 16.0
         report["total_seconds"] += seg_seconds
         report["segments"].append({
@@ -275,21 +247,21 @@ step.write_text(
             "frames_swapped": frames_swapped,
             "face_found": face is not None,
         })
-        log(f"segment {s}: frames_swapped={frames_swapped}/{len(out)} face_found={face is not None}")
+        log(f"segment {s}: done frames_swapped={frames_swapped}/{len(out)} face_found={face is not None}", flush=True)
         gc.collect()
         torch.cuda.empty_cache()
 
     export_to_video(all_frames, f"{a['out']}/face_consistency.mp4", fps=16)
     json.dump(report, open(f"{a['out']}/face_consistency.json", "w"), indent=2)
-    log(f"face consistency report: {json.dumps(report, indent=2)}")
-    log(f"TOTAL VIDEO SECONDS: {report['total_seconds']:.2f}")
+    log(f"face consistency report: {json.dumps(report, indent=2)}", flush=True)
+    log(f"TOTAL VIDEO SECONDS: {report['total_seconds']:.2f}", flush=True)
     """),
     encoding="utf-8",
 )
 (WORK / "face_swap_args.json").write_text(json.dumps(args))
 env = {**os.environ, "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}
-r = subprocess.run([str(py), str(step), str(WORK / "face_swap_args.json")],
+r = subprocess.run([str(sys.executable), str(step), str(WORK / "face_swap_args.json")],
                    capture_output=True, text=True, timeout=6 * 3600, env=env)
 (OUT / "face_consistency.log").write_text(r.stdout[-20000:] + "\n" + r.stderr[-8000:] if r.returncode else r.stdout[-20000:], encoding="utf-8")
-log(f"face consistency job rc={r.returncode}")
-log("done")
+log(f"face consistency job rc={r.returncode}", flush=True)
+log("done", flush=True)
