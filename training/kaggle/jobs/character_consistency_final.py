@@ -138,7 +138,6 @@ step.write_text(
     class FaceConditionedTransformer(nn.Module):
         def __init__(self, base_transformer, face_embedding_dim=512):
             super().__init__()
-            self._initialized = False
             self.base = base_transformer
             self.face_embedding_dim = face_embedding_dim
             hidden_dim = (getattr(base_transformer.config, "hidden_size", None)
@@ -152,17 +151,18 @@ step.write_text(
                 self.face_projector.weight.data[:face_embedding_dim, :face_embedding_dim] = torch.eye(face_embedding_dim)
             self.face_projector.bias.data.zero_()
             self.scale = 10.0  # scale face tokens to match text embedding magnitude
-            self._initialized = True
 
-        def __getattr__(self, name):
-            # Delegate any attribute not found on wrapper to the base transformer
-            # (e.g. config, dtype, device) so VACE's check_inputs works
-            if not self._initialized:
-                raise AttributeError(name)
-            try:
-                return super().__getattr__(name)
-            except AttributeError:
-                return getattr(self.base, name)
+        @property
+        def config(self):
+            return self.base.config
+
+        @property
+        def dtype(self):
+            return self.base.dtype
+
+        @property
+        def device(self):
+            return self.base.device
 
         def forward(self, hidden_states=None, encoder_hidden_states=None,
                     timestep=None, **kwargs):
