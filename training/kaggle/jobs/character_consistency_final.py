@@ -152,7 +152,7 @@ step.write_text(
                    prompt_embeds=pos, negative_prompt_embeds=neg, height=H, width=W,
                    num_frames=N, num_inference_steps=30, guidance_scale=5.0,
                    conditioning_scale=1.0, output_type="pil",
-                   generator=torch.Generator("cpu").manual_seed(42 + seg)).frames[0]
+                   generator=torch.Generator("cpu").manual_seed(42 + s)).frames[0]
         
         new_frames = out[OVERLAP:] if s > 0 else out
         all_frames += new_frames
