@@ -115,7 +115,7 @@ step.write_text(
     optimizer = torch.optim.AdamW(pipe.transformer.parameters(), lr=a["lr"])
 
     ref_tensor = torch.from_numpy(np.array(ref.resize((W, H)), dtype=np.float32) / 255.0)
-    ref_tensor = ref_tensor.permute(2, 0, 1).unsqueeze(0).unsqueeze(2).to(torch.float16).to("cuda")
+    ref_tensor = ref_tensor.permute(2, 0, 1).unsqueeze(0).unsqueeze(2).to(torch.float32).to("cuda")
 
     log(f"Starting LoRA training ({a['train_steps']} steps)...")
     for step_idx in range(a["train_steps"]):
