@@ -15,7 +15,7 @@ from stages.generate.portraits import appearance_words
 # Install only missing packages on Kaggle's system Python
 r = subprocess.run(
     [sys.executable, "-m", "pip", "install", "-q",
-     "diffusers", "opencv-python-headless", "scipy"],
+     "diffusers", "opencv-python-headless", "scipy", "ftfy"],
     capture_output=True, text=True)
 log(f"pip install rc={r.returncode} {r.stderr[-300:] if r.returncode else ''}")
 
