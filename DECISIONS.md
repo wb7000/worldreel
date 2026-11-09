@@ -2152,3 +2152,46 @@ union for Rule action, `id` on AudioEvent, `branches` on interaction). All 35 pl
 
 Kaggle status: all training complete (portraits, voices, director, script model, splats,
 hero chain, VACE characters). No new Kaggle upload needed for Phase 9 code.
+
+
+### D-9.3 Character-consistent generation job fixed (Phase 8, 2026-11-09)
+
+`training/kaggle/jobs/character_consistency_final.py` — face-identity consistent `.wreel`
+video generation on Kaggle T4. The job was failing with `KeyError: 'scaling_factor'` because
+`pipe.vae.config` is a `FrozenDict` that may not contain `scaling_factor`, and the except
+clause only caught `(AttributeError, TypeError)`, not `KeyError`.
+
+Fixes applied (all committed to `phase-8-generate` branch):
+
+1. **VAE `scaling_factor` access** (line 120-125): wrapped `vae_config["scaling_factor"]` in
+   try/except catching `(AttributeError, KeyError, TypeError)` with fallback to `0.18215`
+   (standard VAE scaling factor).
+
+2. **Missing `pos`/`neg` prompt embeddings** (lines 110-113): added `pipe.encode_prompt()`
+   call before the generation loop; `pos`/`neg` were referenced but never computed, causing
+   `NameError`.
+
+3. **Loop variable mismatch** (line 140): `if seg == 0:` changed to `if s == 0:` to match
+   the `for s in range(...)` loop variable.
+
+4. **Camera seed variable** (line 155): `manual_seed(42 + seg)` changed to
+   `manual_seed(42 + s)` to match the loop variable.
+
+5. **CUDA OOM** (multiple): reduced `frames_per_segment` 80→16, resolution 832×480→512×288,
+   VAE dtype float32→float16, and removed unused `ref_latents` encoding block.
+
+6. **Segment chaining bug** (lines 135, 147): `prev_last_frame = out[-1]` (single Image)
+   changed to `prev_last_frame = out[-OVERLAP:]` (list of frames), and
+   `video = [*prev_last_frame[-OVERLAP:], ...]` changed to `video = [*prev_last_frame, ...]`
+   since `prev_last_frame` is already the last OVERLAP frames.
+
+Kaggle run (kernel #3, completed 2026-11-09): all 5 segments generated without crash.
+Face consistency (SFace vs reference, threshold 0.363):
+- Segment 0: 0.8231 ✅  Segment 1: 0.4786 ✅  Segment 2: 0.3358 ❌
+- Segment 3: 0.1757 ❌  Segment 4: -1.0 (no face) ❌
+
+Identity holds for the first ~1 second then drifts — expected for reference-image chaining
+without active face embedding injection into the diffusion UNet. The `KeyError` bug that
+blocked the job entirely is resolved; improving cross-segment consistency is a Phase 8
+follow-up (candidate: per-segment face embedding injection into VAE decoder upsampling
+blocks, as prototyped in `stages/generate/wan21_identity_decoder.py`).
