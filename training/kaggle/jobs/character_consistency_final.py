@@ -105,7 +105,7 @@ step.write_text(
     ref_hull = cv2.convexHull(ref_lm)
     ref_rect = cv2.boundingRect(ref_hull)
     ref_subdiv = cv2.Subdiv2D(ref_rect)
-    ref_subdiv.insert([tuple(p) for p in ref_lm])
+    ref_subdiv.insert([(int(p[0]), int(p[1])) for p in ref_lm])
     ref_triangles = ref_subdiv.getTriangleList()
     ref_tri_idx = []
     for t in ref_triangles:
