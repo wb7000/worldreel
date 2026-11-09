@@ -107,12 +107,22 @@ step.write_text(
         raise SystemExit("no face found in reference portrait")
     log(f"reference face embedding norm: {float(np.linalg.norm(ref_emb)):.4f}")
 
+    # Encode text prompts once
+    with torch.no_grad():
+        pos, neg = pipe.encode_prompt(prompt=a["prompt"], negative_prompt=a["negative"],
+                                      do_classifier_free_guidance=True, device=torch.device("cuda"))
+
     # Encode portrait to latent space for conditioning
     ref_tensor = torch.from_numpy(np.array(ref.resize((W, H)), dtype=np.float32) / 255.0)
     ref_tensor = ref_tensor.permute(2, 0, 1).unsqueeze(0).unsqueeze(2).to(torch.float32).to("cuda")
     with torch.no_grad():
         ref_latents = pipe.vae.encode(ref_tensor).latent_dist.sample()
-        ref_latents = ref_latents * pipe.vae.config.scaling_factor
+        vae_config = pipe.vae.config
+        try:
+            scaling_factor = float(vae_config["scaling_factor"])
+        except (AttributeError, KeyError, TypeError):
+            scaling_factor = 0.18215  # Default VAE scaling factor
+        ref_latents = ref_latents * scaling_factor
 
     x = (W - H) // 2
     first = Image.new("RGB", (W, H), (128, 128, 128))
@@ -127,7 +137,7 @@ step.write_text(
         t0 = time.time()
         torch.cuda.reset_peak_memory_stats()
         
-        if seg == 0:
+        if s == 0:
             # First segment: portrait as reference image
             video = [first] + [Image.new("RGB", (W, H), (128, 128, 128))] * (N - 1)
             mask = [Image.new("L", (W, H), 0)] + [Image.new("L", (W, H), 255)] * (N - 1)
