@@ -89,7 +89,12 @@ step.write_text(
     pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config, flow_shift=3.0)
     pipe.enable_model_cpu_offload()
     pipe.vae.enable_tiling()
-    
+
+    # Encode text prompts once
+    with torch.no_grad():
+        pos, neg = pipe.encode_prompt(prompt=a["prompt"], negative_prompt=a["negative"],
+                                      do_classifier_free_guidance=True, device=torch.device("cuda"))
+
     # Face detection + recognition
     det = cv2.FaceDetectorYN.create(a["yunet"], "", (W, H), 0.6)
     rec = cv2.FaceRecognizerSF.create(a["sface"], "")
