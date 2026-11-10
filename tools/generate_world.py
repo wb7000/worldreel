@@ -18,8 +18,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any, cast
+
+# Suppress OpenCV logging to stderr (PowerShell treats stderr as process failure)
+os.environ["OPENCV_LOG_LEVEL"] = "ERROR"
 
 from stages.generate.real import build_world
 

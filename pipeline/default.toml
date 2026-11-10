@@ -13,6 +13,7 @@ fill = "mock"
 audio = "mock"
 package = "real"
 export = "mock"
+generate = "mock"
 
 [stage.frames]
 fps = 6.0
@@ -27,3 +28,14 @@ median_depth_m = 5.0   # sets the unknown monocular scale
 
 [stage.reconstruct]
 stereo_width = 240
+
+[stage.generate]
+script = "eval/scripts/lantern_keeper.wscript"
+scene_id = "S001"
+duration = 10.0
+portraits = ""
+choice = {}
+surface = "stone"
+weather = "rain"
+scene_audio = ""
+timing = ""

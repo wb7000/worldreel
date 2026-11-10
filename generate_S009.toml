@@ -1,0 +1,11 @@
+[stage.generate]
+script = "eval/scripts/lantern_keeper.wscript"
+scene_id = "S009"
+duration = 28.2
+portraits = "runs/kaggle/portraits/out"
+choice = { C01 = "C01_5.png", C02 = "C02_3.png", C03 = "C03_0.png", C04 = "C04_0.png" }
+seed = 7
+surface = "stone"
+weather = "rain"
+scene_audio = "runs/voice_lantern_final/S009.wav"
+timing = "runs/voice_lantern_final/timing.json"

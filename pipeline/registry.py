@@ -31,6 +31,7 @@ from stages.frames.images import ImageSequenceFramesStage
 from stages.frames.mock import MockFramesStage
 from stages.frames.real import FramesStage
 from stages.generate.mock import MockGenerateStage
+from stages.generate.real import GenerateStage
 from stages.package.real import PackageStage
 from stages.reconstruct.mock import MockReconstructStage
 from stages.reconstruct.planesweep import PlaneSweepReconstructStage
@@ -46,7 +47,7 @@ IMPLEMENTATIONS: dict[str, dict[str, type]] = {
     "audio": {"mock": MockAudioStage},
     "package": {"mock": PackageStage, "real": PackageStage},
     "export": {"mock": MockExportStage},
-    "generate": {"mock": MockGenerateStage},
+    "generate": {"mock": MockGenerateStage, "real": GenerateStage},
 }
 
 VIDEO_PIPELINE = ("frames", "actors", "camera", "reconstruct", "fill", "audio", "package", "export")
