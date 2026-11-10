@@ -188,6 +188,9 @@ step.write_text(
                              encoder_hidden_states=encoder_hidden_states,
                              timestep=timestep, **kwargs)
 
+        def __getattr__(self, name):
+            return getattr(self.base, name)
+
     # Wrap the transformer AFTER CPU offload is set up
     pipe.transformer = FaceConditionedTransformer(pipe.transformer)
 
