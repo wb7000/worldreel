@@ -146,7 +146,7 @@ step.write_text(
     # Inject SFace embedding as cross-attention context tokens into the
     # Wan2.1 transformer during every denoising step.
     class FaceConditionedTransformer:
-        def __init__(self, base_transformer, face_embedding_dim=512):
+        def __init__(self, base_transformer, face_embedding_dim=128):
             self.base = base_transformer
             self.face_embedding_dim = face_embedding_dim
             hidden_dim = (getattr(base_transformer.config, "hidden_size", None)
