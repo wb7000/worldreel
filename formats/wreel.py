@@ -32,7 +32,7 @@ from formats.common import (
 
 FORMAT = "wreel"
 SUPPORTED_VERSION = (1, 1)
-FORMAT_VERSION = "1.0"  # files without Gaussian layers stay 1.0 (spec §6.3)
+FORMAT_VERSION = "1.1"  # files with Gaussian layers require 1.1 (spec §6.3)
 GAUSSIAN_FORMAT_VERSION = "1.1"
 MANIFEST = "manifest.json"
 SIGNATURE = "signature.json"

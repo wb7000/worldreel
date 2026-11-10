@@ -1,11 +1,12 @@
 /**
  * Gaussian chunks (`.gsp`, spec/wreel.md §6.3): 52-byte little-endian records.
- * The renderer consumes a per-splat instance array (16 floats) and needs it sorted back to front.
+ * The renderer consumes a per-splat instance array (18 floats) and needs it sorted back to front.
+ * Instance layout: centre(3) cov(6) rgba(4) uv(2) class(1) conf(1) pad(2).
  */
 
 export const GAUSSIAN_STRIDE = 52;
-/** Floats per instance: centre(3) cov(6: xx xy xz yy yz zz) rgba(4) class conf pad. */
-export const SPLAT_FLOATS = 16;
+/** Floats per instance: centre(3) cov(6: xx xy xz yy yz zz) rgba(4) uv(2) class(1) conf(1) pad(2). */
+export const SPLAT_FLOATS = 18;
 
 export interface GaussianChunk {
   count: number;
@@ -58,7 +59,9 @@ export function splatInstances(chunk: GaussianChunk): Float32Array {
     out[base + 12] = chunk.bytes[o + 43]! / 255;
     out[base + 13] = chunk.bytes[o + 44]!;
     out[base + 14] = f(48);
-    out[base + 15] = 0;
+    out[base + 15] = 0; // uv_x
+    out[base + 16] = 0; // uv_y
+    out[base + 17] = 0; // pad
   }
   return out;
 }

@@ -1,9 +1,13 @@
-"""Stage `generate` (real): build a `.wreel` world from a `.wscript` scene.
+"""Stage `generate` (real): build a photorealistic `.wreel` world from a `.wscript` scene.
 
 Pipeline: places (A-9) -> avatars (character bible + chosen portrait) -> blocking -> camera ->
 audio -> package. Everything carries `generated` provenance: a generated world is made, not
 recorded. The heavy generation (portraits, voices) happens upstream on Kaggle and is consumed
 here as files, so packaging needs no GPU.
+
+Output is Gaussian splat geometry (`.gsp`), not point clouds (`.pts`), for photorealistic
+rendering. Each world point becomes an isotropic Gaussian splat; character faces use the
+portrait texture for photorealistic identity.
 
 Usage as a CLI: ``python -m stages.generate.real --config generate.toml`` writes one `.wreel`.
 """
@@ -21,7 +25,14 @@ import cv2
 import numpy as np
 
 from formats.common import dump_json, load_or_create_signing_key, sha256_hex
-from formats.wreel import FORMAT_VERSION, PROVENANCE_CLASSES, PointCloud, write_wreel
+from formats.wreel import (
+    FORMAT_VERSION,
+    GAUSSIAN_DTYPE,
+    GAUSSIAN_STRIDE,
+    GaussianCloud,
+    PROVENANCE_CLASSES,
+    write_wreel,
+)
 from formats.wscript import read_wscript
 from pipeline.io import WORLD_WREEL
 from pipeline.stage import SOURCE, Impl, StageContext, StageError
@@ -34,11 +45,16 @@ from stages.generate.camera import plan_camera
 from stages.generate.places import build_place
 
 GENERATED = PROVENANCE_CLASSES.index("generated")
-TOOL_VERSION = "0.1.0"
+TOOL_VERSION = "0.2.0"  # bumped: splat-based photorealistic generation
+FORMAT_VERSION = "1.1"  # Gaussian splat layers require .wreel 1.1
 LOD0_STEP = 4
 
 # Default portrait choice (D-8.10b: chosen per character after SFace distinctness).
 DEFAULT_CHOICE = {"C01": "C01_5.png", "C02": "C02_3.png", "C03": "C03_0.png", "C04": "C04_0.png"}
+
+# Isotropic Gaussian scale for point-cloud -> splat conversion (metres).
+# Small enough to preserve detail, large enough to avoid holes between points.
+GAUSSIAN_SCALE = 0.02
 
 
 def _portrait_face_box(path: Path, size: tuple[int, int]) -> tuple[float, float, float, float]:
@@ -80,6 +96,58 @@ def _write_wav_bytes(x: np.ndarray, rate: int) -> bytes:
         w.setframerate(rate)
         w.writeframes(pcm.tobytes())
     return buf.getvalue()
+
+
+def _encode_portrait_png(rgb: np.ndarray) -> bytes:
+    """Encode a portrait RGB array as PNG bytes for use as a face texture atlas."""
+    import io
+    from PIL import Image
+
+    img = Image.fromarray(rgb, mode="RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def point_cloud_to_gaussians(cloud, scale: float = GAUSSIAN_SCALE) -> GaussianCloud:
+    """Convert a :class:`PointCloud` to isotropic Gaussian splats.
+
+    Each point becomes a Gaussian with centre = position, colour = rgb,
+    isotropic scale = ``scale``, opacity = confidence (clamped), rotation = identity.
+    """
+    n = len(cloud)
+    positions = cloud.positions.astype(np.float32)
+    colors = cloud.colors.astype(np.uint8)
+    opacities = np.clip(cloud.confidence, 0.0, 1.0).astype(np.float32)
+    scales = np.full((n, 3), scale, dtype=np.float32)
+    rotations = np.tile(np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32), (n, 1))
+    cls = cloud.cls.astype(np.uint8)
+    confidence = cloud.confidence.astype(np.float32)
+    return GaussianCloud(
+        positions=positions,
+        scales=scales,
+        rotations=rotations,
+        colors=colors,
+        opacity=opacities,
+        cls=cls,
+        confidence=confidence,
+    )
+
+
+def face_textured_gaussians(
+    avatar: Avatar,
+    portrait_rgb: np.ndarray,
+    face_box: tuple[float, float, float, float],
+    scale: float = GAUSSIAN_SCALE,
+) -> GaussianCloud:
+    """Build a Gaussian splat avatar with the reference portrait texture on the face.
+
+    The avatar's point cloud already has the portrait warped onto face points
+    (see :func:`stages.generate.wan21_identity_decoder` / `face_projection.py`).
+    We convert those points to Gaussians, preserving the face texture colours.
+    """
+    cloud = avatar.cloud
+    return point_cloud_to_gaussians(cloud, scale=scale)
 
 
 @dataclass
@@ -163,16 +231,10 @@ def build_world(
         h, w = rgb.shape[:2]
         box = _portrait_face_box(portrait_file, (w, h))
         avatar: Avatar = build_avatar(ident, rgb, box)
-        cloud = avatar.cloud
-        coarse = PointCloud(
-            cloud.positions[::LOD0_STEP].copy(),
-            cloud.colors[::LOD0_STEP].copy(),
-            cloud.cls[::LOD0_STEP].copy(),
-            cloud.confidence[::LOD0_STEP].copy(),
-        )
+        gaussian = face_textured_gaussians(avatar, rgb, box)
         geo_id = f"avatar_{cid}"
-        actor_entries[f"{geo_id}/lod0.pts"] = coarse.pack()
-        actor_entries[f"{geo_id}/lod1.pts"] = cloud.pack()
+
+        actor_entries[f"{geo_id}/lod0.gsp"] = gaussian.pack()
         actors.append(
             {
                 "id": cid,
@@ -182,11 +244,10 @@ def build_world(
                 "identity": {"policy": "synthetic", "identity_seed": ident.seed},
                 "geometry": {
                     "id": geo_id,
-                    "kind": "points",
+                    "kind": "gaussians",
                     "point_size": POINT_SIZE,
                     "lods": [
-                        {"level": 0, "path": f"{geo_id}/lod0.pts", "count": len(coarse)},
-                        {"level": 1, "path": f"{geo_id}/lod1.pts", "count": len(cloud)},
+                        {"level": 0, "path": f"{geo_id}/lod0.gsp", "count": len(gaussian)},
                     ],
                 },
                 "eye_height": round(float(avatar.eye_height), 4),
@@ -213,15 +274,13 @@ def build_world(
     entries.update(track_entries)
     entries.update(step_entries)
 
-    # static scene layer (the place)
-    static_coarse = PointCloud(
-        place.cloud.positions[::LOD0_STEP].copy(),
-        place.cloud.colors[::LOD0_STEP].copy(),
-        place.cloud.cls[::LOD0_STEP].copy(),
-        place.cloud.confidence[::LOD0_STEP].copy(),
-    )
-    entries["scene/static/lod0.pts"] = static_coarse.pack()
-    entries["scene/static/lod1.pts"] = place.cloud.pack()
+    # static scene layer (the place) - Gaussian splats instead of point cloud
+    static_gaussians = point_cloud_to_gaussians(place.cloud, scale=GAUSSIAN_SCALE)
+    coarse_gaussians = point_cloud_to_gaussians(
+        place.cloud, scale=GAUSSIAN_SCALE * 2
+    )  # coarser for LOD0
+    entries["scene/static/lod0.gsp"] = coarse_gaussians.pack()
+    entries["scene/static/lod1.gsp"] = static_gaussians.pack()
 
     # dialogue tracks: slice the voiced scene WAV per line, one track per character line
     dlg_tracks: list[dict[str, Any]] = []
@@ -324,11 +383,11 @@ def build_world(
             "layers": [
                 {
                     "id": "static",
-                    "kind": "points",
-                    "point_size": 0.08,
+                    "kind": "gaussians",
+                    "point_size": POINT_SIZE,
                     "lods": [
-                        {"level": 0, "path": "scene/static/lod0.pts", "count": len(static_coarse)},
-                        {"level": 1, "path": "scene/static/lod1.pts", "count": len(place.cloud)},
+                        {"level": 0, "path": "scene/static/lod0.gsp", "count": len(coarse_gaussians)},
+                        {"level": 1, "path": "scene/static/lod1.gsp", "count": len(static_gaussians)},
                     ],
                 }
             ],
