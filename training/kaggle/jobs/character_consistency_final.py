@@ -111,7 +111,9 @@ step.write_text(
     log(f"reference face bbox={ref_bbox.tolist()}")
 
     # Compute SFace embedding for reference portrait
-    ref_emb = rec.compute_feature(ref_bgr, ref_lm)
+    # OpenCV 5 FaceRecognizerSF API: alignCrop then feature
+    ref_aligned = rec.alignCrop(ref_bgr, ref_lm)
+    ref_emb = rec.feature(ref_aligned)
     if ref_emb is None:
         raise SystemExit("could not compute reference face embedding")
     ref_emb = ref_emb.ravel().astype(np.float32)
