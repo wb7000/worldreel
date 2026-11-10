@@ -1,6 +1,6 @@
-# Job: Generate character-consistent .wreel video with photorealistic face identity.
-# Uses Kaggle T4 GPU with Wan2.1-VACE + face identity injection.
-# Output: .wreel file with Gaussian splat world + MP4 video with face-consistent characters.
+# Job: Generate character-consistent PHOTOREALISTIC .wreel video
+# Uses Wan2.1-VACE for video generation + face embedding injection into transformer
+# Output: High-quality MP4 video + .wreel with video texture
 #
 #   python -m tools.kaggle_runner run training/kaggle/jobs/character_consistency_final.py --scene data:vacecast --scene data:facemodels --wait
 import json
@@ -14,12 +14,12 @@ from formats.wscript import read_wscript
 from stages.generate.bible import expand
 from stages.generate.portraits import appearance_words
 
-# Install only missing packages on Kaggle's system Python
+# Install required packages on Kaggle
 r = subprocess.run(
     [sys.executable, "-m", "pip", "install", "-q",
      "diffusers", "opencv-python-headless", "scipy", "ftfy"],
     capture_output=True, text=True)
-log(f"pip install rc={r.returncode} {r.stderr[-300:] if r.returncode else ''}")
+log(f"face consistency env install rc={r.returncode} {r.stderr[-300:] if r.returncode else ''}")
 
 # Find models in mounted Kaggle datasets
 import glob as _glob
@@ -53,15 +53,12 @@ args = {
     "sface": sface_path,
     "out": str(OUT),
     "segments": 3,
-    "frames_per_segment": 16,
+    "frames_per_segment": 48,
     "overlap_frames": 6,
-    "prompt": f"real video footage of a {words}, standing still, breathing gently, blinking "
-    "naturally, mouth closed, not speaking, fixed camera, head and shoulders, plain grey studio "
-    "wall behind, soft even natural light, natural skin with pores, natural hair, sharp focus, "
-    "shot on 35mm film, photorealistic",
-    "negative": "cartoon, CGI, 3d render, plastic skin, video game, doll, painting, mannequin, "
-    "blurry, deformed face, extra eyes, text, watermark, overexposed, dark blotches on skin, "
-    "static, still picture, talking, open mouth, camera movement",
+    "width": 512,
+    "height": 288,
+    "prompt": f"real video footage of a {words}, standing still, breathing gently, blinking naturally, mouth closed, not speaking, fixed camera, head and shoulders, plain grey studio wall behind, soft even natural light, natural skin with pores, natural hair, sharp focus, shot on 35mm film, photorealistic",
+    "negative": "cartoon, CGI, 3d render, plastic skin, video game, doll, painting, mannequin, blurry, deformed face, extra eyes, text, watermark, overexposed, dark blotches on skin, static, still picture, talking, open mouth, camera movement",
 }
 step = WORK / "step_face_consistency.py"
 step.write_text(
@@ -75,19 +72,12 @@ step.write_text(
 
     a = json.load(open(sys.argv[1]))
     log = print
-    W, H = 512, 288
+    W, H = a["width"], a["height"]
     N = a["frames_per_segment"]
     OVERLAP = a["overlap_frames"]
     model_id = "Wan-AI/Wan2.1-VACE-1.3B-diffusers"
 
-    # ================================================================
-    # FACE IDENTITY INJECTION into Wan2.1-VACE transformer
-    # ================================================================
-    # Inject SFace embedding as cross-attention context tokens into the
-    # Wan2.1 transformer during every denoising step. This forces the
-    # diffusion model to condition on the reference identity throughout
-    # generation, matching how IP-Adapter-FaceID / Stand-In work.
-    # ================================================================
+    # Face detection + recognition (SFace + YuNet)
     det = cv2.FaceDetectorYN.create(a["yunet"], "", (W, H), 0.6)
 
     def detect_face(img_bgr):
@@ -100,8 +90,7 @@ step.write_text(
         landmarks = f[4:14].reshape(5, 2).astype(int)
         return bbox, landmarks
 
-    # Load reference portrait and compute SFace embedding
-    rec = cv2.FaceRecognizerSF.create(a["sface"], "")
+    # Load reference portrait
     ref_img = Image.open(a["portrait"]).convert("RGB")
     ref_bgr = cv2.cvtColor(np.array(ref_img), cv2.COLOR_RGB2BGR)
     ref_face = detect_face(ref_bgr)
@@ -111,7 +100,7 @@ step.write_text(
     log(f"reference face bbox={ref_bbox.tolist()}")
 
     # Compute SFace embedding for reference portrait
-    # OpenCV 5 FaceRecognizerSF API: alignCrop then feature
+    rec = cv2.FaceRecognizerSF.create(a["sface"], "")
     ref_aligned = rec.alignCrop(ref_bgr, ref_lm)
     ref_emb = rec.feature(ref_aligned)
     if ref_emb is None:
@@ -120,14 +109,12 @@ step.write_text(
     ref_emb = ref_emb / np.linalg.norm(ref_emb)
     log(f"reference face embedding norm={float(np.linalg.norm(ref_emb)):.4f}")
 
-    # ================================================================
-    # LOAD WAN2.1-VACE PIPELINE
-    # ================================================================
+    # Load Wan2.1-VACE pipeline
     vae = AutoencoderKLWan.from_pretrained(model_id, subfolder="vae", torch_dtype=torch.float16)
     pipe = WanVACEPipeline.from_pretrained(model_id, vae=vae, torch_dtype=torch.float16)
     pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config, flow_shift=3.0)
 
-    # Encode prompts first, then free text encoder (saves VRAM)
+    # Encode prompts first, then free text encoder
     pipe.text_encoder.to("cuda")
     with torch.no_grad():
         pos, neg = pipe.encode_prompt(prompt=a["prompt"], negative_prompt=a["negative"],
@@ -140,11 +127,7 @@ step.write_text(
     pipe.enable_model_cpu_offload()
     pipe.vae.enable_tiling()
 
-    # ================================================================
-    # FACE IDENTITY INJECTOR into Wan2.1 transformer
-    # ================================================================
-    # Inject SFace embedding as cross-attention context tokens into the
-    # Wan2.1 transformer during every denoising step.
+    # Face identity injector into Wan2.1 transformer
     class FaceConditionedTransformer:
         def __init__(self, base_transformer, face_embedding_dim=128):
             self.base = base_transformer
@@ -154,7 +137,6 @@ step.write_text(
                           or 4096)
             self.hidden_dim = hidden_dim
             self.face_projector = torch.nn.Linear(face_embedding_dim, hidden_dim)
-            # Identity-mapping init: face embedding lands in first hidden_dim dims
             self.face_projector.weight.data.zero_()
             if face_embedding_dim <= hidden_dim:
                 self.face_projector.weight.data[:face_embedding_dim, :face_embedding_dim] = torch.eye(face_embedding_dim)
@@ -180,9 +162,9 @@ step.write_text(
                 dtype = hidden_states.dtype
                 ref_emb_t = torch.from_numpy(ref_emb).unsqueeze(0).to(device, dtype)
                 self.face_projector = self.face_projector.to(device, dtype)
-                face_tokens = self.face_projector(ref_emb_t)  # [B, hidden_dim]
+                face_tokens = self.face_projector(ref_emb_t)
                 face_tokens = face_tokens * self.scale
-                face_tokens = face_tokens.unsqueeze(1)  # [B, 1, hidden_dim]
+                face_tokens = face_tokens.unsqueeze(1)
                 encoder_hidden_states = torch.cat([face_tokens, encoder_hidden_states], dim=1)
             return self.base(hidden_states=hidden_states,
                              encoder_hidden_states=encoder_hidden_states,
@@ -191,7 +173,6 @@ step.write_text(
         def __getattr__(self, name):
             return getattr(self.base, name)
 
-    # Wrap the transformer AFTER CPU offload is set up
     pipe.transformer = FaceConditionedTransformer(pipe.transformer)
 
     x = (W - H) // 2
@@ -225,13 +206,13 @@ step.write_text(
                    conditioning_scale=1.0, output_type="pil",
                    generator=torch.Generator("cpu").manual_seed(42 + s)).frames[0]
 
-        # Face identity is already injected via transformer - no post-processing needed
         new_frames = out[OVERLAP:] if s > 0 else out
         all_frames += new_frames
         prev_last_frames = out
 
         mid = OVERLAP + (N - OVERLAP) // 2 if s > 0 else N // 2
-        face = detect_face(cv2.cvtColor(np.array(out[mid]), cv2.COLOR_RGB2BGR))
+        frame_bgr = cv2.cvtColor(np.array(out[mid]), cv2.COLOR_RGB2BGR)
+        face = detect_face(frame_bgr)
         sim = 1.0 if face is not None else -1.0
         seg_seconds = (N - OVERLAP) / 16.0 if s > 0 else N / 16.0
         report["total_seconds"] += seg_seconds
@@ -246,7 +227,6 @@ step.write_text(
         gc.collect()
         torch.cuda.empty_cache()
 
-    # Export MP4 video
     export_to_video(all_frames, f"{a['out']}/face_consistency.mp4", fps=16)
     json.dump(report, open(f"{a['out']}/face_consistency.json", "w"), indent=2)
     log(f"face consistency report: {json.dumps(report, indent=2)}")
