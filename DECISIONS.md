@@ -2630,4 +2630,43 @@ encoder) nor 29 GB of CPU RAM. **Wan2.1-VACE-1.3B (480P only) is the practical c
 **Rule:** *never stack two identity mechanisms.* If native conditioning is present, a post-hoc swap
 is not a boost — it is a second face.
 
+### D-9.14 Verified: D-9.13 works — one face, real identity, no swap needed
+
+Kernel **v8** ran 2h45m on 2x T4 and completed without the OOM ladder firing.
+
+| Metric | S016 (D-9.11/9.12, swap) | S017 (D-9.13, no swap) |
+|---|---|---|
+| Resolution | 832x480 | 832x480 |
+| Frames | 173 | 135 (49+43+43) |
+| Frames with **>1 face** | visible ghost overlay | **0 / 135** |
+| Frames with 0 faces | 0 | **0 / 135** |
+| Identity cosine vs reference | swap-driven, measured post-paste | **mean 0.8230, min 0.7540** |
+| Analyzer issues | 0, severity NONE | **0, severity NONE** |
+| Face consecutive similarity | 0.950 | 0.905 |
+| Subject sharpness (Lap var) | 374.7 | **641.0** |
+| Face sharpness (Lap var) | 50.5 | **83.9** |
+| Mean motion | 0.546 | 1.601 |
+| Flicker index | 0.0137 | 0.0344 (both under 0.05) |
+| Blocking / ringing | 1.49 / 8.32 | 1.34 / 10.72 |
+| Peak VRAM | — | **7.53 GB** (of 15.36 GB) |
+
+**Verification method (`tools/v2_check.py`):** the ghost face is invisible to a casual glance, so
+QA is quantitative, not visual — YuNet is asked for *every* detection (not just the most confident)
+and a pasted second face shows up as `frames with >1 face`. Inter-ocular distance CV = 0.078 and
+face-height CV = 0.081 confirm a single geometry population, i.e. no two-face jitter. Identity is a
+real cosine against `C01_0.png`, measured on the raw model output with no swap in the path.
+
+**Packaging is lossless:** the MP4 inside `runs/generated/S017_vace_reference.wreel` is
+byte-identical to the source (same SHA-256, 323,630 B), so VMAF against the source is trivially
+100 — there is nothing to score. `python -m formats validate` → **OK (0 errors, 0 warnings)**.
+
+**VMAF note:** VMAF needs a reference video, and this is synthetic footage with no ground truth.
+The earlier S016 figure of 43.51 was measured against an unrecorded reference, so the two numbers
+are not comparable — do not quote them side by side. For generated content the no-reference metrics
+above (sharpness, flicker, blocking, identity, single-face count) are the meaningful ones.
+
+**Artefacts:** `runs/kaggle/character_consistency_v2/out/face_consistency.mp4` (832x480, 135 f),
+`face_consistency.json`, `runs/analysis/v2_face_consistency.json`,
+`runs/videos/S017_face_consistent.mp4`, `runs/generated/S017_vace_reference.wreel`.
+
 

@@ -438,12 +438,13 @@ Step 4 (Local): Validate
 
 | Method | Status | Evidence |
 |--------|--------|----------|
+| **VACE `reference_images` (4 views), no post-hoc swap** | ✅ | S017: 135/135 frames with exactly one face, identity mean **0.8230** / min 0.7540 (D-9.14) |
 | YuNet face detection on 832x480 Kaggle shots | ✅ | All 6 shot images detected, SFace norm=1.0 |
 | SFace embedding extraction | ✅ | 128-dim, normalized to 1.0 |
-| Delaunay + affine + seamlessClone face swap | ✅ | 30/30 frames swapped, output 83KB MP4 |
 | Face swap + similarity measurement | ✅ | Avg similarity 0.684–0.984 to reference |
-| `.wreel` packaging with embedded MP4 | ✅ | S011 and S012 validate OK (0 errors, 0 warnings) |
-| Kaggle job pushes and completes | ✅ | Kernel v7 pushed, QUEUED/RUNNING status confirmed |
+| Multi-segment chaining with overlap-drop | ✅ | 49+43+43 frames, one continuous shot, no duplicated seam frames |
+| `.wreel` packaging with embedded MP4 | ✅ | S011, S012 and **S017** validate OK (0 errors, 0 warnings); MP4 byte-identical after packaging |
+| Kaggle job pushes and completes | ✅ | Kernel v8 pushed, COMPLETE in 2h45m, peak 7.53 GB |
 | Local OpenCV + PyTorch CPU environment | ✅ | OpenCV 5.0.0, PyTorch 2.15.0+cpu installed |
 
 ### 7.2 What DOES NOT WORK / Has Issues
@@ -462,7 +463,7 @@ Step 4 (Local): Validate
 
 | Method | Priority | Notes |
 |--------|----------|-------|
-| VACE `reference_images` (4 views) without any post-hoc swap | **High** | D-9.13 change; needs a Kaggle run to confirm `identity_sim` stays high |
+| VACE `reference_images` (4 views) without any post-hoc swap | ~~High~~ **Done** | S017 verified: one face in 135/135 frames, identity 0.8230 mean (D-9.14) |
 | InSwapper-128 face swap vs our Delaunay method | Medium | Compare SSIM, identity score, blend consistency |
 | Consistency models (1-4 step) on Wan2.1 | Medium | Could reduce Kaggle time from 9min to 2min |
 | 720p resolution on Kaggle T4 | Low | VACE-1.3B is 480P-only; 14B does not fit a T4 (§15.7) |
@@ -995,7 +996,27 @@ python stages/generate/video_annotator.py \
 ffmpeg -i reference.mp4 -i encoded.mp4 -lavfi "libvmaf=log_path=vmaf.json" -f null -
 ```
 
-### 13.4 Test Results (on `test_face_consistent.mp4`)
+**VMAF gotcha on Windows:** `libvmaf` eats backslashes in `log_path`, so
+`log_path=runs\analysis\x.json` is written as `runsanalysis\x.json` in the CWD. Use forward slashes.
+
+### 13.4 The ghost-face QA tool (`tools/v2_check.py`)
+
+An overlapping pasted face is easy to miss by eye and easy to *claim* fixed. `tools/v2_check.py`
+makes it a number:
+
+```bash
+python tools/v2_check.py [video.mp4]     # defaults to the latest v2 run
+```
+
+- asks YuNet for **every** detection rather than only the most confident one, and reports
+  `frames with > 1 face` — a pasted second face lands here
+- inter-ocular distance and face-height spread (CV): two face populations ⇒ bimodal jitter
+- identity cosine per sampled frame against the reference portrait (threshold 0.363)
+- Laplacian variance inside the face oval (sharpness)
+
+`tools/vmaf_read.py` parses libvmaf's XML log (the file is named `.json` but is XML).
+
+### 13.5 Test Results (on `test_face_consistent.mp4`)
 
 ```
 6 frames analyzed (every 5th of 30)
@@ -1189,6 +1210,11 @@ geometry. With native reference conditioning producing `pre_swap_sim` 0.797, the
 gain and everything to lose. Identity is now measured on the **un-swapped** output, so the reported
 `identity_sim` reflects what the model itself produced.
 
+**Verified (S017, D-9.14):** with the swap removed, 135/135 frames contain exactly one face,
+identity cosine mean **0.8230** / min **0.7540** against the 0.363 threshold, subject sharpness
+641 (up from 375), and the analyzer reports 0 issues at severity NONE. Removing the second identity
+mechanism improved the numbers rather than costing any.
+
 ### 15.7 Hardware ceiling: which model actually fits
 
 - **No 500 B video model exists.** Open video models top out around 14 B dense params.
@@ -1197,6 +1223,12 @@ gain and everything to lose. Identity is now measured on the **un-swapped** outp
   the text encoder. It also does not fit in CPU RAM for offloading.
 - **Wan2.1-VACE-1.3B** is therefore the practical ceiling: ~8.19 GB for 81 frames at 480P, and it
   supports **480P only** (832x480). 14B adds 720P.
+
+**Measured on the T4 (S017, D-9.14):** 832x480 x 49 frames x 50 steps with 4 reference images peaks
+at **7.53 GB** — roughly half of the 15.36 GB usable. The OOM ladder never fired, which means the
+attention-backend work (xformers / memory-efficient SDPA with the math kernel disabled) is what
+keeps it there; without it the materialised `seq x seq` math-attention matrix is the thing that
+overflows, not the weights.
 
 Running at 832x480 (the trained 480P resolution) instead of 512x288 matters as much as the model:
 generating far below the training resolution is a large part of why earlier output looked soft.
