@@ -1233,6 +1233,33 @@ overflows, not the weights.
 Running at 832x480 (the trained 480P resolution) instead of 512x288 matters as much as the model:
 generating far below the training resolution is a large part of why earlier output looked soft.
 
+### 15.8 Chain drift: why a multi-segment video loses its face
+
+Chaining segments (segment N conditioned on segment N-1's tail) buys continuity but costs identity,
+and the cost **compounds**. Measured on S017 with `tools/identity_curve.py`:
+
+| Segment | Conditioning head | Interior identity slope |
+|---|---|---|
+| 0 | reference portrait | **-0.00037**/frame |
+| 1 | previous tail | **-0.00209**/frame (5.6x) |
+| 2 | previous tail | **-0.00176**/frame (4.8x) |
+
+The handoff itself is fine (steps of -0.023 and +0.010 at the cuts). What hurts is that each
+segment inherits an already-degraded anchor and degrades it again: 0.93 -> 0.85 -> 0.82 -> 0.77 ->
+0.76 -> 0.71.
+
+**The fix is to keep the reference in the conditioning of every segment**, not just the first: put
+the cover-cropped portrait at t=0 and let the previous tail follow it. The portrait supplies the
+identity pull, the tail supplies motion continuity, and those conditioned frames are dropped from
+the output so nothing is duplicated.
+
+**The general lesson:** a chain of N stages that each preserve *most* of an attribute does not
+preserve it N times over — the error compounds multiplicatively. Any attribute you care about must
+be re-anchored on its source at every stage, not merely inherited from the previous stage. The same
+argument applies to identity here, to colour/exposure across a shot, and to any metric reported as
+"mean over the whole clip": a good mean can hide a monotonic decay, so always fit a slope per
+segment rather than quoting an average.
+
 ---
 
 *End of knowledge base. Update this file as new experiments confirm or deny methods.*

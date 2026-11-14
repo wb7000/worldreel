@@ -2669,4 +2669,48 @@ above (sharpness, flicker, blocking, identity, single-face count) are the meanin
 `face_consistency.json`, `runs/analysis/v2_face_consistency.json`,
 `runs/videos/S017_face_consistent.mp4`, `runs/generated/S017_vace_reference.wreel`.
 
+### D-9.15 Re-anchor every segment on the reference (chain identity drift)
+
+**Measured diagnosis** (`tools/identity_curve.py`, which fits a slope to the interior of each
+segment rather than reporting only a mean):
+
+| Segment | Conditioning head | Start | End | Interior slope |
+|---|---|---|---|---|
+| 0 | **reference portrait** | 0.9319 | 0.8450 | **-0.00037**/frame |
+| 1 | segment 0's tail | 0.8213 | 0.7663 | **-0.00209**/frame (5.6x) |
+| 2 | segment 1's tail | 0.7646 | 0.7148 | **-0.00176**/frame (4.8x) |
+
+Handoff steps at the cuts were negligible (**-0.0232**, **+0.0101**), so the overlap reproduction is
+fine. The failure is **chain drift**: a segment anchored on the portrait holds identity, one
+anchored on the previous segment's tail decays ~6x faster, because it inherits an already-degraded
+anchor and degrades it again — the loss compounds down the chain (0.93 -> 0.85 -> 0.82 -> 0.77 ->
+0.76 -> 0.71). 70/135 frames were below 0.80, min 0.6867.
+
+**Fix.** `_build` now puts the cover-cropped portrait at t=0 of *every* segment, with the previous
+segment's tail following it: identity pull from the reference, motion continuity from the tail, and
+the conditioned frames are dropped from the output so nothing is duplicated. `keep` is returned from
+`_build` and used for the drop, instead of the caller guessing `OVERLAP`.
+
+**Two bugs caught while making this change:**
+
+1. `mid = len(out) // 2` would index into the *conditioned* region once `out` starts with `keep`
+   frames — at the OOM floor (nf=11, keep=7) `mid=5` lands on the portrait copy and scores it
+   against itself for a fake 1.0. Now measured in `new_frames`.
+2. The OOM ladder's `while nf > floor` exited **before ever attempting the floor**, and
+   `max(floor, …)` would then have spun forever. Now the loop always attempts its current size and
+   raises once it can no longer shrink.
+
+**Tooling added:**
+
+- `tools/identity_curve.py` — per-frame identity series with segment boundaries, interior slope
+  fits, and handoff steps. This is what turned "identity is drifting" into a specific, fixable cause.
+- `tools/job_script_check.py` + `tests/test_job_scripts.py` — Kaggle jobs ship their real program as
+  an embedded triple-quoted script, so `py_compile` on the job file cannot see inside it. A nested
+  triple-quote truncates the string and the job dies only after the queue wait (this is what broke
+  `character_consistency_v2.py` at line 280). Extraction is AST-based, because jobs pass scripts
+  three different ways (direct `dedent(...)`, as a literal argument to `run(...)`, or as a parameter)
+  and a "find the next triple-quote" heuristic reports bogus failures on unrelated docstrings. The
+  test asserts the checker **fails** on a deliberately broken job in both paths — a checker that
+  cannot fail is not a checker. Four tests, all green.
+
 
