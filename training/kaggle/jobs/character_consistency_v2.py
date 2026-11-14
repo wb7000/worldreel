@@ -252,7 +252,6 @@ step.write_text(
               "reference_images": len(refs), "resolution": f"{W}x{H}",
               "steps": int(a.get("steps", 50)), "total_seconds": 0.0,
               "identity_sim": []}
-    prev_last = seed
     steps = int(a.get("steps", 50))
     n_frames = N
 
@@ -276,14 +275,22 @@ step.write_text(
     except Exception as exc:  # noqa: BLE001 - never fail on a hint
         log(f"attention: could not restrict SDPA backends ({type(exc).__name__})")
 
-    def _build(nf: int, seg: int) -> tuple[list, list]:
+    # Every segment is anchored on the reference portrait FIRST, then (from
+    # segment 1 on) the previous segment's tail. Measured on the S017 run
+    # (tools/identity_curve.py): a segment conditioned on the portrait decays at
+    # -0.00037 identity/frame, one conditioned on the previous tail at
+    # -0.00209 -- 6x faster, because each segment inherits an already-degraded
+    # anchor and degrades it again, so the loss compounds down the chain
+    # (0.93 -> 0.85 -> 0.82 -> 0.77 -> 0.76 -> 0.71). Re-adding the portrait at
+    # t=0 re-pins identity every segment while the tail still carries motion.
+    # The conditioned frames are dropped from the output, so nothing is lost.
+    def _build(nf: int, seg: int) -> tuple[list, list, int]:
         # Build the conditioning video + mask for one segment.
-        keep = 1 if seg == 0 else OVERLAP
-        head = [prev_last] if seg == 0 else prev_last_frames[-OVERLAP:]
+        head = [seed] if seg == 0 else [seed, *prev_last_frames[-OVERLAP:]]
+        keep = 1 if seg == 0 else 1 + OVERLAP
         video = [*head, *[grey] * (nf - keep)]
-        mask = [*([mask_black] if seg == 0 else [mask_black] * OVERLAP),
-                *[mask_white] * (nf - keep)]
-        return video, mask
+        mask = [*([mask_black] * keep), *[mask_white] * (nf - keep)]
+        return video, mask, keep
 
     for s in range(a["segments"]):
         t0 = time.time()
@@ -292,12 +299,14 @@ step.write_text(
         # Segment 0 starts from the portrait; later segments start from the last
         # OVERLAP frames of the previous segment, so the result is one continuous
         # shot rather than three clips that each reset to the same pose.
+        # Every segment additionally re-anchors on `seed` (see `_build`).
         out = None
         nf = n_frames
-        while nf >= 9:
-            video, mask = _build(nf, s)
+        floor = 1 + OVERLAP + 4  # portrait + tail + 4 frames worth generating
+        while True:
+            video, mask, keep = _build(nf, s)
             log(f"Segment {s}: generating {W}x{H}, {nf} frames, {steps} steps, "
-                f"{len(refs)} reference images")
+                f"{len(refs)} reference images, keep={keep}")
             try:
                 out = pipe(video=video, mask=mask, reference_images=refs,
                            prompt_embeds=pos, negative_prompt_embeds=neg, height=H, width=W,
@@ -322,26 +331,34 @@ step.write_text(
                             pass
                     raise
                 # Never let one segment abort the run: halve the frames and retry.
+                # The floor IS attempted (the loop does not exit before it), and
+                # once it OOMs too we stop rather than spin on the same size.
                 gc.collect()
                 torch.cuda.empty_cache()
-                nf = max(9, ((nf // 2) | 1))
+                smaller = max(floor, ((nf // 2) | 1))
+                if smaller >= nf:
+                    raise RuntimeError(
+                        f"Segment {s}: CUDA OOM at the floor of {nf} frames"
+                    ) from exc
+                nf = smaller
                 log(f"Segment {s}: CUDA OOM -> retrying with {nf} frames")
         if out is None:
             raise RuntimeError(f"Segment {s}: generation failed at every frame count")
         n_frames = nf
 
-        # The conditioned (black-mask) frames reproduce the previous segment's
-        # tail, so drop them when concatenating to avoid duplicated frames.
-        new_frames = out if s == 0 else out[OVERLAP:]
+        # The conditioned frames reproduce the portrait / previous tail, so drop
+        # them when concatenating: they are inputs, not new content.
+        new_frames = out[keep:]
         all_frames += new_frames
         prev_last_frames = out
-        prev_last = out[-1]
 
         # Identity: a REAL cosine between two independently computed SFace
         # embeddings (D-9.11) — no swap, so this measures what the model itself
-        # produced against the reference portrait.
-        mid = len(out) // 2
-        frame_bgr = cv2.cvtColor(np.array(out[mid]), cv2.COLOR_RGB2BGR)
+        # produced against the reference portrait. Measured in the GENERATED
+        # region: `out` starts with `keep` conditioned frames, and indexing into
+        # those would score the portrait against itself and report a fake 1.0.
+        mid = len(new_frames) // 2
+        frame_bgr = cv2.cvtColor(np.array(new_frames[mid]), cv2.COLOR_RGB2BGR)
         face = detect_face(frame_bgr)
         emb = swapper.compute_embedding(frame_bgr)
         sim = float(emb @ ref_emb) if emb is not None else -1.0
