@@ -60,7 +60,8 @@ class VideoAnnotator:
             blur = face_info.get("blur", 0)
             edge_density = face_info.get("edge_density", 0)
 
-            # Color based on blur level
+            # Color based on blur level. The thresholds match the analyzer's
+            # subject-sharpness rule so the two tools never contradict each other.
             if blur < 50:
                 box_color = (0, 0, 255)  # red = blurry
                 label = "BLURRY FACE"
@@ -224,7 +225,11 @@ class VideoAnnotator:
                         face_info = {
                             "bbox": bbox.tolist(),
                             "landmarks": lm.tolist(),
-                            "blur": self.analyzer.lap_variance(
+                            # Use the same measure as the analyzer's subject-sharpness rule
+                            # (detail_lap_variance). The plain Laplacian variance of a face
+                            # region is dominated by smooth skin, so a perfectly sharp face
+                            # reads as "blurry" and the annotator contradicts the analyzer.
+                            "blur": self.analyzer.detail_lap_variance(
                                 frame_img[bbox[1] : bbox[1] + bbox[3], bbox[0] : bbox[0] + bbox[2]]
                             ),
                             "embedding_sim": None,  # filled if prev exists

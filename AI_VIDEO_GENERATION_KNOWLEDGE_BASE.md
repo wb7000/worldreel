@@ -451,8 +451,10 @@ Step 4 (Local): Validate
 | Method | Problem | Severity | Workaround |
 |--------|---------|----------|------------|
 | YuNet on C01_*.png Kagke portraits (360x480) | No faces detected | High | Use shot*.jpg images instead (832x480, faces detected) |
-| Kaggle job output quality (50KB, 2.25s) | Too low resolution/length | High | Increase segments to 4, frames to 48, use face swap post-processing |
-| Face embedding injection alone | Doesn't guarantee pixel consistency | Medium | Always combine with face swap post-processing |
+| Kaggle job output quality (50KB, 2.25s) | Too low resolution/length | High | Raise to 832x480 (trained 480P) + 49 frames + 50 steps |
+| Face embedding injection alone | Doesn't guarantee pixel consistency | High | Use VACE's native `reference_images` instead (D-9.13) |
+| **Post-hoc face swap on reference-conditioned output** | **Pastes a second, misaligned face over the generated one** (D-9.13) | **High** | **Condition on identity; never stack two identity mechanisms** |
+| `FaceConditionedTransformer` (128-d SFace token in the T5 stream) | Out-of-distribution token; redundant with `reference_images` | High | Removed in D-9.13 |
 | `.wreel` format for video playback | Format is for 3D scenes, not video | Medium | Embed MP4 as media file; native video layer needs spec change |
 | Local CUDA (no NVIDIA GPU) | Can't run video gen locally | High | Must use Kaggle GPU |
 
@@ -460,9 +462,10 @@ Step 4 (Local): Validate
 
 | Method | Priority | Notes |
 |--------|----------|-------|
+| VACE `reference_images` (4 views) without any post-hoc swap | **High** | D-9.13 change; needs a Kaggle run to confirm `identity_sim` stays high |
 | InSwapper-128 face swap vs our Delaunay method | Medium | Compare SSIM, identity score, blend consistency |
 | Consistency models (1-4 step) on Wan2.1 | Medium | Could reduce Kaggle time from 9min to 2min |
-| 720p resolution on Kaggle T4 | High | Current 512x288 is low quality; 720p may OOM on 15GB |
+| 720p resolution on Kaggle T4 | Low | VACE-1.3B is 480P-only; 14B does not fit a T4 (§15.7) |
 | Multi-segment blending (overlap frames) | Medium | Current overlap=6 frames; test 8-12 for smoother seams |
 | Audio synchronization | Low | Not yet implemented |
 
@@ -1127,26 +1130,76 @@ when a T4 runs out of VRAM.
 Identity is a *global, high-frequency* attribute that must survive both the VAE's lossy compression
 and the model's temporal attention. Nothing in the objective says "this face is the same person
 across 135 frames" — the model only minimises denoising error, so identity drift is a natural
-failure mode. That is exactly why the post-hoc face-swap stage exists as a **hard guarantee**
-rather than hoping the DiT learns identity persistence.
+failure mode.
+
+There are two families of fix, and they must not be stacked (D-9.13):
+
+1. **Condition the model on the identity** — VACE's native `reference_images` encodes each
+   reference into the latent sequence and prepends it to the video tokens, so identity becomes part
+   of the denoising problem itself. This is the right lever.
+2. **Guarantee it afterwards** — a landmark-warp face swap. It is a hard pixel-space guarantee, but
+   it only works when the destination face's geometry actually matches the reference's; otherwise it
+   pastes a second face over the first.
 
 The transformer is a denoiser over a video-shaped token sequence; the diffusion objective is how
 it is trained to turn noise into that sequence.
 
-### 15.5 Identity injection (the `FaceConditionedTransformer` wrapper)
+### 15.5 Identity injection: what does and does not work
 
-`training/kaggle/jobs/character_consistency_v2.py` additionally injects the reference face
-embedding into the transformer's text-conditioning stream: a zero-initialised linear projector maps
-the 128-d SFace embedding into the transformer's hidden size, and the resulting token is
-prepended to `encoder_hidden_states`. This gives the model a soft identity hint *in addition to*
-the hard post-hoc swap. Two practical notes:
+**Works — `reference_images` (VACE's native reference-to-video).** `WanVACEPipeline.__call__` takes
+`reference_images: list[PIL.Image]`; `preprocess_conditions` builds a zeros canvas with an all-ones
+mask when `video is None`, and `prepare_video_latents` encodes every reference and **prepends it to
+the latent sequence**. So reference-to-video needs no control video at all — this is the supported
+path, and the official CLI exposes it as `--src_ref_images`. Several views of *one* identity (we
+pass four `C01_*` portraits) pin the character far harder than a single image.
 
-- The projector is **zero-initialised** so the wrapped transformer behaves exactly like the base
-  model at step 0 — the injection cannot destabilise the first denoising steps.
-- The embedding must be a **real, discriminative** vector. While the embedding came from the
-  broken `alignCrop` (§5.5), it was identical for every image, so the injection carried no
-  identity information at all. Fixing the alignment (§5.5) is a prerequisite for the injection to
-  mean anything.
+**Does not work — the `FaceConditionedTransformer` wrapper (removed, D-9.13).** A zero-initialised
+linear projector mapped the 128-d SFace embedding into the transformer's hidden size and
+concatenated the resulting token onto `encoder_hidden_states`. Two independent reasons it failed:
+
+- The token is **out-of-distribution**: the model was trained only on T5 token embeddings, and one
+  extra vector scaled x10 does not read as "this person", it reads as noise in the text stream.
+- It was **redundant** — `reference_images` was already active, so the injection added instability
+  on top of an identity signal the model already had.
+
+A soft hint inside the text stream also cannot be a "hard guarantee": §15.4's guarantee lives either
+in the conditioning or in the pixels, not in a third place.
+
+### 15.6 The overlapping-face artifact (why the swap was removed)
+
+The v2 job passed `reference_images` **and** ran the face swap on every frame, producing
+`runs/kaggle/character_consistency_v2/out/face_consistency.mp4` with a visible second face pasted
+over the generated one while reporting `post_swap_sim` 0.93. Measured with `tools/_swap_debug.py` on
+frame 45:
+
+| Quantity | Destination (generated) | Reference |
+|---|---|---|
+| Inter-ocular / face-height ratio | 0.380 | 0.322 |
+| Face bbox height | 129 px | 246 px |
+| Nose-tip vs eye-midpoint X (yaw proxy) | -2.5 px | -0.5 px |
+
+The swap aligns both faces to the canonical 112x112 template and warps back through a
+**similarity transform** — rotation, scale and translation only. It cannot change face *shape*, so
+the face-oval mask (`face_oval_mask`, a plain ellipse) becomes a mask-shaped patch of a longer,
+sterner, differently-expressed face sitting on a rounder, softer one. The original jaw remains
+visible around the edge. That is the artifact.
+
+**Lesson:** a post-hoc swap is only safe when the generated face already has the reference's
+geometry. With native reference conditioning producing `pre_swap_sim` 0.797, the swap had nothing to
+gain and everything to lose. Identity is now measured on the **un-swapped** output, so the reported
+`identity_sim` reflects what the model itself produced.
+
+### 15.7 Hardware ceiling: which model actually fits
+
+- **No 500 B video model exists.** Open video models top out around 14 B dense params.
+- **Wan2.1-VACE-14B**: 14.3 B params, ~28.6 GB fp16 weights, 75 GB repo. Kaggle's 2x Tesla T4 gives
+  30.7 GB usable across both cards, and ~29 GB CPU RAM — so 14 B does not fit *with* activations and
+  the text encoder. It also does not fit in CPU RAM for offloading.
+- **Wan2.1-VACE-1.3B** is therefore the practical ceiling: ~8.19 GB for 81 frames at 480P, and it
+  supports **480P only** (832x480). 14B adds 720P.
+
+Running at 832x480 (the trained 480P resolution) instead of 512x288 matters as much as the model:
+generating far below the training resolution is a large part of why earlier output looked soft.
 
 ---
 

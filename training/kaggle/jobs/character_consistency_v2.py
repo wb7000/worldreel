@@ -95,18 +95,21 @@ log(f"Using SFace: {sface_path}")
 PORTRAIT_DIR = Path("/tmp/worldreel_portraits")
 PORTRAIT_DIR.mkdir(exist_ok=True)
 
-# Try to find portrait in Kaggle input datasets
+# Try to find portraits in the Kaggle input datasets.
+# Collect EVERY C01_* frame of the same identity, not just the first: VACE's
+# `reference_images` accepts a list, and several views of one person pin the
+# identity down far harder than a single image (one reference is a weak hint).
 portrait_path = None
+reference_paths: list[str] = []
 input_root = Path("/kaggle/input")
 if input_root.exists():
-    for p in input_root.rglob("C01_*.png"):
-        portrait_path = str(p)
-        log(f"Found portrait: {portrait_path}")
-        break
-    for p in input_root.rglob("C01_*.jpg"):
-        portrait_path = str(p)
-        log(f"Found portrait: {portrait_path}")
-        break
+    for ext in ("png", "jpg", "jpeg"):
+        found = sorted(input_root.rglob(f"C01_*.{ext}"))
+        if found:
+            reference_paths = [str(p) for p in found]
+            portrait_path = reference_paths[0]
+            log(f"Found {len(reference_paths)} reference portraits; primary={portrait_path}")
+            break
 
 if not portrait_path:
     # Create a synthetic test portrait
@@ -121,6 +124,7 @@ if not portrait_path:
     cv2.ellipse(img, (416, 240), (60, 70), 0, 0, 180, (200, 150, 140), -1)
     portrait_path = str(PORTRAIT_DIR / "C01_synthetic.png")
     cv2.imwrite(portrait_path, img)
+    reference_paths = [portrait_path]
     log(f"Created synthetic portrait: {portrait_path}")
 
 # ================================================================
@@ -172,16 +176,27 @@ step.write_text(
 
     swapper = FaceSwapper(a["yunet"], a["sface"])
     detect_face = swapper.detect_face
-    swap_face_in_frame = swapper.swap_face
 
-    # ---- Load reference portrait ----
-    ref_img = Image.open(a["portrait"]).convert("RGB")
+    # ---- Load reference portraits ----
+    # VACE takes a LIST of reference images. Several views of the same identity
+    # anchor the character far more strongly than a single photo, which is what
+    # keeps the face consistent across segments WITHOUT a post-hoc face swap.
+    ref_paths = a.get("references") or [a["portrait"]]
+    ref_imgs = []
+    for rp in ref_paths:
+        try:
+            ref_imgs.append(Image.open(rp).convert("RGB"))
+        except Exception as exc:  # noqa: BLE001 - one bad file must not kill the run
+            log(f"skipping unreadable reference {rp}: {exc}")
+    if not ref_imgs:
+        raise SystemExit("no readable reference portraits")
+    ref_img = ref_imgs[0]
     ref_bgr = cv2.cvtColor(np.array(ref_img), cv2.COLOR_RGB2BGR)
     ref_face = detect_face(ref_bgr)
     if ref_face is None:
         raise SystemExit("no face found in reference portrait")
     ref_bbox, ref_lm = ref_face
-    log(f"Reference face bbox: {ref_bbox.tolist()}")
+    log(f"Loaded {len(ref_imgs)} reference portraits; primary bbox={ref_bbox.tolist()}")
 
     ref_emb = swapper.compute_embedding(ref_bgr)
     if ref_emb is None:
@@ -207,126 +222,144 @@ step.write_text(
     pipe.enable_model_cpu_offload()
     pipe.vae.enable_tiling()
 
-    # ---- Face identity injector into transformer ----
-    class FaceConditionedTransformer:
-        def __init__(self, base_transformer, face_embedding_dim=128):
-            self.base = base_transformer
-            self.face_embedding_dim = face_embedding_dim
-            hidden_dim = (getattr(base_transformer.config, "hidden_size", None)
-                          or getattr(base_transformer.config, "inner_dim", None)
-                          or 4096)
-            self.hidden_dim = hidden_dim
-            self.face_projector = torch.nn.Linear(face_embedding_dim, hidden_dim)
-            self.face_projector.weight.data.zero_()
-            if face_embedding_dim <= hidden_dim:
-                self.face_projector.weight.data[:face_embedding_dim, :face_embedding_dim] = torch.eye(face_embedding_dim)
-            self.face_projector.bias.data.zero_()
-            self.scale = 10.0
+    # Identity is handled by VACE's own `reference_images` conditioning (below).
+    # We deliberately do NOT wrap the transformer with a hand-rolled "face token"
+    # injector: projecting a raw 128-d SFace embedding into the text stream is
+    # out-of-distribution for a model trained only on T5 token embeddings, and
+    # with real reference conditioning in place it added instability, not
+    # identity. We also do NOT paste a landmark-warp face swap over the result —
+    # that is what produced a second, misaligned face on top of the generated
+    # one (the "overlapping face" artifact).
 
-        @property
-        def config(self):
-            return self.base.config
+    # ---- Seed frame: primary portrait COVER-CROPPED to the output aspect ----
+    # Cover-crop rather than letterbox, so frame 0 has no grey side bars that the
+    # model would otherwise have to invent around. centering=0.42 keeps the head
+    # (which sits above the middle of these portraits) in frame.
+    from PIL import ImageOps
 
-        @property
-        def dtype(self):
-            return self.base.dtype
+    seed = ImageOps.fit(ref_img, (W, H), method=Image.LANCZOS, centering=(0.5, 0.42))
 
-        @property
-        def device(self):
-            return self.base.device
+    grey = Image.new("RGB", (W, H), (128, 128, 128))
+    mask_black = Image.new("L", (W, H), 0)   # black = keep / condition on this frame
+    mask_white = Image.new("L", (W, H), 255)  # white = generate this frame
 
-        def __call__(self, hidden_states=None, encoder_hidden_states=None,
-                     timestep=None, **kwargs):
-            if encoder_hidden_states is not None:
-                device = hidden_states.device
-                dtype = hidden_states.dtype
-                ref_emb_t = torch.from_numpy(ref_emb).unsqueeze(0).to(device, dtype)
-                self.face_projector = self.face_projector.to(device, dtype)
-                face_tokens = self.face_projector(ref_emb_t)
-                face_tokens = face_tokens * self.scale
-                face_tokens = face_tokens.unsqueeze(1)
-                encoder_hidden_states = torch.cat([face_tokens, encoder_hidden_states], dim=1)
-            return self.base(hidden_states=hidden_states,
-                             encoder_hidden_states=encoder_hidden_states,
-                             timestep=timestep, **kwargs)
-
-        def __getattr__(self, name):
-            return getattr(self.base, name)
-
-    pipe.transformer = FaceConditionedTransformer(pipe.transformer)
-    log("Face identity injector installed in transformer")
-
-    # ---- Generate video segments ----
-    x = (W - H) // 2
-    first = Image.new("RGB", (W, H), (128, 128, 128))
-    first.paste(ref_img.resize((H, H), Image.LANCZOS), (x, 0))
+    # Cap the reference count: each extra reference becomes one more latent step
+    # in the attention sequence, and three views of one identity already pin it.
+    refs = ref_imgs[:4]
 
     all_frames = []
     report = {"segments": [], "reference_portrait": a["portrait"],
-              "total_seconds": 0.0}
-    prev_last_frames = [first] + [Image.new("RGB", (W, H), (128, 128, 128))] * (N - 1)
+              "reference_images": len(refs), "resolution": f"{W}x{H}",
+              "steps": int(a.get("steps", 50)), "total_seconds": 0.0,
+              "identity_sim": []}
+    prev_last = seed
+    steps = int(a.get("steps", 50))
+    n_frames = N
+
+    # Attention backend. A T4 is sm_75, so FlashAttention is unavailable and
+    # PyTorch's SDPA can fall back to the "math" kernel, which materialises an
+    # explicit seq x seq attention matrix. At 832x480 that matrix -- not the
+    # weights -- is what exhausts a 16 GB card, so ask for xformers first, then
+    # the memory-efficient SDPA kernel, and only accept the math fallback last.
+    try:
+        pipe.enable_xformers_memory_efficient_attention()
+        log("attention: xformers memory-efficient enabled")
+    except Exception as exc:  # noqa: BLE001 - xformers is optional
+        log(f"attention: xformers unavailable ({type(exc).__name__}); using SDPA")
+    math_sdp_off = False
+    try:
+        torch.backends.cuda.enable_mem_efficient_sdp(True)
+        torch.backends.cuda.enable_flash_sdp(True)
+        torch.backends.cuda.enable_math_sdp(False)
+        math_sdp_off = True
+        log("attention: math SDPA disabled (memory-efficient only)")
+    except Exception as exc:  # noqa: BLE001 - never fail on a hint
+        log(f"attention: could not restrict SDPA backends ({type(exc).__name__})")
+
+    def _build(nf: int, seg: int) -> tuple[list, list]:
+        # Build the conditioning video + mask for one segment.
+        keep = 1 if seg == 0 else OVERLAP
+        head = [prev_last] if seg == 0 else prev_last_frames[-OVERLAP:]
+        video = [*head, *[grey] * (nf - keep)]
+        mask = [*([mask_black] if seg == 0 else [mask_black] * OVERLAP),
+                *[mask_white] * (nf - keep)]
+        return video, mask
 
     for s in range(a["segments"]):
         t0 = time.time()
         torch.cuda.reset_peak_memory_stats()
 
-        if s == 0:
-            video = [first] + [Image.new("RGB", (W, H), (128, 128, 128))] * (N - 1)
-            mask = [Image.new("L", (W, H), 0)] + [Image.new("L", (W, H), 255)] * (N - 1)
-            reference_images = [ref_img]
-        else:
-            video = [*prev_last_frames[-OVERLAP:],
-                     *[Image.new("RGB", (W, H), (128, 128, 128))] * (N - OVERLAP)]
-            mask = [Image.new("L", (W, H), 0)] * OVERLAP + \
-                   [Image.new("L", (W, H), 255)] * (N - OVERLAP)
-            reference_images = [ref_img, prev_last_frames[-1]]
+        # Segment 0 starts from the portrait; later segments start from the last
+        # OVERLAP frames of the previous segment, so the result is one continuous
+        # shot rather than three clips that each reset to the same pose.
+        out = None
+        nf = n_frames
+        while nf >= 9:
+            video, mask = _build(nf, s)
+            log(f"Segment {s}: generating {W}x{H}, {nf} frames, {steps} steps, "
+                f"{len(refs)} reference images")
+            try:
+                out = pipe(video=video, mask=mask, reference_images=refs,
+                           prompt_embeds=pos, negative_prompt_embeds=neg, height=H, width=W,
+                           num_frames=nf, num_inference_steps=steps, guidance_scale=5.0,
+                           conditioning_scale=1.0, output_type="pil",
+                           generator=torch.Generator("cpu").manual_seed(42 + s)).frames[0]
+                break
+            except Exception as exc:  # noqa: BLE001 - re-raised unless recoverable
+                msg = str(exc).lower()
+                if "out of memory" not in msg:
+                    # Restricting the SDPA backends can surface as an unrelated
+                    # error if no eligible kernel exists: re-enable the math
+                    # kernel and retry this frame count once before giving up.
+                    if math_sdp_off:
+                        math_sdp_off = False
+                        try:
+                            torch.backends.cuda.enable_math_sdp(True)
+                            log(f"Segment {s}: {type(exc).__name__} with math SDPA "
+                                f"disabled -> re-enabled, retrying")
+                            continue
+                        except Exception:
+                            pass
+                    raise
+                # Never let one segment abort the run: halve the frames and retry.
+                gc.collect()
+                torch.cuda.empty_cache()
+                nf = max(9, ((nf // 2) | 1))
+                log(f"Segment {s}: CUDA OOM -> retrying with {nf} frames")
+        if out is None:
+            raise RuntimeError(f"Segment {s}: generation failed at every frame count")
+        n_frames = nf
 
-        log(f"Segment {s}: starting generation")
-        out = pipe(video=video, mask=mask, reference_images=reference_images,
-                   prompt_embeds=pos, negative_prompt_embeds=neg, height=H, width=W,
-                   num_frames=N, num_inference_steps=30, guidance_scale=5.0,
-                   conditioning_scale=1.0, output_type="pil",
-                   generator=torch.Generator("cpu").manual_seed(42 + s)).frames[0]
-
-        new_frames = out[OVERLAP:] if s > 0 else out
-
-        # ---- Face swap post-processing on every new frame ----
-        swapped_frames = []
-        for i, frame in enumerate(new_frames):
-            frame_bgr = cv2.cvtColor(np.array(frame), cv2.COLOR_RGB2BGR)
-            swapped = swap_face_in_frame(frame_bgr, ref_bgr)
-            swapped_frames.append(Image.fromarray(cv2.cvtColor(swapped, cv2.COLOR_BGR2RGB)))
-
-        all_frames += swapped_frames
+        # The conditioned (black-mask) frames reproduce the previous segment's
+        # tail, so drop them when concatenating to avoid duplicated frames.
+        new_frames = out if s == 0 else out[OVERLAP:]
+        all_frames += new_frames
         prev_last_frames = out
+        prev_last = out[-1]
 
-        # Measure identity on middle frame
-        mid = OVERLAP + (N - OVERLAP) // 2 if s > 0 else N // 2
+        # Identity: a REAL cosine between two independently computed SFace
+        # embeddings (D-9.11) — no swap, so this measures what the model itself
+        # produced against the reference portrait.
+        mid = len(out) // 2
         frame_bgr = cv2.cvtColor(np.array(out[mid]), cv2.COLOR_RGB2BGR)
-        swapped_idx = mid - (OVERLAP if s > 0 else 0)
-        swapped_bgr = cv2.cvtColor(np.array(swapped_frames[swapped_idx]), cv2.COLOR_RGB2BGR)
         face = detect_face(frame_bgr)
-        swapped_face = detect_face(swapped_bgr)
-        # REAL cosine similarity, not "a face was still detectable" (D-9.9/D-9.11).
-        pre_emb = swapper.compute_embedding(frame_bgr)
-        post_emb = swapper.compute_embedding(swapped_bgr)
-        pre_sim = float(pre_emb @ ref_emb) if pre_emb is not None else -1.0
-        post_sim = float(post_emb @ ref_emb) if post_emb is not None else -1.0
-        seg_seconds = (N - OVERLAP) / 16.0 if s > 0 else N / 16.0
+        emb = swapper.compute_embedding(frame_bgr)
+        sim = float(emb @ ref_emb) if emb is not None else -1.0
+        report["identity_sim"].append(round(sim, 4))
+
+        seg_seconds = len(new_frames) / 16.0
         report["total_seconds"] += seg_seconds
         report["segments"].append({
             "segment": s,
             "seconds": round(time.time() - t0, 1),
             "video_seconds": round(seg_seconds, 2),
+            "frames": len(new_frames),
             "peak_gb": round(torch.cuda.max_memory_allocated() / 1e9, 2),
             "face_found": face is not None,
-            "face_swapped": swapped_face is not None,
-            "pre_swap_sim": round(pre_sim, 4),
-            "post_swap_sim": round(post_sim, 4),
-            "sim_gain": round(post_sim - pre_sim, 4),
+            "identity_sim": round(sim, 4),
         })
-        log(f"Segment {s}: face_found={face is not None} face_swapped={swapped_face is not None} "
-            f"pre_sim={pre_sim:.4f} post_sim={post_sim:.4f} gain={post_sim - pre_sim:+.4f}")
+        log(f"Segment {s}: face_found={face is not None} identity_sim={sim:.4f} "
+            f"peak_gb={torch.cuda.max_memory_allocated() / 1e9:.2f}")
         gc.collect()
         torch.cuda.empty_cache()
 
@@ -350,16 +383,34 @@ step.write_text(
 args = {
     "model_id": "Wan-AI/Wan2.1-VACE-1.3B-diffusers",
     "portrait": portrait_path,
+    # Every view of the same identity. VACE conditions on these natively, which
+    # is what keeps the face consistent -- no post-hoc face swap (D-9.13).
+    "references": reference_paths,
     "yunet": str(yunet_path),
     "sface": str(sface_path),
     "out": str(OUT_DIR),
     "segments": 3,
-    "frames_per_segment": 48,
+    # Wan's causal VAE wants num_frames == 4k+1 (49 = 4*12 + 1).
+    "frames_per_segment": 49,
     "overlap_frames": 6,
-    "width": 512,
-    "height": 288,
-    "prompt": "real video footage of a person standing still, breathing gently, blinking naturally, mouth closed, fixed camera, head and shoulders, plain grey studio wall behind, soft even natural light, natural skin with pores, natural hair, sharp focus, shot on 35mm film, photorealistic",
-    "negative": "cartoon, CGI, 3d render, plastic skin, video game, doll, painting, mannequin, blurry, deformed face, extra eyes, text, watermark, overexposed, dark blotches on skin, static, still picture, talking, open mouth, camera movement",
+    # 832x480 is VACE-1.3B's trained 480P resolution. The previous 512x288 was
+    # well below it, which is a large part of why the output looked soft.
+    "width": 832,
+    "height": 480,
+    "steps": 50,
+    "prompt": (
+        "real video footage of the same woman shown in the reference photographs, "
+        "standing still in a studio, breathing gently, blinking naturally, mouth closed, "
+        "subtle natural head movement, fixed camera, head and shoulders framing, "
+        "plain grey studio wall behind, soft even natural light, detailed natural skin "
+        "with visible pores, natural hair, sharp focus, shot on 35mm film, photorealistic"
+    ),
+    "negative": (
+        "cartoon, CGI, 3d render, plastic skin, video game, doll, painting, mannequin, "
+        "blurry, deformed face, extra eyes, second face, overlapping face, double face, "
+        "text, watermark, overexposed, dark blotches on skin, static, still picture, "
+        "talking, open mouth, camera movement"
+    ),
 }
 
 args_path = WORK_DIR / "face_consistency_args.json"

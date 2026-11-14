@@ -2585,4 +2585,49 @@ banned in new code. `to_uint8` / `to_float32` exist because OpenCV's bundled stu
 array return as `ndarray[Any, dtype[integer | floating]]`, which numpy's `asarray`/`astype` cannot
 narrow — the conversion is done once at the boundary and the static type asserted with a cast.
 
+### D-9.13 The face swap was redundant — drop it and the `FaceConditionedTransformer` hack
+
+**Context.** `runs/kaggle/character_consistency_v2/out/face_consistency.mp4` (512x288, 135 frames)
+showed a **second, misaligned face pasted over the generated one** — offset eyes, a visible seam,
+the original jaw still showing underneath. The reported `post_swap_sim` of 0.93/0.87/0.86 looked
+excellent and the frames did not.
+
+**Root cause — two stacked identity mechanisms, one of them broken.**
+
+1. The job *already* passed VACE's native `reference_images` conditioning plus a first-frame seed,
+   which is why `pre_swap_sim` was already **0.797**. The generated face was already the reference
+   person. The landmark-warp swap then pasted a *second* face on top of it.
+2. The swap cannot reconcile geometry. Measured on frame 45 (`tools/_swap_debug.py`): destination
+   inter-ocular/face-height ratio **0.380** vs reference **0.322** (a different face shape), and the
+   mask is a plain circle (`face_oval_mask`) warped by a similarity transform — a 2-D warp has no
+   way to match a rounder, softer, differently-expressed face to a longer, sterner one. The result is
+   a mask-shaped patch of one face over another: exactly the artifact the viewer sees.
+3. `FaceConditionedTransformer` wrapped the diffusion transformer and concatenated a raw 128-d SFace
+   embedding (scaled x10) into the T5 token stream. The model was trained only on T5 embeddings, so
+   this token is out-of-distribution; with real reference conditioning already in place it added
+   instability, not identity.
+
+**Decision.** Remove `swap_face_in_frame` from the generation loop and delete
+`FaceConditionedTransformer` entirely. Identity comes from **VACE's own `reference_images`**, passing
+**all four C01_* views** of the identity (one reference is a weak hint; several views pin it down).
+`FaceSwapper` / `face_align.py` remain the *measurement* path — every reported `identity_sim` is a
+real cosine between two independently computed SFace embeddings (D-9.11), now measured against the
+un-swapped model output so it reflects what the model actually produced.
+
+**Also fixed in the same pass:** output raised from 512x288 to **832x480** (VACE-1.3B's trained 480P
+resolution — the soft look was partly running far below it), `frames_per_segment` 48 → **49**
+(Wan's causal VAE wants `4k+1`), steps 30 → **50**, seed frame **cover-cropped** with
+`ImageOps.fit(..., centering=(0.5, 0.42))` instead of letterboxed onto grey bars, an attention-backend
+block (xformers → memory-efficient SDPA, math SDPA disabled last, since a T4 is sm_75 and has no
+FlashAttention and the materialised `seq x seq` math-attention matrix is what exhausts 16 GB), and an
+OOM ladder that halves the frame count and retries instead of aborting the run.
+
+**Model ceiling (no 500 B video model exists).** Wan2.1-VACE-14B is 14.3 B params / 28.6 GB fp16 and
+75 GB on disk — it does not fit Kaggle's 2×16 GB T4 (30.7 GB usable minus activations and text
+encoder) nor 29 GB of CPU RAM. **Wan2.1-VACE-1.3B (480P only) is the practical ceiling**; it needs
+~8.19 GB for 81 frames at 480P.
+
+**Rule:** *never stack two identity mechanisms.* If native conditioning is present, a post-hoc swap
+is not a boost — it is a second face.
+
 
