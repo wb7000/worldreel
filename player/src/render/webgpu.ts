@@ -223,7 +223,12 @@ export async function createWebGPURenderer(canvas: HTMLCanvasElement): Promise<R
       }
       device.queue.writeBuffer(d.uniforms, 0, packUniforms(frame, item, height, canvas.width));
       pass.setBindGroup(0, d.bindGroup);
-      pass.setVertexBuffer(0, d.buffer);
+      // Bind all vertex buffer slots - each attribute lives at a different offset in the same buffer
+      pass.setVertexBuffer(0, d.buffer, 0);   // centre (3 floats)
+      pass.setVertexBuffer(1, d.buffer, 12);  // covA (3 floats)
+      pass.setVertexBuffer(2, d.buffer, 24);  // covB (3 floats)
+      pass.setVertexBuffer(3, d.buffer, 36);  // rgba (4 floats)
+      pass.setVertexBuffer(4, d.buffer, 52);  // uv + class + conf + pad
       pass.draw(6, d.count);
     }
     pass.end();

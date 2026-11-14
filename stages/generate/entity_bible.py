@@ -27,65 +27,66 @@ from typing import Any
 
 import numpy as np
 
-# --------------------------------------------------------------------------- shared dims (all types)
+# --------------------------------------------------------------------------- shared dims
+# (all types)
 
 SHARED = (
-    "material",   # 0=flesh, 1=metal, 2=crystal, 3=plasma, 4=gas, 5=stone, 6=energy
-    "scale",      # 0=tiny(0.05x), 1=small(0.3x), 2=human(1x), 3=large(3x), 4=giant(10x), 5=vast(100x)
-    "luminosity", # 0=none, 1=dim, 2=normal, 3=bright, 4=blazing
-    "color_temp", # 0=cold_blue, 1=cool_white, 2=neutral, 3=warm_orange, 4=hot_red
-    "texture",    # 0=smooth, 1=rough, 2=segmented, 3=faceted, 4=furry, 5=glowing
+    "material",  # 0=flesh, 1=metal, 2=crystal, 3=plasma, 4=gas, 5=stone, 6=energy
+    "scale",  # 0=tiny(0.05x), 1=small(0.3x), 2=human(1x), 3=large(3x), 4=giant(10x), 5=vast(100x)
+    "luminosity",  # 0=none, 1=dim, 2=normal, 3=bright, 4=blazing
+    "color_temp",  # 0=cold_blue, 1=cool_white, 2=neutral, 3=warm_orange, 4=hot_red
+    "texture",  # 0=smooth, 1=rough, 2=segmented, 3=faceted, 4=furry, 5=glowing
 )
 
 # --------------------------------------------------------------------------- type-specific dims
 
 ALIEN = (
-    "limb_count",   # 2-8 limbs
-    "eye_count",    # 0-8 eyes
-    "body_symmetry",# 0=bilateral, 1=radial, 2=asymmetric
-    "skin_hardness",# 0=soft, 1=leathery, 2=chitinous, 3=armored
+    "limb_count",  # 2-8 limbs
+    "eye_count",  # 0-8 eyes
+    "body_symmetry",  # 0=bilateral, 1=radial, 2=asymmetric
+    "skin_hardness",  # 0=soft, 1=leathery, 2=chitinous, 3=armored
 )
 
 ROBOT = (
     "panel_count",  # 0=none, 1=few, 2=many, 3=segmented_plates
-    "joint_type",   # 0=ball, 1=hinge, 2=sliding, 3=magnetic
-    "antenna_count",# 0-4 antennae/sensors
+    "joint_type",  # 0=ball, 1=hinge, 2=sliding, 3=magnetic
+    "antenna_count",  # 0-4 antennae/sensors
     "screen_face",  # 0=no face, 1=display, 2=projector, 3=hologram
 )
 
 ENERGY = (
-    "pulse_rate",   # 0=static, 1=slow, 2=normal, 3=fast, 4=frenetic
-    "core_size",    # 0=point, 1=small, 2=normal, 3=large, 4=diffuse
-    "tendril_count",# 0-8 energy tendrils
+    "pulse_rate",  # 0=static, 1=slow, 2=normal, 3=fast, 4=frenetic
+    "core_size",  # 0=point, 1=small, 2=normal, 3=large, 4=diffuse
+    "tendril_count",  # 0-8 energy tendrils
     "aura_radius",  # 0=none, 1=body, 2=close, 3=room, 4=vast
 )
 
 GAS = (
-    "density",      # 0=wisp, 1=thin, 2=normal, 3=thick, 4=opaque
-    "flow_speed",   # 0=still, 1=drift, 2=flow, 3=rush, 4=turbulent
-    "color_layers", # 1-4 overlapping color layers
-    "condensation", # 0=none, 1=frost, 2=dew, 3=rain, 4=storm
+    "density",  # 0=wisp, 1=thin, 2=normal, 3=thick, 4=opaque
+    "flow_speed",  # 0=still, 1=drift, 2=flow, 3=rush, 4=turbulent
+    "color_layers",  # 1-4 overlapping color layers
+    "condensation",  # 0=none, 1=frost, 2=dew, 3=rain, 4=storm
 )
 
 CRYSTAL = (
     "facet_count",  # 0=smooth, 1=few, 2=many, 3=intricate, 4=fractal
-    "refraction",   # 0=none, 1=low, 2=medium, 3=high, 4=prismatic
+    "refraction",  # 0=none, 1=low, 2=medium, 3=high, 4=prismatic
     "growth_axis",  # 0=radial, 1=vertical, 2=horizontal, 3=spiral, 4=random
-    "inclusion",    # 0=pure, 1=bubbles, 2=veins, 3=impurities, 4=foreign_matter
+    "inclusion",  # 0=pure, 1=bubbles, 2=veins, 3=impurities, 4=foreign_matter
 )
 
 GIANT = (
-    "stride",       # 0=slow, 1=measured, 2=normal, 3=long, 4=earthquake
-    "reach",        # 0=short, 1=normal, 2=long, 3=very_long, 4=continental
-    "footfall",     # 0=silent, 1=thud, 2=boom, 3=crack, 4=shatter
-    "shadow",       # 0=none, 1=patch, 2=region, 3=valley, 4=continent
+    "stride",  # 0=slow, 1=measured, 2=normal, 3=long, 4=earthquake
+    "reach",  # 0=short, 1=normal, 2=long, 3=very_long, 4=continental
+    "footfall",  # 0=silent, 1=thud, 2=boom, 3=crack, 4=shatter
+    "shadow",  # 0=none, 1=patch, 2=region, 3=valley, 4=continent
 )
 
 TINY = (
-    "hop_height",   # 0=none, 1=cm, 2=dm, 3=m, 4=several_m
-    "carry_load",   # 0=none, 1=grain, 2=leaf, 3=stone, 4=tool
-    "echo",         # 0=none, 1=faint, 2=clear, 3=loud, 4=deafening
-    "hide_size",    # 0=none, 1=leaf, 2=stone, 3=log, 4=building
+    "hop_height",  # 0=none, 1=cm, 2=dm, 3=m, 4=several_m
+    "carry_load",  # 0=none, 1=grain, 2=leaf, 3=stone, 4=tool
+    "echo",  # 0=none, 1=faint, 2=clear, 3=loud, 4=deafening
+    "hide_size",  # 0=none, 1=leaf, 2=stone, 3=log, 4=building
 )
 
 ALL_DIMS = SHARED + ALIEN + ROBOT + ENERGY + GAS + CRYSTAL + GIANT + TINY
@@ -134,10 +135,32 @@ def expand(seed: int, requested: str = "", entity_type: str = "human") -> Entity
         raise ValueError(f"unknown entity type: {entity_type!r}")
 
     likeness_words = {
-        "god", "gods", "deity", "angel", "demon", "devil", "satan", "zeus", "odin",
-        "thor", "hercules", "superman", "batman", "spiderman", "ironman",
-        "gandalf", "dumbledore", "vader", "yoda", "kirk", "picard",
-        "doctor", "dalek", "cyberman", "transformer", "optimus",
+        "god",
+        "gods",
+        "deity",
+        "angel",
+        "demon",
+        "devil",
+        "satan",
+        "zeus",
+        "odin",
+        "thor",
+        "hercules",
+        "superman",
+        "batman",
+        "spiderman",
+        "ironman",
+        "gandalf",
+        "dumbledore",
+        "vader",
+        "yoda",
+        "kirk",
+        "picard",
+        "doctor",
+        "dalek",
+        "cyberman",
+        "transformer",
+        "optimus",
     }
 
     ranges: dict[str, tuple[float, float]] = {}
@@ -157,7 +180,9 @@ def expand(seed: int, requested: str = "", entity_type: str = "human") -> Entity
         return float(lo + x * (hi - lo))
 
     vals = {d: value(d, float(x)) for d, x in zip(TYPE_DIMS[entity_type], u, strict=True)}
-    return EntityIdentity(seed, requested, entity_type, {d: vals[d] for d in TYPE_DIMS[entity_type]})
+    return EntityIdentity(
+        seed, requested, entity_type, {d: vals[d] for d in TYPE_DIMS[entity_type]}
+    )
 
 
 def _vec(values: dict[str, float], dims: tuple[str, ...]) -> np.ndarray:
@@ -253,11 +278,7 @@ def check_bible(dictionary: dict[str, Any]) -> tuple[EntityDistinctnessReport, l
         for eid, e in entities.items()
         if "identity" in e
     }
-    tampered = [
-        eid
-        for eid, e in entities.items()
-        if "identity" in e and not verify(e["identity"])
-    ]
+    tampered = [eid for eid, e in entities.items() if "identity" in e and not verify(e["identity"])]
     return check_distinct(cast), tampered
 
 

@@ -253,6 +253,7 @@ function upload(id: string, kind: string, chunk: PointChunk | GaussianChunk): vo
   if (kind === "gaussians") {
     const instances = splatInstances(chunk);
     splatStates.set(id, { instances, sorted: new Float32Array(instances.length), lastSortMs: 0, lastView: null });
+    renderer.setSplats(id, instances);
   } else {
     splatStates.delete(id);
     renderer.setPoints(id, chunk);
@@ -296,6 +297,7 @@ function uploadScene(wreel: OpenedWreel): void {
       offset += a.length;
     }
     splatStates.set(MERGED_SPLATS, { instances, sorted: new Float32Array(instances.length), lastSortMs: 0, lastView: null });
+    if (renderer) renderer.setSplats(MERGED_SPLATS, instances);
   }
   for (const [id, d] of wreel.actorGeometry) upload(`actor:${id}`, d.layer.kind, d.chunk);
 }

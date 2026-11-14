@@ -26,6 +26,7 @@ from formats.wscript import read_wscript
 from stages.export.render import CameraPose, Scene, render
 from stages.generate.avatars import POINT_SIZE, Avatar, build_avatar
 from stages.generate.bible import expand
+from stages.generate.face_align import align_face
 from tools.make_sample_wscript import OUT
 
 YUNET = "data/models/face_detection_yunet_2023mar.onnx"
@@ -59,7 +60,15 @@ class Faces:
         return best
 
     def embed(self, bgr: np.ndarray, face: np.ndarray) -> np.ndarray:
-        f = self.rec.feature(self.rec.alignCrop(bgr, face)).ravel()
+        # `face` is a full YuNet row: [x, y, w, h, l0x, l0y, ..., l4x, l4y, score].
+        # alignCrop wants only the five landmarks, and OpenCV 5.0.0's alignCrop
+        # returns an all-black crop anyway, so we align with the canonical
+        # template ourselves (see stages/generate/face_align.py).
+        landmarks = face[4:14].reshape(5, 2).astype(np.float32)
+        aligned = align_face(bgr, landmarks)
+        if aligned is None:
+            raise ValueError("could not align face")
+        f = self.rec.feature(aligned).ravel()
         out: np.ndarray = f / np.linalg.norm(f)
         return out
 

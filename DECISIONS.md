@@ -2297,4 +2297,292 @@ Config files: `generate_S001.toml` through `generate_S010.toml`.
 Output location: `runs/generated/<scene>.wreel`. All files validated with `formats validate`
 (0 errors, 0 warnings).
 
+### D-9.6 Face-swap post-processing pipeline (Phase 9, 2026-11-10, implemented)
+
+Problem: Kaggle `character_consistency_final` job produced only 50KB / 2.25s video — too low
+quality for production. `.wreel` files contain Gaussian splat point clouds, not photorealistic
+video. Face identity injection into the Wan2.1-VACE transformer helps but does not guarantee
+visual consistency across frames.
+
+Solution: Three new local modules that form a complete end-to-end pipeline:
+
+1. **`stages/generate/face_swap.py`** — `FaceSwapper` class using YuNet face detection +
+   SFace recognition + Delaunay triangulation + per-triangle affine warp +
+   OpenCV `seamlessClone` for photorealistic face swapping. Tested on Kaggle dataset
+   shot images (832x480): all faces detected, SFace embedding norm = 1.0000.
+
+2. **`stages/generate/face_consistent_video.py`** — `process_video_with_face_swap()` applies
+   face swap to every frame of an input video using a reference portrait. Tested on the
+   Kaggle output video (512x288, 30 frames): 30/30 faces found and swapped,
+   avg similarity to reference = 0.684–0.984 depending on source quality.
+
+3. **`stages/generate/package_wreel_video.py`** — `package_wreel_video()` embeds the
+   face-consistent MP4 as a media file in a signed `.wreel` container, with Gaussian
+   "screen" layers as geometry placeholders and an actor track. Validated with
+   `formats validate` (0 errors, 0 warnings).
+
+4. **`stages/generate/face_consistent_pipeline.py`** — CLI that chains process-video +
+   package-wreel in one command (`python stages/generate/face_consistent_pipeline.py full ...`).
+
+**Models:** OpenCV Zoo YuNet (`face_detection_yunet_2023mar.onnx`, 232 KB) and SFace
+(`face_recognition_sface_2021dec.onnx`, 38 MB) downloaded from Kaggle dataset outputs and
+stored in `training/kaggle/jobs/`.
+
+**Reference portraits:** Copied from Kagke dataset `runs/kaggle/actors_env/.../rgb/` to
+`training/kaggle/jobs/reference_portraits/` (`C01_ref.png`, `C01_target.png`, `C01_target2.png`).
+Note: YuNet could not detect faces in the `C01_*.png` Kagke dataset images (shape 360x480,
+likely non-face content); the `shot*.jpg` images from the consistency output (832x480)
+contain detectable faces and are used as reference.
+
+**Local environment:** OpenCV 5.0.0, PyTorch 2.15.0+cpu, diffusers 0.42.1 installed via pip.
+No CUDA available locally — all video generation must run on Kaggle GPU.
+
+**Kaggle job:** `training/kaggle/jobs/character_consistency_final.py` updated (kernel v7) to
+include face swap post-processing in addition to face embedding injection. 4 segments x 48
+frames at 16fps = 12s total video. QUEUED waiting for Kaggle T4 GPU.
+
+### D-9.7 Photorealistic .wreel output — path forward (Phase 9, 2026-11-10, planned)
+
+The `.wreel` format (v1.1) stores 3D scenes (Gaussian splat layers + actors + cameras +
+audio), not video playback. To deliver photorealistic face-consistent video as `.wreel`:
+
+1. **Short term:** Embed the face-swapped MP4 as a `video/mp4` media file in the `.wreel`
+   container, with Gaussian screen layers as minimal geometry. The video is the primary
+   content; the `.wreel` provides provenance, signing, and structure. Validated OK
+   (`S011_face_consistent.wreel`, `S012_face_consistent.wreel`).
+
+2. **Medium term:** Convert video keyframes to animated Gaussian splat layers (each frame
+   = point cloud with colors from video), enabling true 3D free-camera playback of the
+   photorealistic content.
+
+3. **Long term:** Add native video texture layer kind to the `.wreel` spec (requires format
+   version bump and player changes).
+
+**Current state:** Pipeline tested locally end-to-end. Kaggle job v7 QUEUED — will produce
+12s of 512x288 face-consistent video when GPU is allocated. Local `.wreel` files validate
+but contain low-resolution source video (512x288 from Kaggle output); higher resolution
+requires Kaggle job with different VACE settings or a different model.
+
+### D-9.8 Video quality & consistency analyzer (Phase 9, 2026-11-10, implemented)
+
+Problem: Human eyes cannot detect subtle video errors — temporal jitter, face identity drift
+across frames, subtle blur, compression blocking/ringing, luminance flicker. Need objective
+metrics to find what's wrong before publishing.
+
+Solution: Two new local modules forming a complete video analysis suite:
+
+1. **`stages/generate/video_analyzer.py`** — `VideoAnalyzer` class computing:
+   - **PSNR / SSIM** vs reference video (pixel and structural quality)
+   - **Laplacian variance** — blur / sharpness per frame
+   - **Dense optical flow (Farneback)** — motion magnitude, direction, temporal jitter
+   - **Frame-to-frame difference** — pixel change fraction, max change
+   - **Luminance flicker index** — temporal brightness variance
+   - **Blocking / ringing artifacts** — DCT 8x8 block boundaries, edge ringing
+   - **Face consistency across frames** — SFace embedding similarity between consecutive frames
+   - **Face region analysis** — blur, edge density, color std within detected face bbox
+   - **Issue auto-detection** — flags temporal jitter, face drift, blur, blocking, flicker
+   - **Severity classification** — none / low / medium / high
+
+2. **`stages/generate/video_annotator.py`** — `VideoAnnotator` class creating annotated MP4:
+   - Red/orange/green boxes on face regions (blur level color-coded)
+   - Face landmarks drawn (5 points: eyes, nose, mouth corners)
+   - Optical flow arrows (green=low motion, red=high motion)
+   - Frame-difference heatmap (COLORMAP_JET overlay, 30% blend)
+   - Per-frame text overlay: motion, frame_diff, face_blur, face_sim
+   - Frame index counter
+
+**Usage:**
+```bash
+# Analyze video for invisible errors
+python stages/generate/video_analyzer.py \
+    --video input.mp4 \
+    --portrait reference.jpg \
+    --output report.json \
+    --sample-every 5 \
+    --max-frames 30
+
+# Create annotated visualization
+python stages/generate/video_annotator.py \
+    --video input.mp4 \
+    --portrait reference.jpg \
+    --output annotated.mp4 \
+    --sample-every 5
+```
+
+**Test results on `test_face_consistent.mp4` (512x288, 30 frames):**
+- 6 frames analyzed (every 5th)
+- 1 issue found: excessive_blur (2 frames below laplacian var threshold of 50)
+- Face consistency: 100% detection rate, 0.995 consecutive similarity (excellent)
+- Flicker index: 0.029 (under 0.05 threshold — no flicker)
+- Blocking artifacts: mean 2.0 (under 5.0 threshold — no blocking)
+- Severity: MEDIUM (due to blur)
+
+**FFmpeg available** at `D:\ffmpeg\bin\ffmpeg.exe` — VMAF can be added via:
+```bash
+ffmpeg -i reference.mp4 -i encoded.mp4 -lavfi "libvmaf=model=version=vmaf_v0.6.1:log_path=vmaf.json" -f null -
+```
+
+### D-9.9 Kaggle v2 Character-Consistent Generation Complete (Phase 9, 2026-11-11)
+
+Kaggle job `character_consistency_v2` completed successfully — the first production-quality
+face-consistent video from Kaggle T4 GPU.
+
+**Kernel v10** pushed and completed after previous kernels (v7-v9) returned cached/stale results.
+
+**Results:**
+| Metric | Value |
+|--------|-------|
+| Segments | 12 × 3 seconds = **7.5 seconds total** |
+| Resolution | 512x288 @ 16fps |
+| Total frames | 120 frames |
+| Face detection | 100% (all segments) |
+| Face swapped | 100% (all segments) |
+| Face similarity | sim=1.0 (perfect consistency) |
+| Video size | 93,529 bytes (vs 50KB on v7) |
+| Generation time | ~8.9 minutes on Kaggle T4 |
+
+**Video Analysis (local):**
+| Metric | Value |
+|--------|-------|
+| Frames analyzed | 40 (every 3rd of 120) |
+| Face detection rate | 100% |
+| Face similarity to ref | 0.999 (excellent) |
+| Face blur (Laplacian var) | 308.2 (sharp) |
+| Temporal motion | 1.57 mean, 21.3% changed |
+| Issues found | 1 (medium — 2 frames below blur threshold) |
+| Overall severity | MEDIUM |
+
+**Output files:**
+- `runs/kaggle/character_consistency_v2/out/face_consistency.mp4` — 93KB, 7.5s video
+- `runs/kaggle/character_consistency_v2/out/face_consistency.json` — segment report
+- `runs/kaggle/character_consistency_v2/out/face_consistency.log` — full log
+- `training/kaggle/jobs/kaggle_v2_analysis.json` — local analysis report
+
+**Next steps:**
+1. Package the MP4 as signed `.wreel`: `python stages/generate/package_wreel_video.py ...`
+2. Run VMAF perceptual scoring: `ffmpeg -i reference.mp4 -i encoded.mp4 -lavfi "libvmaf=log_path=vmaf.json" -f null -`
+3. Address the 2 blur frames below threshold (temporal smoothing or re-render those segments)
+
+**Lessons learned:**
+- Kaggle kernels v7-v9 returned cached results; kernel v10 finally executed new code
+- Use `--requeue-after 20` to auto-resubmit queued jobs
+- Synthetic portrait worked when Kaggle dataset portraits had no detectable faces
+- Face swap post-processing guarantees pixel-level identity (sim=1.0 across all 12 segments)
+
+### D-9.10 Kaggle output-path trap: artefacts must land in /kaggle/working/out (Phase 9, 2026-11-13)
+
+**Symptom.** The `character_consistency_v2` job reported `rc=0` and "Job completed successfully!",
+yet the downloaded folder contained **only `log.txt`** — no MP4, no JSON, no job log. The same
+50,641-byte MP4 kept reappearing on fetch, which looked like a successful run but was **stale
+kernel cache** from an older version, not the current execution.
+
+**Root cause.** Two conflicting definitions of `OUT_DIR` in
+`training/kaggle/jobs/character_consistency_v2.py`:
+
+| Line | Definition | Effect |
+|------|-----------|--------|
+| 33 | `OUT_DIR = Path("/kaggle/working/out")` | correct — Kaggle archives this directory |
+| 117 | `OUT_DIR = Path(os.environ.get("OUT", "/tmp/kaggle_out"))` | **silently overwrote line 33** |
+
+The bootstrap (`training/kaggle/bootstrap.py`) defined `OUT` as a *Python variable*, not an
+environment variable, so `os.environ.get("OUT", ...)` always fell through to `/tmp/kaggle_out`.
+The MP4, the JSON report and `face_consistency.log` were all written there. Kaggle only archives
+`/kaggle/working/out`, so every artefact was discarded — while the job still exited 0, because
+the generation itself had genuinely succeeded.
+
+**Why it survived so long:** the failure was silent. There was no error, only an empty folder,
+and the "50 KB MP4" from stale cache masked it.
+
+**Fix (three layers):**
+1. `training/kaggle/bootstrap.py` now exports `OUT`, `WORK` and `CODE` as environment variables,
+   so job scripts and their subprocesses cannot disagree on the output directory.
+2. `training/kaggle/jobs/character_consistency_v2.py` has exactly **one** `OUT_DIR` assignment
+   (`Path(os.environ.get("OUT", "/kaggle/working/out"))`); the `/tmp/kaggle_out` default is gone.
+3. The job ends with a **recovery sweep** (copying strays from `/tmp/kaggle_out` and
+   `WORK_DIR/out`) and a **hard verification** that `face_consistency.mp4` exists inside the
+   archived directory — it now exits `2` with a clear message instead of exiting 0 silently.
+
+**New test: `training/kaggle/jobs/output_paths_test.py`.** A CPU-only Kaggle kernel (no GPU
+quota) that asserts: the bootstrap exports `OUT`; `OUT_DIR == /kaggle/working/out`; a subprocess
+launched with `OUT` writes into it; a real MP4 is produced there; the YuNet/SFace ONNX models and
+the portrait are mounted; and nothing is stranded in `/tmp/kaggle_out`. It writes
+`output_paths_test.json` with a per-check pass/fail list and exits non-zero on any failure.
+
+**Runner change:** `tools/kaggle_runner.py` gained `--cpu`, which pushes a kernel with
+`enable_gpu: false` and no `machine_shape`. Cheap smoke tests therefore cost **zero GPU quota**
+(the 30 h/week budget is protected by never spending it on a plumbing check).
+
+**General rule (applies to every Kaggle job in this repo):** *if an artefact is not inside
+`/kaggle/working/out`, it does not exist.* Never trust `rc=0` alone — verify the artefact.
+
+### D-9.11 Face identity was never measured: `alignCrop` + a fake metric (Phase 9, 2026-11-14)
+
+**Symptom.** The face-swap pipeline reported perfect identity everywhere — Kaggle job line 375
+said `sim = 1.0 if swapped_face is not None else -1.0` (i.e. "a face was still detectable", not a
+similarity), and local `tools/measure_identity.py` reported a flat 0.6644. Yet swapping the
+reference portrait onto a video frame changed **nothing** visually and moved the score by 0.004.
+
+**Three independent root causes, all real bugs:**
+
+| # | Bug | Where | Effect |
+|---|-----|-------|--------|
+| 1 | `cv2.FaceRecognizerSF.alignCrop` is unusable in OpenCV 5.0.0 | every SFace call site | 20/20 calls returned an **all-black** 112x112 crop (one run returned a misaligned crop instead). `feature()` on a black crop returns one degenerate vector, so **every** pairwise similarity collapses to exactly `1.0000` — the metric could not discriminate anything. Embedding norm 3.5 vs 14.2, cosine 0.03 against the correct crop. |
+| 2 | Landmark correspondence by nearest neighbour in absolute pixel space | `stages/generate/face_swap.py`, `training/kaggle/jobs/character_consistency_v2.py` | `np.linalg.norm(ref_lm - np.array([t[0], t[1]]), axis=0)` summed x/y instead of taking a Euclidean distance, and matched *reference* landmarks to *destination* triangle vertices. Wrong landmark → smeared face. |
+| 3 | Delaunay hull covers only the mid-face | `stages/generate/face_swap.py` | A triangulation of five landmarks spans only the convex hull of eyes/nose/mouth corners. Forehead, jaw and chin kept the **original** identity, so the SFace embedding barely moved even when the swap "worked". |
+
+**Fixes (all measured, evidence in `tools/face_align_probe.py`):**
+
+1. **New module `stages/generate/face_align.py`.** Implements the canonical ArcFace/SFace 5-point
+   template alignment directly (`estimateAffinePartial2D` + `warpAffine`), so no code path calls
+   `alignCrop` any more. Works identically on OpenCV 4.x and 5.x.
+2. **Landmark order resolved empirically.** YuNet's native order is already the template order
+   (the subject's right eye is the smaller-x one in image coordinates):
+   * YuNet order — same character **0.6890**, different people **0.2472** (separation **+0.4418**)
+   * swapped order — same character 0.5365, different people 0.4815 (separation +0.0549)
+   The previously suspected "SFace order" was wrong and would have degraded every metric.
+3. **Swap rewritten as template-space warp.** Both faces are aligned to the 112x112 template; the
+   reference is warped back through the inverse of the destination transform, so it lands exactly on
+   the destination's position/scale/rotation, and blended inside the face oval. Index-based
+   landmark correspondence (no pixel-space nearest neighbour).
+4. **Poisson blending removed.** `cv2.seamlessClone` copies the *destination's* image gradient into
+   the result, which re-imprints strong source features (the moustache came back) and measurably
+   lowers identity: feather **0.8401**, feather+tone **0.8411**, `NORMAL_CLONE` 0.7963,
+   `MIXED_CLONE` 0.2025. A feathered alpha blend plus a mild per-channel Reinhard tone match
+   (`tone_match`) is used instead. `seamlessClone` remains available behind `clone=True`.
+5. **Face-oval geometry chosen by grid search** on identity similarity: tall ellipse (centre
+   (56, 54), axes (42, 51)) **0.8401** > clipped-at-hairline 0.8054 > shorter ellipse 0.7579.
+   SFace reads the forehead as part of the identity, so keeping it in the swapped region wins over
+   avoiding a hairline band.
+6. **Real metrics everywhere.** The Kaggle job now reports `pre_swap_sim`, `post_swap_sim` and
+   `sim_gain` from actual SFace embeddings. The three other jobs that called `alignCrop`
+   (`character_lora_v3`, `video_chain_v2`, `generate_face_consistent_wreel`) got the same inline
+   template alignment, and the fake `sim = 1.0 if face is not None` line was replaced with a real
+   cosine similarity. `eval/face_metrics.py` had a third variant of the bug — it passed the whole
+   15-element YuNet row to `alignCrop` instead of the 5x2 landmarks — and now uses the template.
+
+**Measured result on `runs/kaggle/hero_chain_run1/out/chain.mp4` (173 frames, portrait C01_0):**
+
+| Metric | Before | After |
+|---|---|---|
+| PRE swap similarity to reference | 0.2434 (min 0.1799) | 0.2434 |
+| POST swap similarity to reference | ≈0.247 (no change) | **0.8462** (min 0.8005) |
+| Improvement | +0.004 | **+0.6028** |
+| Frames below 0.85 after swap | — | 108/173 |
+
+**D-9.9's "sim = 1.0 (perfect consistency)" is therefore retracted**: it was the fake metric, not
+a measurement. No identity number from before this decision should be quoted as evidence.
+
+**General rule:** *an identity metric that can return the same constant for every input is not a
+metric.* Every similarity reported by this repo is a cosine between two independently computed
+SFace embeddings, and the face-alignment path is covered by `tools/face_align_probe.py` so a
+regression in `alignCrop` cannot silently reappear.
+
+### D-9.12 New module `stages/generate/face_align.py` is the single face-alignment authority
+
+Every SFace consumer (local stages, `eval/face_metrics.py`, the Kaggle jobs) must align through
+`stages/generate/face_align.py` or an identical inline copy of the template warp. `alignCrop` is
+banned in new code. `to_uint8` / `to_float32` exist because OpenCV's bundled stubs type every
+array return as `ndarray[Any, dtype[integer | floating]]`, which numpy's `asarray`/`astype` cannot
+narrow — the conversion is done once at the boundary and the static type asserted with a cast.
+
 

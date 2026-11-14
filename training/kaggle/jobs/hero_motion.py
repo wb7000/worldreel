@@ -58,7 +58,8 @@ args = {
     "runs": [
         {"name": f"A_{it['cid']}", "cid": it["cid"], "first": True, "depth": False, "scale": 1.0}
         for it in items
-    ] + [
+    ]
+    + [
         {"name": "B_C03", "cid": "C03", "first": False, "depth": True, "scale": 0.5},
         {"name": "C_C03", "cid": "C03", "first": True, "depth": True, "scale": 0.6},
     ],

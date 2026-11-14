@@ -5,11 +5,8 @@ tamper detection, sample_cast best-candidate selection, and cross-type
 distance (only shared dims compared).
 """
 
-import pytest
-
 from stages.generate.entity_bible import (
     ENTITY_TYPES,
-    TYPE_DIMS,
     check_bible,
     check_distinct,
     distance,
@@ -19,7 +16,7 @@ from stages.generate.entity_bible import (
 )
 
 
-def test_expand_deterministic():
+def test_expand_deterministic() -> None:
     """Same seed + request + type always gives the same identity."""
     a = expand(42, "glowing insectoid", "alien")
     b = expand(42, "glowing insectoid", "alien")
@@ -28,7 +25,7 @@ def test_expand_deterministic():
     assert a.seed == 42
 
 
-def test_expand_all_types_have_shared_dims():
+def test_expand_all_types_have_shared_dims() -> None:
     """Every entity type includes the shared appearance dims."""
     for etype in ENTITY_TYPES:
         ident = expand(1, "", etype)
@@ -36,7 +33,7 @@ def test_expand_all_types_have_shared_dims():
             assert d in ident.appearance
 
 
-def test_expand_request_does_not_crash():
+def test_expand_request_does_not_crash() -> None:
     """A style request with entity-type prefix should parse without error."""
     ident = expand(1, "alien:glowing insectoid", "alien")
     assert ident.appearance is not None
@@ -46,7 +43,7 @@ def test_expand_request_does_not_crash():
     assert ident2.entity_type == "robot"
 
 
-def test_distance_only_compares_shared_dims():
+def test_distance_only_compares_shared_dims() -> None:
     """Alien vs robot compares only shared dims, not alien-specific ones."""
     alien = expand(1, "", "alien")
     robot = expand(2, "", "robot")
@@ -54,14 +51,14 @@ def test_distance_only_compares_shared_dims():
     assert 0.0 <= d <= 1.0
 
 
-def test_distance_identical_entities_is_zero():
+def test_distance_identical_entities_is_zero() -> None:
     """Same entity compared to itself should be 0."""
     a = expand(5, "", "energy")
     b = expand(5, "", "energy")
     assert distance(a, b) == 0.0
 
 
-def test_distance_max_when_no_shared_dims():
+def test_distance_max_when_no_shared_dims() -> None:
     """Entities with no shared dims are maximally different."""
     a = expand(1, "", "human")
     b = expand(2, "", "gas")
@@ -70,7 +67,7 @@ def test_distance_max_when_no_shared_dims():
     assert 0.0 <= d <= 1.0
 
 
-def test_check_distinct_passes_when_separated():
+def test_check_distinct_passes_when_separated() -> None:
     """Well-separated entities pass distinctness."""
     entities = {
         "E1": expand(1, "", "human"),
@@ -81,7 +78,7 @@ def test_check_distinct_passes_when_separated():
     assert report.ok is True
 
 
-def test_check_distinct_fails_when_too_close():
+def test_check_distinct_fails_when_too_close() -> None:
     """Entities too close on shared dims fail distinctness."""
     # Use same seed but slightly different to force closeness
     entities = {
@@ -93,7 +90,7 @@ def test_check_distinct_fails_when_too_close():
     assert len(report.too_close) == 1
 
 
-def test_sample_cast_deterministic():
+def test_sample_cast_deterministic() -> None:
     """Same cast_seed gives same cast."""
     requests = {"E1": "alien:insectoid", "E2": "robot:metal", "E3": "energy:pulsing"}
     a = sample_cast(requests, 42)
@@ -103,7 +100,7 @@ def test_sample_cast_deterministic():
         assert a[eid].entity_type == b[eid].entity_type
 
 
-def test_sample_cast_prefix_parsing():
+def test_sample_cast_prefix_parsing() -> None:
     """Request prefix before ':' sets entity type."""
     requests = {"E1": "alien:glowing wings", "E2": "robot:rusty panels"}
     cast = sample_cast(requests, 7)
@@ -111,21 +108,21 @@ def test_sample_cast_prefix_parsing():
     assert cast["E2"].entity_type == "robot"
 
 
-def test_sample_cast_defaults_to_human():
+def test_sample_cast_defaults_to_human() -> None:
     """No prefix means human."""
     requests = {"E1": "tall thin woman"}
     cast = sample_cast(requests, 7)
     assert cast["E1"].entity_type == "human"
 
 
-def test_verify_true_for_stored_identity():
+def test_verify_true_for_stored_identity() -> None:
     """Stored identity round-trips through expand."""
     ident = expand(99, "crystal faceted giant", "crystal")
     stored = ident.to_json()
     assert verify(stored) is True
 
 
-def test_verify_false_for_tampered_appearance():
+def test_verify_false_for_tampered_appearance() -> None:
     """Changing a stored value makes verify fail."""
     ident = expand(99, "crystal faceted giant", "crystal")
     stored = ident.to_json()
@@ -133,7 +130,7 @@ def test_verify_false_for_tampered_appearance():
     assert verify(stored) is False
 
 
-def test_verify_false_for_wrong_type():
+def test_verify_false_for_wrong_type() -> None:
     """Changing entity_type makes verify fail."""
     ident = expand(99, "crystal faceted giant", "crystal")
     stored = ident.to_json()
@@ -141,7 +138,7 @@ def test_verify_false_for_wrong_type():
     assert verify(stored) is False
 
 
-def test_check_bible_passes_for_distinct_entities():
+def test_check_bible_passes_for_distinct_entities() -> None:
     """check_bible passes when all entities are distinct."""
     dictionary = {
         "entities": {
@@ -155,7 +152,7 @@ def test_check_bible_passes_for_distinct_entities():
     assert tampered == []
 
 
-def test_check_bible_flags_tampered():
+def test_check_bible_flags_tampered() -> None:
     """check_bible flags tampered identities."""
     dictionary = {
         "entities": {
@@ -164,5 +161,5 @@ def test_check_bible_flags_tampered():
         }
     }
     dictionary["entities"]["E2"]["identity"]["appearance"]["material"] = 0.999
-    report, tampered = check_bible(dictionary)
+    _, tampered = check_bible(dictionary)
     assert "E2" in tampered

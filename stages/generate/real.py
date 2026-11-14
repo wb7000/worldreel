@@ -27,10 +27,9 @@ import numpy as np
 from formats.common import dump_json, load_or_create_signing_key, sha256_hex
 from formats.wreel import (
     FORMAT_VERSION,
-    GAUSSIAN_DTYPE,
-    GAUSSIAN_STRIDE,
-    GaussianCloud,
     PROVENANCE_CLASSES,
+    GaussianCloud,
+    PointCloud,
     write_wreel,
 )
 from formats.wscript import read_wscript
@@ -46,7 +45,7 @@ from stages.generate.places import build_place
 
 GENERATED = PROVENANCE_CLASSES.index("generated")
 TOOL_VERSION = "0.2.0"  # bumped: splat-based photorealistic generation
-FORMAT_VERSION = "1.1"  # Gaussian splat layers require .wreel 1.1
+# FORMAT_VERSION comes from formats.wreel: Gaussian splat layers require .wreel 1.1
 LOD0_STEP = 4
 
 # Default portrait choice (D-8.10b: chosen per character after SFace distinctness).
@@ -101,6 +100,7 @@ def _write_wav_bytes(x: np.ndarray, rate: int) -> bytes:
 def _encode_portrait_png(rgb: np.ndarray) -> bytes:
     """Encode a portrait RGB array as PNG bytes for use as a face texture atlas."""
     import io
+
     from PIL import Image
 
     img = Image.fromarray(rgb, mode="RGB")
@@ -109,7 +109,7 @@ def _encode_portrait_png(rgb: np.ndarray) -> bytes:
     return buf.getvalue()
 
 
-def point_cloud_to_gaussians(cloud, scale: float = GAUSSIAN_SCALE) -> GaussianCloud:
+def point_cloud_to_gaussians(cloud: PointCloud, scale: float = GAUSSIAN_SCALE) -> GaussianCloud:
     """Convert a :class:`PointCloud` to isotropic Gaussian splats.
 
     Each point becomes a Gaussian with centre = position, colour = rgb,
@@ -386,8 +386,16 @@ def build_world(
                     "kind": "gaussians",
                     "point_size": POINT_SIZE,
                     "lods": [
-                        {"level": 0, "path": "scene/static/lod0.gsp", "count": len(coarse_gaussians)},
-                        {"level": 1, "path": "scene/static/lod1.gsp", "count": len(static_gaussians)},
+                        {
+                            "level": 0,
+                            "path": "scene/static/lod0.gsp",
+                            "count": len(coarse_gaussians),
+                        },
+                        {
+                            "level": 1,
+                            "path": "scene/static/lod1.gsp",
+                            "count": len(static_gaussians),
+                        },
                     ],
                 }
             ],

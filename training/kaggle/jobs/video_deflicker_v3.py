@@ -15,7 +15,9 @@ py = Path("/tmp/deflicker3/bin/python")
 subprocess.run([*UV, "venv", "--python", "3.12", "/tmp/deflicker3"], check=True)
 r = subprocess.run(
     [*UV, "pip", "install", "--python", str(py), "opencv-python-headless", "numpy"],
-    capture_output=True, text=True)
+    capture_output=True,
+    text=True,
+)
 log(f"deflicker v3 env install rc={r.returncode} {r.stderr[-300:] if r.returncode else ''}")
 
 # Find input video in all mounted Kaggle datasets
@@ -147,8 +149,16 @@ step.write_text(
 )
 (WORK / "deflicker_v3_args.json").write_text(json.dumps(args))
 env = {**os.environ, "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}
-r = subprocess.run([str(py), str(step), str(WORK / "deflicker_v3_args.json")],
-                   capture_output=True, text=True, timeout=6 * 3600, env=env)
-(OUT / "deflicker_v3.log").write_text(r.stdout[-20000:] + "\n" + r.stderr[-8000:] if r.returncode else r.stdout[-20000:], encoding="utf-8")
+r = subprocess.run(
+    [str(py), str(step), str(WORK / "deflicker_v3_args.json")],
+    capture_output=True,
+    text=True,
+    timeout=6 * 3600,
+    env=env,
+)
+(OUT / "deflicker_v3.log").write_text(
+    r.stdout[-20000:] + "\n" + r.stderr[-8000:] if r.returncode else r.stdout[-20000:],
+    encoding="utf-8",
+)
 log(f"deflicker v3 rc={r.returncode}")
 log("done")

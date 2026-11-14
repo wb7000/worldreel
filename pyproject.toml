@@ -52,5 +52,5 @@ files = ["formats", "pipeline", "stages", "tools", "eval", "training", "tests"]
 exclude = ['tools/blender/gen_scene\.py', 'tools/blender/human\.py', 'tools/blender/views\.py', 'tools/blender/orbit\.py', 'tools/blender/depth_orbit\.py', 'training/kaggle/']
 
 [[tool.mypy.overrides]]
-module = ["cv2", "cv2.*", "torch", "torch.*", "gsplat", "gsplat.*", "transformers", "transformers.*", "sam2", "sam2.*", "onnxruntime", "onnxruntime.*", "pyloudnorm", "pyloudnorm.*", "numba", "numba.*", "opentimelineio", "opentimelineio.*", "peft", "peft.*", "soundfile", "torchaudio", "torchaudio.*", "whisper", "speechbrain", "speechbrain.*", "huggingface_hub", "huggingface_hub.*", "pyworld", "mediapipe", "mediapipe.*"]
+module = ["cv2", "cv2.*", "torch", "torch.*", "gsplat", "gsplat.*", "transformers", "transformers.*", "sam2", "sam2.*", "onnxruntime", "onnxruntime.*", "pyloudnorm", "pyloudnorm.*", "numba", "numba.*", "opentimelineio", "opentimelineio.*", "peft", "peft.*", "soundfile", "torchaudio", "torchaudio.*", "whisper", "speechbrain", "speechbrain.*", "huggingface_hub", "huggingface_hub.*", "pyworld", "mediapipe", "mediapipe.*", "tiktoken", "tiktoken.*", "tokenizers", "tokenizers.*"]
 ignore_missing_imports = true

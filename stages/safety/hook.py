@@ -7,6 +7,7 @@ Phase 9: the hook is enforced, not pass-through (DECISIONS D-9.1). It checks:
 
 The runner refuses to run without a hook, so this cannot be skipped by accident.
 """
+
 from __future__ import annotations
 
 import json
@@ -32,7 +33,9 @@ class EnforcedSafety:
         # When True, items with unknown rights are blocked instead of merely logged.
         self.block_unknown = bool(self.config.get("block_unknown_rights", True))
 
-    def _log(self, event: str, stage: str, item: Item, paths: Sequence[Path], allowed: bool, reason: str) -> None:
+    def _log(
+        self, event: str, stage: str, item: Item, paths: Sequence[Path], allowed: bool, reason: str
+    ) -> None:
         record = {
             "time": datetime.now(UTC).isoformat(timespec="seconds"),
             "event": event,
@@ -58,12 +61,21 @@ class EnforcedSafety:
         if item.upload_rights not in ALLOWED_RIGHTS:
             if self.block_unknown:
                 self._log(
-                    event, stage, item, paths, False,
-                    f"blocked: upload_rights='{item.upload_rights}' not in {sorted(ALLOWED_RIGHTS)}",
+                    event,
+                    stage,
+                    item,
+                    paths,
+                    False,
+                    f"blocked: upload_rights='{item.upload_rights}' "
+                    f"not in {sorted(ALLOWED_RIGHTS)}",
                 )
                 return False, f"blocked: upload_rights='{item.upload_rights}'"
             self._log(
-                event, stage, item, paths, True,
+                event,
+                stage,
+                item,
+                paths,
+                True,
                 f"allowed (pass-through; rights='{item.upload_rights}', not enforced)",
             )
             return True, f"allowed (pass-through; rights='{item.upload_rights}')"

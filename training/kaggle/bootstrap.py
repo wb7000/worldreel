@@ -16,6 +16,13 @@ CODE = WORK / "worldreel"
 OUT = WORK / "out"
 OUT.mkdir(parents=True, exist_ok=True)
 
+# Export the canonical paths. Kaggle only archives /kaggle/working/out, so any job that
+# writes elsewhere loses its artefacts silently (D-9.10). Exporting OUT here means job
+# scripts and their subprocesses agree on a single output directory.
+_os.environ.setdefault("OUT", str(OUT))
+_os.environ.setdefault("WORK", str(WORK))
+_os.environ.setdefault("CODE", str(CODE))
+
 
 def log(msg: str) -> None:
     line = f"[{_time.time() - _T0:7.1f}s] {msg}"

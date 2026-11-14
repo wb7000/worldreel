@@ -94,15 +94,12 @@ struct U {
   viewport: vec4f,
 };
 @group(0) @binding(0) var<uniform> u: U;
-@group(0) @binding(1) var u_texture: texture_2d<f32>;
-@group(0) @binding(2) var u_sampler: sampler;
 
 struct VOut {
   @builtin(position) pos: vec4f,
   @location(0) color: vec4f,
   @location(1) d: vec2f,
   @location(2) fog: f32,
-  @location(3) uv: vec2f,
 };
 
 fn fogAmount(cls: u32, conf: f32) -> f32 {
@@ -117,9 +114,7 @@ fn vs(@builtin(vertex_index) vi: u32,
       @location(0) center: vec3f,
       @location(1) covA: vec3f,
       @location(2) covB: vec3f,
-      @location(3) color: vec4f,
-      @location(4) info: vec2f,
-      @location(5) uv: vec2f) -> VOut {
+      @location(3) color: vec4f) -> VOut {
   var corners = array<vec2f, 6>(
     vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0),
     vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(-1.0, 1.0));
@@ -154,8 +149,7 @@ fn vs(@builtin(vertex_index) vi: u32,
   o.pos = clip;
   o.color = color;
   o.d = corner * 3.0;
-  o.fog = fogAmount(u32(info.x + 0.5), info.y) * u.params.y;
-  o.uv = uv;
+  o.fog = fogAmount(1u, 1.0) * u.params.y;
   return o;
 }
 
@@ -165,10 +159,6 @@ fn fs(i: VOut) -> @location(0) vec4f {
   if (alpha < 1.0 / 255.0) { discard; }
   let screenY = clamp(i.pos.y / u.params.z, 0.0, 1.0);
   let fogColor = mix(u.fogTop.rgb, u.fogBottom.rgb, screenY);
-  // Sample portrait texture for face Gaussians (uv != 0,0 means textured)
-  let texColor = textureSample(u_texture, u_sampler, i.uv);
-  let hasTexture = dot(i.uv, i.uv) > 0.0001;
-  let baseColor = mix(i.color.rgb, texColor.rgb, texColor.a * hasTexture);
-  return vec4f(mix(baseColor, fogColor, i.fog), min(alpha, 0.99));
+  return vec4f(mix(i.color.rgb, fogColor, i.fog), min(alpha, 0.99));
 }
 `;

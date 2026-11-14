@@ -3,18 +3,19 @@ Test script for face-identity-aware decoder.
 Demonstrates that injecting face embeddings into the decoder
 keeps character identity consistent across frames.
 """
+
 import torch
 import torch.nn as nn
+from diffusers.models.autoencoders.autoencoder_kl_wan import WanDecoder3d
+
 from stages.generate.wan21_identity_decoder import (
     WanDecoder3dWithIdentity,
-    FaceEmbeddingProjector,
-    create_identity_decoder,
 )
-from diffusers.models.autoencoders.autoencoder_kl_wan import WanDecoder3d
 
 
 class FaceEncoder(nn.Module):
     """Encodes a face image into an identity embedding."""
+
     def __init__(self, embedding_dim: int = 512):
         super().__init__()
         self.encoder = torch.nn.Sequential(
@@ -31,10 +32,10 @@ class FaceEncoder(nn.Module):
         )
 
     def forward(self, face_image: torch.Tensor) -> torch.Tensor:
-        return self.encoder(face_image)
+        return self.encoder(face_image)  # type: ignore[no-any-return]
 
 
-def main():
+def main() -> None:
     print("=" * 60)
     print("WorldReel - Face Identity Decoder Test")
     print("=" * 60)
@@ -60,9 +61,7 @@ def main():
 
     # 2. Wrap with identity injection
     print("[2/5] Wrapping decoder with identity injection...")
-    identity_decoder = WanDecoder3dWithIdentity(
-        base_decoder, face_embedding_dim=512
-    )
+    identity_decoder = WanDecoder3dWithIdentity(base_decoder, face_embedding_dim=512)
     identity_decoder = identity_decoder.to(device)
     identity_decoder.eval()
 

@@ -26,57 +26,57 @@ from typing import Any
 import numpy as np
 
 SHARED = (
-    "structure",    # 0=ground, 1=floating, 2=orbital, 3=rift, 4=megastructure, 5=void
-    "material",     # 0=stone, 1=metal, 2=crystal, 3=bio_organic, 4=energy, 5=void, 6=ice
-    "light_source", # 0=none, 1=star, 2=nebula_glow, 3=biolum, 4=artificial, 5=plasma, 6=magic
+    "structure",  # 0=ground, 1=floating, 2=orbital, 3=rift, 4=megastructure, 5=void
+    "material",  # 0=stone, 1=metal, 2=crystal, 3=bio_organic, 4=energy, 5=void, 6=ice
+    "light_source",  # 0=none, 1=star, 2=nebula_glow, 3=biolum, 4=artificial, 5=plasma, 6=magic
     "light_level",  # 0=dark, 1=dim, 2=normal, 3=bright, 4=blazing
-    "gravity",      # 0=0.1g, 1=0.5g, 2=1g, 3=2g, 3=3g, 4=zero, 5=inverted
-    "atmosphere",   # 0=none, 1=nitrogen, 2=methane, 3=ammonia, 4=plasma, 5=toxic
+    "gravity",  # 0=0.1g, 1=0.5g, 2=1g, 3=2g, 3=3g, 4=zero, 5=inverted
+    "atmosphere",  # 0=none, 1=nitrogen, 2=methane, 3=ammonia, 4=plasma, 5=toxic
     "temperature",  # 0=cryogenic, 1=freezing, 2=temperate, 3=molten, 4=stellar
-    "scale",        # 0=tiny, 1=small, 2=medium, 3=large, 4=vast, 5=cosmic
-    "openness",     # 0=enclosed, 1=semi, 2=open, 3=roofless, 4=outdoors, 5=boundless
+    "scale",  # 0=tiny, 1=small, 2=medium, 3=large, 4=vast, 5=cosmic
+    "openness",  # 0=enclosed, 1=semi, 2=open, 3=roofless, 4=outdoors, 5=boundless
 )
 
 PLANETARY = (
-    "terrain",      # 0=rock, 1=sand, 2=ice, 3=liquid, 4=gas, 5=fungal, 6=metallic
-    "sea_level",    # 0=dry, 1=shallow, 2=ocean, 3=global_ocean, 4=supercritical
-    "mountain",     # 0=flat, 1=hills, 2=peaks, 3=range, 4=monolithic
-    "caves",        # 0=none, 1=few, 2=many, 3=vast_network, 4=hollow
+    "terrain",  # 0=rock, 1=sand, 2=ice, 3=liquid, 4=gas, 5=fungal, 6=metallic
+    "sea_level",  # 0=dry, 1=shallow, 2=ocean, 3=global_ocean, 4=supercritical
+    "mountain",  # 0=flat, 1=hills, 2=peaks, 3=range, 4=monolithic
+    "caves",  # 0=none, 1=few, 2=many, 3=vast_network, 4=hollow
 )
 
 ORBITAL = (
-    "ring_count",   # 0-4 concentric rings
+    "ring_count",  # 0-4 concentric rings
     "spoke_count",  # 0-8 radial spokes
-    "dock_count",   # 0-16 docking bays
-    "habitat_rings",# 0-4 rotating habitat rings
+    "dock_count",  # 0-16 docking bays
+    "habitat_rings",  # 0-4 rotating habitat rings
 )
 
 NEBULA = (
-    "density",      # 0=wisp, 1=thin, 2=normal, 3=thick, 4=opaque
-    "color_layers", # 1-4 overlapping emission layers
-    "star_count",   # 0-6 embedded stars
-    "pillar_count", # 0-8 elephant-trunk pillars
+    "density",  # 0=wisp, 1=thin, 2=normal, 3=thick, 4=opaque
+    "color_layers",  # 1-4 overlapping emission layers
+    "star_count",  # 0-6 embedded stars
+    "pillar_count",  # 0-8 elephant-trunk pillars
 )
 
 RIFT = (
-    "fold_count",   # 0-4 dimensional folds
-    "anchor_count", # 0-4 reality anchors
-    "echo_depth",   # 0=none, 1=faint, 2=clear, 3=strong, 4=overwhelming
-    "time_rate",    # 0=stopped, 1=slow, 2=normal, 3=fast, 4=erratic
+    "fold_count",  # 0-4 dimensional folds
+    "anchor_count",  # 0-4 reality anchors
+    "echo_depth",  # 0=none, 1=faint, 2=clear, 3=strong, 4=overwhelming
+    "time_rate",  # 0=stopped, 1=slow, 2=normal, 3=fast, 4=erratic
 )
 
 MEGASTRUCTURE = (
-    "ring_diameter",# 0=km, 1=100km, 2=1000km, 3=10000km, 4=stellar
+    "ring_diameter",  # 0=km, 1=100km, 2=1000km, 3=10000km, 4=stellar
     "wall_height",  # 0=m, 1=km, 2=100km, 3=1000km, 4=atmosphere
     "spoke_width",  # 0=m, 1=km, 2=10km, 3=100km, 4=continent
-    "floor_layers", # 0=single, 2=double, 4=quad, 8=octuple
+    "floor_layers",  # 0=single, 2=double, 4=quad, 8=octuple
 )
 
 VOID = (
     "drift_speed",  # 0=still, 1=drift, 2=flow, 3=rush, 4=turbulent
-    "particle_density",# 0=none, 1=dust, 2=ice, 3=debris, 4=storm
-    "horizon",      # 0=none, 1=near, 2=mid, 3=far, 4=infinite
-    "silence",      # 0=noisy, 1=quiet, 2=silent, 3=absolute
+    "particle_density",  # 0=none, 1=dust, 2=ice, 3=debris, 4=storm
+    "horizon",  # 0=none, 1=near, 2=mid, 3=far, 4=infinite
+    "silence",  # 0=noisy, 1=quiet, 2=silent, 3=absolute
 )
 
 ALL_DIMS = SHARED + PLANETARY + ORBITAL + NEBULA + RIFT + MEGASTRUCTURE + VOID
@@ -129,9 +129,26 @@ def expand(seed: int, requested: str = "", place_type: str = "planetary_surface"
         raise ValueError(f"unknown place type: {place_type!r}")
 
     likeness_words = {
-        "earth", "mars", "venus", "jupiter", "moon", "sun", "milky_way", "andromeda",
-        "iss", "hubble", "voyager", "apollo", "sputnik", "death_star", "enterprise",
-        "tardis", "midgard", "asgard", "olympus", "valhalla",
+        "earth",
+        "mars",
+        "venus",
+        "jupiter",
+        "moon",
+        "sun",
+        "milky_way",
+        "andromeda",
+        "iss",
+        "hubble",
+        "voyager",
+        "apollo",
+        "sputnik",
+        "death_star",
+        "enterprise",
+        "tardis",
+        "midgard",
+        "asgard",
+        "olympus",
+        "valhalla",
     }
 
     ranges: dict[str, tuple[float, float]] = {}
@@ -246,11 +263,7 @@ def check_bible(dictionary: dict[str, Any]) -> tuple[PlaceDistinctnessReport, li
         for pid, p in places.items()
         if "identity" in p
     }
-    tampered = [
-        pid
-        for pid, p in places.items()
-        if "identity" in p and not verify(p["identity"])
-    ]
+    tampered = [pid for pid, p in places.items() if "identity" in p and not verify(p["identity"])]
     return check_distinct(cast), tampered
 
 

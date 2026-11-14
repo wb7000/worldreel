@@ -33,7 +33,9 @@ except (AttributeError, KeyError, TypeError):
 ```python
 pipe.text_encoder.to("cuda")
 with torch.no_grad():
-    pos, neg = pipe.encode_prompt(prompt=..., negative_prompt=..., do_classifier_free_guidance=True, device="cuda")
+    pos, neg = pipe.encode_prompt(
+        prompt=..., negative_prompt=..., do_classifier_free_guidance=True, device="cuda"
+    )
 pipe.text_encoder.to("cpu")
 pipe.text_encoder = None
 gc.collect()
@@ -56,8 +58,8 @@ torch.cuda.empty_cache()
 
 **Fix:** Store list of frames:
 ```python
-prev_last_frames = out[-OVERLAP:]   # list of frames
-video = [*prev_last_frames, ...]     # unpack list
+prev_last_frames = out[-OVERLAP:]  # list of frames
+video = [*prev_last_frames, ...]  # unpack list
 ```
 
 ---

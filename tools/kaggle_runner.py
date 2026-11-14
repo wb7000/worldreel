@@ -36,6 +36,16 @@ from pathlib import Path
 from tools.toolpaths import REPO_ROOT
 
 KAGGLE = Path(sys.executable).with_name("kaggle.exe" if sys.platform == "win32" else "kaggle")
+if not KAGGLE.exists():
+    # Try common Kagke CLI locations
+    for candidate in [
+        Path(sys.executable).parent.parent / "Scripts" / "kaggle.exe",
+        Path("C:/Users/li/AppData/Local/Programs/Python/Python312/Scripts/kaggle.exe"),
+        Path("C:/ProgramData/chocolatey/bin/kaggle.exe"),
+    ]:
+        if candidate.exists():
+            KAGGLE = candidate
+            break
 CODE_DATASET = "worldreel-code"
 CODE_ZIP = "worldreel_code.zip"
 CODE_DIRS = ("formats", "pipeline", "stages", "tools", "eval", "training", "spec")
@@ -167,14 +177,19 @@ def kernel_slug(job: Path) -> str:
 
 
 def run(
-    job: Path, scenes: list[str], wait: bool, any_gpu: bool = False, requeue_after: float = 0
+    job: Path,
+    scenes: list[str],
+    wait: bool,
+    any_gpu: bool = False,
+    requeue_after: float = 0,
+    cpu: bool = False,
 ) -> None:
     """Push the job. With `requeue_after` minutes > 0, a job still QUEUED after that long is
     deleted and pushed again (observed on Kaggle: a fresh push often starts at once while the
     queued one waits for hours; DECISIONS D-3b.3)."""
     if not job.exists():
         job = JOBS_DIR / job.name
-    _push(job, scenes, any_gpu)
+    _push(job, scenes, any_gpu, cpu)
     if requeue_after > 0:
         started = time.time()
         while "queued" in status(job).lower():
@@ -196,14 +211,14 @@ def run(
                 if not deleted:
                     print("delete failed after 3 attempts, keeping queued job", flush=True)
                 else:
-                    _push(job, scenes, any_gpu)
+                    _push(job, scenes, any_gpu, cpu)
                     started = time.time()
             time.sleep(60)
     if wait:
         wait_for(job)
 
 
-def _push(job: Path, scenes: list[str], any_gpu: bool) -> None:
+def _push(job: Path, scenes: list[str], any_gpu: bool, cpu: bool = False) -> None:
     user = username()
     with tempfile.TemporaryDirectory() as tmp:
         folder = Path(tmp)
@@ -223,9 +238,9 @@ def _push(job: Path, scenes: list[str], any_gpu: bool) -> None:
             "language": "python",
             "kernel_type": "script",
             "is_private": True,
-            "enable_gpu": True,
+            "enable_gpu": not cpu,
             "enable_internet": True,
-            **({} if any_gpu else {"machine_shape": MACHINE_SHAPE}),
+            **({} if cpu or any_gpu else {"machine_shape": MACHINE_SHAPE}),
             "dataset_sources": [f"{user}/{CODE_DATASET}"]
             + [
                 f"{user}/worldreel-video-{s[6:]}"
@@ -295,6 +310,11 @@ def main(argv: list[str] | None = None) -> int:
         default=30.0,
         help="minutes queued before re-pushing (0 = never)",
     )
+    r.add_argument(
+        "--cpu",
+        action="store_true",
+        help="run on a CPU kernel (cheap smoke tests; does not consume GPU quota)",
+    )
     for name in ("status", "fetch", "wait"):
         sub.add_parser(name).add_argument("job", type=Path)
     a = p.parse_args(argv)
@@ -308,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
         push_video(a.root, a.id, a.name, a.config)
     elif a.cmd == "run":
         datasets = a.scene + [f"video:{n}" for n in a.video]
-        run(a.job, datasets, a.wait, a.any_gpu, a.requeue_after)
+        run(a.job, datasets, a.wait, a.any_gpu, a.requeue_after, a.cpu)
     elif a.cmd == "status":
         print(status(a.job))
     elif a.cmd == "wait":

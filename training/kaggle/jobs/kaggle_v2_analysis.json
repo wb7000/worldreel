@@ -1,0 +1,203 @@
+{
+  "video_path": "runs/videos/S015_face_consistent.mp4",
+  "reference_path": null,
+  "portrait_path": "runs/kaggle/character_consistency_v2/out/face_consistency.mp4",
+  "fps": 16.0,
+  "width": 512,
+  "height": 288,
+  "total_frames": 30,
+  "frames_analyzed": 10,
+  "sample_every": 3,
+  "analysis_timestamp": "2026-11-13T15:19:16.645890+00:00",
+  "metrics": {
+    "temporal_consistency": {
+      "mean_motion": 0.33120855026774937,
+      "max_motion": 4.943639755249023,
+      "mean_frame_diff": 1.7823104544431583,
+      "max_frame_diff": 155.0,
+      "mean_changed_frac": 0.02946315184542181,
+      "high_motion_frames": 0
+    },
+    "flicker": {
+      "mean_luminance": 91.31712375217013,
+      "std_luminance": 0.45988516886594644,
+      "luminance_range": 1.3228895399305571,
+      "flicker_index": 0.005036132873764734
+    },
+    "sharpness": {
+      "mean_laplacian_var": 27.98354385088163,
+      "min_laplacian_var": 24.02284213569429,
+      "blur_frames": 10,
+      "mean_detail_laplacian_var": 217.04386832594483,
+      "min_detail_laplacian_var": 195.1016803859071,
+      "mean_subject_laplacian_var": 546.2841283996811,
+      "min_subject_laplacian_var": 387.81240356426025,
+      "blurred_subject_frames": 0
+    },
+    "compression_artifacts": {
+      "mean_blocking": 1.3952798861480076,
+      "max_blocking": 1.4947817836812145,
+      "mean_ringing": 11.651634124444705,
+      "max_ringing": 14.241624790619765
+    },
+    "face_consistency": {
+      "frames_with_face": 4,
+      "total_sampled": 4,
+      "face_detection_rate": 1.0,
+      "mean_consecutive_similarity": 1.0,
+      "min_consecutive_similarity": 1.0,
+      "std_consecutive_similarity": 0.0,
+      "drift_frames": 0
+    },
+    "face_region": {
+      "faces_analyzed": 4,
+      "mean_face_blur": 74.91766660197301,
+      "min_face_blur": 50.77995102251712,
+      "mean_edge_density": 0.0490101799614439,
+      "max_edge_density": 0.05075818036711891,
+      "mean_color_std": 54.909297679005995,
+      "max_color_std": 56.03926666316547,
+      "frame_details": [
+        {
+          "frame": 0,
+          "face_bbox": [
+            202,
+            50,
+            98,
+            147
+          ],
+          "face_blur": 135.97062401277444,
+          "edge_density": 0.05037588157792761,
+          "color_std": 56.03926666316547,
+          "landmarks": [
+            [
+              229,
+              114
+            ],
+            [
+              271,
+              111
+            ],
+            [
+              250,
+              144
+            ],
+            [
+              238,
+              166
+            ],
+            [
+              273,
+              162
+            ]
+          ]
+        },
+        {
+          "frame": 3,
+          "face_bbox": [
+            200,
+            52,
+            98,
+            142
+          ],
+          "face_blur": 58.011225015783424,
+          "edge_density": 0.05020703933747412,
+          "color_std": 54.79875720301887,
+          "landmarks": [
+            [
+              227,
+              114
+            ],
+            [
+              270,
+              113
+            ],
+            [
+              248,
+              144
+            ],
+            [
+              234,
+              163
+            ],
+            [
+              269,
+              161
+            ]
+          ]
+        },
+        {
+          "frame": 6,
+          "face_bbox": [
+            194,
+            55,
+            100,
+            139
+          ],
+          "face_blur": 54.908866356817065,
+          "edge_density": 0.05075818036711891,
+          "color_std": 54.64418508714663,
+          "landmarks": [
+            [
+              222,
+              115
+            ],
+            [
+              267,
+              114
+            ],
+            [
+              245,
+              145
+            ],
+            [
+              230,
+              163
+            ],
+            [
+              266,
+              161
+            ]
+          ]
+        },
+        {
+          "frame": 9,
+          "face_bbox": [
+            192,
+            58,
+            103,
+            136
+          ],
+          "face_blur": 50.77995102251712,
+          "edge_density": 0.044699618563254925,
+          "color_std": 54.15498176269302,
+          "landmarks": [
+            [
+              219,
+              116
+            ],
+            [
+              265,
+              113
+            ],
+            [
+              243,
+              145
+            ],
+            [
+              228,
+              163
+            ],
+            [
+              265,
+              160
+            ]
+          ]
+        }
+      ]
+    }
+  },
+  "issues": [],
+  "severity": "none",
+  "issue_count": 0
+}

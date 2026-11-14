@@ -14,14 +14,30 @@ UV = [sys.executable, "-m", "uv"]
 py = Path("/tmp/lora3/bin/python")
 subprocess.run([*UV, "venv", "--python", "3.12", "/tmp/lora3"], check=True)
 r = subprocess.run(
-    [*UV, "pip", "install", "--python", str(py), "diffusers", "transformers",
-     "accelerate", "safetensors", "torch", "ftfy", "imageio", "imageio-ffmpeg",
-     "sentencepiece", "opencv-python-headless", "peft"],
-    capture_output=True, text=True)
+    [
+        *UV,
+        "pip",
+        "install",
+        "--python",
+        str(py),
+        "diffusers",
+        "transformers",
+        "accelerate",
+        "safetensors",
+        "torch",
+        "ftfy",
+        "imageio",
+        "imageio-ffmpeg",
+        "sentencepiece",
+        "opencv-python-headless",
+        "peft",
+    ],
+    capture_output=True,
+    text=True,
+)
 log(f"lora v3 env install rc={r.returncode} {r.stderr[-300:] if r.returncode else ''}")
 
 # Find models in mounted Kaggle datasets
-import glob as _glob
 MODEL_DIR = Path("/kaggle/input/datasets/wb3none/worldreel-data-facemodels")
 yunet_path = None
 sface_path = None
@@ -74,15 +90,33 @@ step.write_text(
     det = cv2.FaceDetectorYN.create(yunet_path, "", (W, H), 0.6)
     rec = cv2.FaceRecognizerSF.create(sface_path, "")
 
+    # Canonical ArcFace/SFace 5-point template. OpenCV's FaceRecognizerSF.alignCrop
+    # returns an all-black crop on OpenCV 5.x, which makes every embedding identical
+    # and every similarity a constant, so we align with the template ourselves.
+    TEMPLATE = np.float32([[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366],
+                            [41.5493, 92.3655], [70.7299, 92.2041]])
+
+    def align_face(img_bgr, lm):
+        m, _ = cv2.estimateAffinePartial2D(np.float32(lm).reshape(-1, 1, 2),
+                                           TEMPLATE.reshape(-1, 1, 2), method=cv2.LMEDS)
+        if m is None:
+            return None
+        return cv2.warpAffine(img_bgr, m, (112, 112))
+
     def embed(img_bgr):
         det.setInputSize((img_bgr.shape[1], img_bgr.shape[0]))
         _, faces = det.detect(img_bgr)
         if faces is None or len(faces) == 0:
             return None
         f = faces[int(np.argmax(faces[:, -1]))]
-        feat = rec.alignCrop(img_bgr, f)
-        feat = rec.feature(feat).ravel()
-        return feat / np.linalg.norm(feat)
+        aligned = align_face(img_bgr, f[4:14].reshape(5, 2))
+        if aligned is None:
+            return None
+        feat = rec.feature(aligned).ravel()
+        norm = float(np.linalg.norm(feat))
+        if norm <= 0.0:
+            return None
+        return feat / norm
 
     ref = Image.open(portrait_path).convert("RGB")
     ref_bgr = cv2.cvtColor(np.array(ref), cv2.COLOR_RGB2BGR)
@@ -217,8 +251,16 @@ step.write_text(
 )
 (WORK / "lora_v3_args.json").write_text(json.dumps(args))
 env = {**os.environ, "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}
-r = subprocess.run([str(py), str(step), str(WORK / "lora_v3_args.json")],
-                   capture_output=True, text=True, timeout=6 * 3600, env=env)
-(OUT / "lora_v3.log").write_text(r.stdout[-20000:] + "\n" + r.stderr[-8000:] if r.returncode else r.stdout[-20000:], encoding="utf-8")
+r = subprocess.run(
+    [str(py), str(step), str(WORK / "lora_v3_args.json")],
+    capture_output=True,
+    text=True,
+    timeout=6 * 3600,
+    env=env,
+)
+(OUT / "lora_v3.log").write_text(
+    r.stdout[-20000:] + "\n" + r.stderr[-8000:] if r.returncode else r.stdout[-20000:],
+    encoding="utf-8",
+)
 log(f"lora v3 rc={r.returncode}")
 log("done")

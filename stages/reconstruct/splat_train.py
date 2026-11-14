@@ -206,7 +206,9 @@ def train_splats(
         if masks[i] is not None:
             # Ignored pixels take the (detached) prediction as their target, so they add no error
             # or gradient to L1 or SSIM. People move, so the static model must not explain them.
-            target = torch.where(masks[i], pred.detach(), target)
+            mask = masks[i]
+            assert mask is not None  # narrowed by the check above
+            target = torch.where(mask, pred.detach(), target)
         l1 = (pred - target).abs().mean()
         ssim = _ssim(pred.permute(2, 0, 1)[None], target.permute(2, 0, 1)[None])
         loss = (1 - cfg.ssim_weight) * l1 + cfg.ssim_weight * (1 - ssim)
