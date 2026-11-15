@@ -2713,4 +2713,48 @@ the conditioned frames are dropped from the output so nothing is duplicated. `ke
   test asserts the checker **fails** on a deliberately broken job in both paths — a checker that
   cannot fail is not a checker. Four tests, all green.
 
+### D-9.16 v9 verification: chain drift fixed, the loss moved to the handoffs
+
+Kernel v9 ran 2h38m, COMPLETE on the first try, no OOM (peak 7.53 GB, same as v8), 832x480, 50
+steps, 4 reference images, 49+49+49 frames in / 48+42+42 frames out.
+
+**The D-9.15 fix works — the per-segment decay is gone:**
+
+| Metric | v8 (before) | v9 (after) |
+|---|---|---|
+| interior slopes | -0.00037 / **-0.00209** / **-0.00176** | -0.00029 / **+0.00020** / **+0.00146** |
+| mean / min | 0.8114 / 0.6867 | **0.8310 / 0.7488** |
+| frames <0.80 | 70/135 | **31/132** |
+| frames <0.75 | 15 | **1** |
+| segment mid (JSON) | 0.8678 / 0.7876 / 0.7668 | 0.8714 / 0.8169 / 0.7683 |
+| handoff steps | -0.023 / +0.010 | **-0.039 / -0.053** |
+
+Both chain segments now hold or *gain* identity internally. What got worse is the one-time step at
+each cut: prepending the portrait to the conditioning head trades a slightly larger discontinuity at
+the handoff for a flat slope everywhere else — a good trade (v8 lost ~0.09 per segment cumulatively,
+v9 pays ~0.04 once). Segment starts converge rather than compound: 0.9176 -> 0.8221 -> 0.8058
+(drops -0.096, -0.016), ends 0.8526 -> 0.8228 -> 0.8154 (drops -0.030, -0.007) — the chain is
+heading for a steady band around 0.77-0.82, not toward zero.
+
+**Remaining defect, diagnosed:** segment 2 sags through frames 93-118 (0.75-0.80) and then
+*recovers* to 0.8154 — not a drift shape. A probe correlating per-frame identity with inter-ocular
+distance found corr = +0.61 overall and +0.66 inside the sag window (the face is a little smaller /
+more turned there), but at equal IOD segment 2 still runs ~0.06 below segment 1, so it is a mix of
+pose-driven content and a segment-level offset. Not fixable by more anchoring alone; the honest
+options are more reference angles (refs are capped at `[:4]` of 6 available) or accepting it.
+
+**Everything else is green:** `v2_check` — 132/132 frames exactly one face, IOD cv 0.057 (v8
+0.078), face-height cv 0.061, identity mean 0.8401 / min 0.7666. Analyzer — 0 issues, severity
+NONE, face sim 0.905, subject sharpness 613.8 (v8 641, pre-D-9.13 baseline 374.7). Packaged
+`runs/generated/S017_vace_reference.wreel` (329.1 KB) -> `python -m formats validate` OK (0
+errors, 0 warnings), embedded MP4 byte-identical to source (SHA-256 match).
+
+**Gotcha:** in PowerShell, redirecting a native command's stderr (`2>$null`, used to silence
+OpenCV's benign `setPreferableTarget` warnings) makes `$LASTEXITCODE` report 1 even when the process
+exits 0. Both QA tools were verified to return 0 without the redirect — do not trust `$LASTEXITCODE`
+under `2>$null`.
+
+**Next:** extend to 5 segments (~15 s) now that drift is fixed — the open question is whether the
+cut steps hold steady over a longer chain.
+
 

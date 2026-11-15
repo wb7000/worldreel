@@ -1260,6 +1260,14 @@ argument applies to identity here, to colour/exposure across a shot, and to any 
 "mean over the whole clip": a good mean can hide a monotonic decay, so always fit a slope per
 segment rather than quoting an average.
 
+**Verified in kernel v9:** re-anchoring took the interior slopes from -0.00037 / -0.00209 /
+-0.00176 to -0.00029 / +0.00020 / +0.00146, mean 0.811 -> 0.831, min 0.687 -> 0.749, and frames
+below 0.80 from 70/135 to 31/132. The trade is a one-time identity step at each cut (-0.04, -0.05
+instead of -0.02, +0.01): anchoring on the reference buys a flat slope everywhere for a small
+discontinuity exactly at the handoff. Segment starts then converge rather than compound
+(0.9176 -> 0.8221 -> 0.8058, drops -0.096 then -0.016), so the chain settles into a band instead of
+decaying without bound.
+
 ---
 
 *End of knowledge base. Update this file as new experiments confirm or deny methods.*

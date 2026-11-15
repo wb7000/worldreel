@@ -406,9 +406,11 @@ args = {
     "yunet": str(yunet_path),
     "sface": str(sface_path),
     "out": str(OUT_DIR),
-    "segments": 3,
-    # Wan's causal VAE wants num_frames == 4k+1 (49 = 4*12 + 1).
-    "frames_per_segment": 49,
+    "segments": 5,
+    # Wan's causal VAE wants num_frames == 4k+1 (53 = 4*13 + 1). Output drops
+    # the conditioned head (1 frame seg0, 1+overlap later), so 5 segments give
+    # 52 + 4*46 = 236 frames = 14.75 s at 16 fps.
+    "frames_per_segment": 53,
     "overlap_frames": 6,
     # 832x480 is VACE-1.3B's trained 480P resolution. The previous 512x288 was
     # well below it, which is a large part of why the output looked soft.
