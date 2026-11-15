@@ -2757,4 +2757,45 @@ under `2>$null`.
 **Next:** extend to 5 segments (~15 s) now that drift is fixed — the open question is whether the
 cut steps hold steady over a longer chain.
 
+### D-9.17 v10 verdict: chaining does not scale — anchor generation, not just slopes
+
+Kernel v10 (5 segments x 53 frames = 14.75 s, ran 4h29m, peak 7.71 GB, no OOM) **failed** the
+quality bar, while confirming that D-9.15's fix holds:
+
+- Interior slopes stayed flat: -0.00092 / -0.00073 / -0.00060 / +0.00097 / -0.00062 per frame.
+  The in-segment decay is gone in *every* segment.
+- But the **level** walked down: segment mids 0.8865 -> 0.8316 -> 0.7289 -> 0.7554 -> 0.6928,
+  mean 0.7913 (v9: 0.8310), min 0.6723 (v9: 0.7488), 138/236 frames below 0.80, 96/236 below
+  0.75 (v9: 1 frame).
+- Analyzer flagged **1 issue, severity medium**: luminance flicker index 0.060 (threshold 0.05) —
+  each cut contributes a brightness step, so flicker grows with cut count (v9, 2 cuts: clean).
+- Geometry walked out of the close-up: IOD mean 93.5 / cv 0.122 (v9: 114.1 / 0.057); face height
+  273 px (v9: 344). The framing drifts wider during segments 0-1 then plateaus.
+
+**Diagnosis.** corr(identity, IOD) over the clip = **+0.874**: per segment, sim 0.8979/0.8481/
+0.7499/0.7449/0.7015 tracks IOD 111.7/95.8/85.6/86.6/85.7. Two separate failures compound:
+
+1. **Composition random walk** — chained generation carries framing from the previous tail, so the
+   subject drifts ~24% smaller over the first segments and identity falls with it (r = +0.874).
+2. **~-0.04 identity + a luminance step per cut** — after composition stabilises, the level still
+   slides 0.750 -> 0.702 over the last three segments. Flat slopes do not stop a per-cut toll.
+
+And the pattern across all three runs: **segment 0 is always the best** (0.93 start, iod ~112,
+flat) because it is the only one whose generation *continues from the portrait*. Prepending the
+portrait (D-9.15) fixed the slope but generation still starts from the degraded tail, so the
+portrait never sets the level.
+
+**Fix.** Reverse the conditioning head for chain segments: `[*tail, seed]` — the portrait is the
+**last** conditioned frame, so the first generated frame continues from the reference exactly like
+segment 0 does, while the tail stays in context (causally behind) for motion. The conditioned
+frames are dropped anyway, so the visible effect is a pose/framing reset at each cut (a jump-cut
+look) in exchange for identity + composition re-pinned to the reference every segment. The
+alternative — dropping the tail entirely (head = portrait for all segments) — is strictly simpler
+but discards all motion context; order-only is the clean A/B against v10 (same seeds, same frame
+counts, one variable).
+
+If luminance flicker survives the reorder (steps between seed draws), the existing deflicker
+tooling is the post-process of record. The chained v9 (8.25 s, analyzer clean) remains the shippable
+deliverable until this passes.
+
 

@@ -1268,6 +1268,33 @@ discontinuity exactly at the handoff. Segment starts then converge rather than c
 (0.9176 -> 0.8221 -> 0.8058, drops -0.096 then -0.016), so the chain settles into a band instead of
 decaying without bound.
 
+### 15.9 Per-cut tolls: why flat slopes still drift
+
+The v10 run (5 segments) kept every interior slope flat (-0.0009 to +0.0010/frame — the §15.8
+re-anchor works) yet still walked identity from 0.898 down to 0.702. Two effects that a per-segment
+slope fit is blind to:
+
+1. **A step toll at every cut** (~-0.04 identity and a luminance step per handoff). Steps
+   compound exactly like slopes: N segments pay N-1 of them. Slope fits measure *within*-segment
+   trends and skip the boundaries, so fit the **segment starts** too — here they fell
+   0.928 -> 0.851 -> 0.789 -> 0.740 -> 0.709.
+2. **A composition random walk.** corr(identity, inter-ocular distance) = **+0.874**: the framing
+   drifted ~24% wider over the first segments (IOD 111.7 -> 85.6) and the identity metric fell
+   with the face size. Before diagnosing "identity drift", check geometry — pose/scale often
+   explains the drop, and no amount of identity anchoring fixes a framing walk.
+
+Also: luminance flicker grew from clean (2 cuts) to 0.060 > 0.05 threshold (4 cuts) — every cut
+is a brightness step between independently seeded generations, so flicker risk scales with cut
+count; deflicker is the post-process of record.
+
+**The structural lesson:** conditioning that merely *precedes* generation (a portrait early in the
+mask) shapes the trend but not the level — the frame the model **continues from** (last conditioned
+frame) sets the level. For an attribute that must survive N stages, the last thing the model sees
+before generating must be the source of truth, not the previous stage's output. Segment 0 always
+scored best (0.93 start, stable framing) in every run precisely because its generation continued
+from the portrait; making every segment do the same is the difference between a chain that decays
+and a chain that re-pins.
+
 ---
 
 *End of knowledge base. Update this file as new experiments confirm or deny methods.*

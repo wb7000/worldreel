@@ -275,18 +275,21 @@ step.write_text(
     except Exception as exc:  # noqa: BLE001 - never fail on a hint
         log(f"attention: could not restrict SDPA backends ({type(exc).__name__})")
 
-    # Every segment is anchored on the reference portrait FIRST, then (from
-    # segment 1 on) the previous segment's tail. Measured on the S017 run
-    # (tools/identity_curve.py): a segment conditioned on the portrait decays at
-    # -0.00037 identity/frame, one conditioned on the previous tail at
-    # -0.00209 -- 6x faster, because each segment inherits an already-degraded
-    # anchor and degrades it again, so the loss compounds down the chain
-    # (0.93 -> 0.85 -> 0.82 -> 0.77 -> 0.76 -> 0.71). Re-adding the portrait at
-    # t=0 re-pins identity every segment while the tail still carries motion.
-    # The conditioned frames are dropped from the output, so nothing is lost.
+    # The portrait is the LAST conditioned frame, so generation *continues from
+    # the reference* in every segment. Measured across the S017 runs: segment 0
+    # (portrait-seeded) always starts ~0.93 with a flat slope, while chained
+    # segments whose generation continues from the previous tail pay ~-0.04
+    # identity + a luminance step at EVERY cut and inherit its drifting
+    # composition (v10, 5 segments: sim 0.898 -> 0.702 tracking IOD 112 -> 86,
+    # corr +0.874; analyzer luminance_flicker 0.060 > 0.05). Prepending the
+    # portrait (D-9.15) fixed the in-segment slope but never set the level,
+    # because generation starts from the frame at the END of the head. The tail
+    # stays in the head (causally before the portrait) for motion context; the
+    # conditioned frames are dropped from the output, so the visible trade is a
+    # pose/framing reset at each cut.
     def _build(nf: int, seg: int) -> tuple[list, list, int]:
         # Build the conditioning video + mask for one segment.
-        head = [seed] if seg == 0 else [seed, *prev_last_frames[-OVERLAP:]]
+        head = [seed] if seg == 0 else [*prev_last_frames[-OVERLAP:], seed]
         keep = 1 if seg == 0 else 1 + OVERLAP
         video = [*head, *[grey] * (nf - keep)]
         mask = [*([mask_black] * keep), *[mask_white] * (nf - keep)]
@@ -296,10 +299,12 @@ step.write_text(
         t0 = time.time()
         torch.cuda.reset_peak_memory_stats()
 
-        # Segment 0 starts from the portrait; later segments start from the last
-        # OVERLAP frames of the previous segment, so the result is one continuous
-        # shot rather than three clips that each reset to the same pose.
-        # Every segment additionally re-anchors on `seed` (see `_build`).
+        # Every segment's generation continues from `seed`, the LAST conditioned
+        # frame, so identity and framing re-pin to the reference at each cut
+        # (D-9.17). The previous segment's tail is still conditioned (before the
+        # portrait) for motion context -- but the price of chaining without this
+        # reset was a -0.04 identity toll and a luminance step per cut, plus the
+        # framing random walk, which is what killed v10 at 5 segments.
         out = None
         nf = n_frames
         floor = 1 + OVERLAP + 4  # portrait + tail + 4 frames worth generating
