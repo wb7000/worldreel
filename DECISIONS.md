@@ -2798,4 +2798,38 @@ If luminance flicker survives the reorder (steps between seed draws), the existi
 tooling is the post-process of record. The chained v9 (8.25 s, analyzer clean) remains the shippable
 deliverable until this passes.
 
+### D-9.18 v11 verdict: generation bridges the WHOLE window — drop the tail entirely
+
+Kernel v11 (`[*tail, portrait]`) failed **worse** than v10 and refuted the mechanism D-9.17 was
+built on:
+
+| | v10 `[portrait, tail]` | v11 `[tail, portrait]` |
+|---|---|---|
+| handoff steps | -0.003 / -0.051 / +0.013 / -0.037 | **-0.123 / -0.076 / -0.085 / -0.385** |
+| min identity | 0.6723 | **0.3173** (below the 0.363 same-person threshold) |
+| mean identity | 0.7913 | 0.7754 |
+| face defects | 0 | **3 no-face + 1 multi-face** frames, sharpness min 9.2 |
+| IOD mean | 93.5 (walked) | 111.6 (framing DID reset) |
+
+Putting the portrait last reset the framing (IOD 111.6) but did **not** make generation continue
+from it: the model bridges the *entire* conditioning window, so a degraded tail anywhere in the
+window poisons every handoff, in either order. Portrait-first (-0.04/cut) is strictly better than
+portrait-last (-0.17/cut), but neither reaches zero — chaining itself is the problem.
+
+**Decision: every segment regenerates from the portrait alone.** Head = `[seed]`, `keep = 1` —
+segment 0's exact configuration, the only one proven excellent in all three runs (starts
+0.9176 / 0.9281 / 0.9281, flat interior slopes, IOD ~112, zero face defects). At 49 frames per
+segment: 5 x 48 = **240 frames = 15.0 s exactly**. `overlap_frames` / `prev_last_frames` / `OVERLAP`
+removed — there is nothing left to overlap.
+
+**Trade accepted:** a pose/motion reset at each cut (the jump-cut look) — the original reason
+chaining was introduced. Identity + framing stability is the stated priority, and this is the only
+measured design that re-pins both to the reference in every segment. Seeds differ per segment
+(42 + s), so each take is a different idle-motion realisation; if the analyzer flags luminance
+steps between takes, deflicker is the post-process of record. The chained v9 (8.25 s, analyzer
+clean) remains the shippable deliverable until this passes.
+
+**Ops note:** v11 sat queued ~90 min (the runner's `--requeue-after 30` re-pushed 3 times before a
+worker freed) — weekly quota pressure is showing; runs are now scheduled one at a time.
+
 

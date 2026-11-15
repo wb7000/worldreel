@@ -156,10 +156,9 @@ step.write_text(
 
     W, H = a["width"], a["height"]
     N = a["frames_per_segment"]
-    OVERLAP = a["overlap_frames"]
     model_id = a.get("model_id", "Wan-AI/Wan2.1-VACE-1.3B-diffusers")
 
-    log(f"Configuration: {W}x{H}, {N} frames/segment, overlap={OVERLAP}")
+    log(f"Configuration: {W}x{H}, {N} frames/segment, portrait-seeded")
     log(f"Model: {model_id}")
     log(f"Portrait: {a['portrait']}")
     log(f"YuNet: {a['yunet']}")
@@ -275,41 +274,36 @@ step.write_text(
     except Exception as exc:  # noqa: BLE001 - never fail on a hint
         log(f"attention: could not restrict SDPA backends ({type(exc).__name__})")
 
-    # The portrait is the LAST conditioned frame, so generation *continues from
-    # the reference* in every segment. Measured across the S017 runs: segment 0
-    # (portrait-seeded) always starts ~0.93 with a flat slope, while chained
-    # segments whose generation continues from the previous tail pay ~-0.04
-    # identity + a luminance step at EVERY cut and inherit its drifting
-    # composition (v10, 5 segments: sim 0.898 -> 0.702 tracking IOD 112 -> 86,
-    # corr +0.874; analyzer luminance_flicker 0.060 > 0.05). Prepending the
-    # portrait (D-9.15) fixed the in-segment slope but never set the level,
-    # because generation starts from the frame at the END of the head. The tail
-    # stays in the head (causally before the portrait) for motion context; the
-    # conditioned frames are dropped from the output, so the visible trade is a
-    # pose/framing reset at each cut.
-    def _build(nf: int, seg: int) -> tuple[list, list, int]:
-        # Build the conditioning video + mask for one segment.
-        head = [seed] if seg == 0 else [*prev_last_frames[-OVERLAP:], seed]
-        keep = 1 if seg == 0 else 1 + OVERLAP
-        video = [*head, *[grey] * (nf - keep)]
-        mask = [*([mask_black] * keep), *[mask_white] * (nf - keep)]
-        return video, mask, keep
+    # Every segment regenerates from the reference portrait ALONE -- segment 0's
+    # config, the only one proven excellent in all three runs (v9/v10/v11: start
+    # 0.918-0.928, flat slope, framing ~112 IOD, zero face defects). Both
+    # chaining orders were measured and rejected (D-9.17/D-9.18): with a tail in
+    # the head, generation bridges the WHOLE conditioning window instead of
+    # continuing from its last frame, so a degraded tail poisons every handoff --
+    # v10 [portrait, tail] paid ~-0.04 identity + a luminance step per cut plus a
+    # framing walk (IOD 112 -> 86, corr(identity, iod) = +0.874), and v11
+    # [tail, portrait] collapsed harder (steps to -0.385, min 0.317 below the
+    # 0.363 same-person threshold, 1 multi-face + 3 no-face frames). Dropping
+    # the tail costs a pose reset at each cut (a jump-cut look) in exchange for
+    # identity + framing re-pinned to the reference in every segment. The
+    # conditioned portrait frame is dropped from the output.
+    def _build(nf: int) -> tuple[list, list, int]:
+        # Conditioning for one segment: portrait (black mask) + grey canvas.
+        video = [seed, *[grey] * (nf - 1)]
+        mask = [mask_black, *[mask_white] * (nf - 1)]
+        return video, mask, 1
 
     for s in range(a["segments"]):
         t0 = time.time()
         torch.cuda.reset_peak_memory_stats()
 
-        # Every segment's generation continues from `seed`, the LAST conditioned
-        # frame, so identity and framing re-pin to the reference at each cut
-        # (D-9.17). The previous segment's tail is still conditioned (before the
-        # portrait) for motion context -- but the price of chaining without this
-        # reset was a -0.04 identity toll and a luminance step per cut, plus the
-        # framing random walk, which is what killed v10 at 5 segments.
+        # Each segment is an independent regeneration from the portrait (see
+        # _build); only the noise seed differs (42 + s).
         out = None
         nf = n_frames
-        floor = 1 + OVERLAP + 4  # portrait + tail + 4 frames worth generating
+        floor = 9  # portrait + 8 frames worth generating
         while True:
-            video, mask, keep = _build(nf, s)
+            video, mask, keep = _build(nf)
             log(f"Segment {s}: generating {W}x{H}, {nf} frames, {steps} steps, "
                 f"{len(refs)} reference images, keep={keep}")
             try:
@@ -351,11 +345,10 @@ step.write_text(
             raise RuntimeError(f"Segment {s}: generation failed at every frame count")
         n_frames = nf
 
-        # The conditioned frames reproduce the portrait / previous tail, so drop
-        # them when concatenating: they are inputs, not new content.
+        # The conditioned frame is the portrait itself, so drop it when
+        # concatenating: it is an input, not new content.
         new_frames = out[keep:]
         all_frames += new_frames
-        prev_last_frames = out
 
         # Identity: a REAL cosine between two independently computed SFace
         # embeddings (D-9.11) — no swap, so this measures what the model itself
@@ -412,11 +405,10 @@ args = {
     "sface": str(sface_path),
     "out": str(OUT_DIR),
     "segments": 5,
-    # Wan's causal VAE wants num_frames == 4k+1 (53 = 4*13 + 1). Output drops
-    # the conditioned head (1 frame seg0, 1+overlap later), so 5 segments give
-    # 52 + 4*46 = 236 frames = 14.75 s at 16 fps.
-    "frames_per_segment": 53,
-    "overlap_frames": 6,
+    # Wan's causal VAE wants num_frames == 4k+1 (49 = 4*12 + 1). Every segment
+    # keeps only 1 conditioned frame (the portrait, dropped from output), so
+    # 5 segments give 5 * 48 = 240 frames = 15.0 s at 16 fps.
+    "frames_per_segment": 49,
     # 832x480 is VACE-1.3B's trained 480P resolution. The previous 512x288 was
     # well below it, which is a large part of why the output looked soft.
     "width": 832,

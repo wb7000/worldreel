@@ -1287,13 +1287,15 @@ Also: luminance flicker grew from clean (2 cuts) to 0.060 > 0.05 threshold (4 cu
 is a brightness step between independently seeded generations, so flicker risk scales with cut
 count; deflicker is the post-process of record.
 
-**The structural lesson:** conditioning that merely *precedes* generation (a portrait early in the
-mask) shapes the trend but not the level — the frame the model **continues from** (last conditioned
-frame) sets the level. For an attribute that must survive N stages, the last thing the model sees
-before generating must be the source of truth, not the previous stage's output. Segment 0 always
-scored best (0.93 start, stable framing) in every run precisely because its generation continued
-from the portrait; making every segment do the same is the difference between a chain that decays
-and a chain that re-pins.
+**The structural lesson (corrected by v11):** a diffusion model does **not** "continue from the
+last conditioned frame" — it bridges the *entire* conditioning window. D-9.17 predicted that moving
+the portrait to the end of the head would reset the level; v11 measured the opposite: handoff steps
+-0.12 to -0.38, min identity 0.317 (below the same-person threshold), 1 multi-face and 3 no-face
+frames. A degraded tail anywhere in the window poisons the handoff, in either order — so the window
+must contain **only** source-of-truth content. Segment 0 proves the recipe: head = [portrait]
+alone, nothing else — start 0.92, flat slope, stable framing, zero defects in every single run. For
+an attribute that must survive N stages, each stage must generate from the source alone; chaining,
+even with the source present in the window, inherits the previous stage's error.
 
 ---
 
