@@ -1297,6 +1297,13 @@ alone, nothing else — start 0.92, flat slope, stable framing, zero defects in 
 an attribute that must survive N stages, each stage must generate from the source alone; chaining,
 even with the source present in the window, inherits the previous stage's error.
 
+**Verified in kernel v12 (portrait-only segments, 5 x 49 frames = 15.0 s):** every segment starts
+0.907-0.928 (re-pin), handoff steps **+0.02 to +0.08** (cuts now *gain* identity instead of paying
+a toll), mean 0.8752 / min 0.7870 / std 0.0339, 0 frames below 0.75, 240/240 frames with exactly
+one face, analyzer 0 issues (NONE, face sim 0.877), framing held at IOD 120.0 cv 0.099. The
+between-take luminance steps never tripped the 0.05 threshold. Cost: a pose reset at each cut
+(jump-cut look) — the accepted trade for a flat identity band.
+
 ---
 
 *End of knowledge base. Update this file as new experiments confirm or deny methods.*

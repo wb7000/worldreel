@@ -222,6 +222,17 @@ class VideoAnnotator:
                     if face:
                         bbox, lm = face
                         emb = self.analyzer.face_swapper.compute_embedding(frame_img)
+                        # Clamp the bbox to the frame: YuNet may return a box
+                        # whose origin lies outside the image (face at an edge),
+                        # and an unclamped slice is then EMPTY -- cvtColor
+                        # asserts !_src.empty and the run dies (fired on the
+                        # 15 s S017 render, which has a face at the frame edge).
+                        img_h, img_w = frame_img.shape[:2]
+                        x0 = max(0, int(bbox[0]))
+                        y0 = max(0, int(bbox[1]))
+                        x1 = min(img_w, int(bbox[0] + bbox[2]))
+                        y1 = min(img_h, int(bbox[1] + bbox[3]))
+                        face_roi = frame_img[y0:y1, x0:x1]
                         face_info = {
                             "bbox": bbox.tolist(),
                             "landmarks": lm.tolist(),
@@ -229,8 +240,10 @@ class VideoAnnotator:
                             # (detail_lap_variance). The plain Laplacian variance of a face
                             # region is dominated by smooth skin, so a perfectly sharp face
                             # reads as "blurry" and the annotator contradicts the analyzer.
-                            "blur": self.analyzer.detail_lap_variance(
-                                frame_img[bbox[1] : bbox[1] + bbox[3], bbox[0] : bbox[0] + bbox[2]]
+                            "blur": (
+                                self.analyzer.detail_lap_variance(face_roi)
+                                if face_roi.size
+                                else None
                             ),
                             "embedding_sim": None,  # filled if prev exists
                         }

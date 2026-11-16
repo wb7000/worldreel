@@ -2832,4 +2832,39 @@ clean) remains the shippable deliverable until this passes.
 **Ops note:** v11 sat queued ~90 min (the runner's `--requeue-after 30` re-pushed 3 times before a
 worker freed) — weekly quota pressure is showing; runs are now scheduled one at a time.
 
+### D-9.19 v12 PASS: portrait-only segments deliver 15.0 s in a stable identity band
+
+Kernel v12 (5 x 49 frames, portrait-seeded, 3h59m, peak 7.53 GB, rc=0) passed every gate — the
+first 15 s render to do so:
+
+| Metric | v9 (best chained, 8.25 s) | **v12 (15.0 s)** |
+|---|---|---|
+| mean / min identity | 0.8310 / 0.7488 | **0.8752 / 0.7870** |
+| frames <0.80 / <0.75 | 31/132 / 1 | **11/240 / 0** |
+| std | 0.0461 | **0.0339** |
+| segment starts | chained decay | **0.9176 / 0.9173 / 0.9283 / 0.9152 / 0.9072** |
+| handoff steps | ~-0.04 per cut | **+0.062 / +0.020 / +0.076 / +0.076** |
+| analyzer | 0 issues | **0 issues, NONE** (face sim 0.877) |
+| v2_check | 0 defects | **0 defects**, IOD 120.0 cv 0.099, identity mean 0.8800 min 0.7969 |
+
+Every segment re-pins at ~0.91-0.93 and the cuts now **step upward** — a fresh take re-anchors
+higher than where the previous one ended, which is exactly the re-pin D-9.18 predicted. Interior
+slopes stayed flat (-0.0005 to -0.0009/frame; segment 3 was the one exception at -0.00285, bottoming
+at 0.787 before the next cut lifted it back to 0.907). The feared between-take luminance steps did
+not trip the analyzer's 0.05 threshold (mean_motion 1.82 / changed_frac 18.9% reflect the pose
+resets but were not flagged). The accepted trade stands: pose/motion resets at each cut (jump-cut
+look) in exchange for a flat identity band — pending the user's visual confirmation, since the
+quantitative gates cannot judge whether the cuts read as jarring.
+
+**Annotator bug found by this render:** `video_annotator` sliced the face ROI with an *unclamped*
+bbox (`frame_img[y:y+h, x:x+w]`); YuNet returns boxes with origins outside the frame when a face
+touches an edge, so the slice came out empty and `cv2.cvtColor` asserted `!_src.empty`, crashing the
+run. The analyzer's `subject_lap_variance` already clamped correctly (`max(0, …)`, `min(shape, …)`,
+`.size` guard) — the annotator was the lone outlier and now follows the same pattern. Every prior
+video simply never had a face at the frame edge, which is why 132-236 frame renders passed.
+
+**Artefacts:** `runs/generated/S017_face_consistent_15s.wreel` (669.2 KB, 15.00 s,
+`formats validate` OK 0/0, embedded MP4 byte-identical), `runs/videos/S017_face_consistent_15s.mp4`,
+`runs/videos/S017_face_consistent_15s_annotated.mp4`, `runs/analysis/v15s_face_consistency.json`.
+
 
