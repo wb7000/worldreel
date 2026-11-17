@@ -2867,4 +2867,56 @@ video simply never had a face at the frame edge, which is why 132-236 frame rend
 `formats validate` OK 0/0, embedded MP4 byte-identical), `runs/videos/S017_face_consistent_15s.mp4`,
 `runs/videos/S017_face_consistent_15s_annotated.mp4`, `runs/analysis/v15s_face_consistency.json`.
 
+### D-9.20 Face stabilizer: ECC-everything, det = scale^2 guard
 
+Post-render diagnosis of v12's "slight change in character model in each frame": two superimposed
+defects, ~1 px of real rigid jitter (fixed-box consecutive |diff| 4.72 vs 4.51 codec floor) and a
+lag-growing appearance morph (lag-1 3.07, lag-20 16.10). The first attempt — YuNet-landmark-driven
+warping — was refuted: a known-shift test showed landmark placement carries ~1.5 px common-mode plus
+~2 px of shape noise (YuNet casts to int64), i.e. the "correction" injected detector noise at the
+same scale as the jitter it removed. Verdict: **every transform comes from ECC intensity alignment**
+(`findTransformECC`, MOTION_AFFINE), landmarks only initialise it.
+
+Guard semantics, measured not guessed: det of the 2x2 linear part is **scale squared**, so it tracks
+real face size. Over all 240 frames ECC converged 240/240 (cc 0.956-0.995), det spanned 0.71-1.65
+and correlated +0.596 with the landmark eye distance — i.e. head-toward-camera scale, not error. The
+original `det in [0.7, 1.4]` rejected exactly 18 legitimate frames; their fallback (glitched
+landmark init) was what produced the 34.77 px placement spike. Widened to `ECC_MIN_DET=0.5 /
+ECC_MAX_DET=2.0`; `_ecc_affine` now takes a `det_bounds` parameter so callers with wider legitimate
+scale ranges (D-9.21) can pass their own.
+
+Result on `face_consistency_stab.mp4` (240 frames): fallbacks **0/240**, placement correction mean
+1.53 px / max **6.81 px** (was 34.77), fixed-box consecutive diff **4.72 -> 3.41**, lag-1 morph
+**3.07 -> 1.94** with lag-20 untouched (16.10 -> 15.12 = the slow appearance morph, by design not
+flattened), identity mean **0.8817** / min 0.7836 / 0 <0.75, analyzer 0 issues (sim 0.875), v2_check
+0/0 faces, identity 0.8833/0.7970. 17 tests in `tests/test_face_stabilize.py`.
+
+### D-9.21 Cut smoothing: scalar exposure match + ECC-registered 6-frame dissolve
+
+User picked the 6-frame cross-dissolve (15.0 s -> 13.5 s) over keeping length. `stages/generate/
+cut_smooth.py` does two things, both measured:
+
+1. **Exposure match — one scalar gain per take** from the side-column (wall) mean to the clip mean.
+   A *spatial* light field (deflicker) was tried first and **rejected**: it closed the cut pops
+   (11.18 -> 0.26 grey levels) but cost identity min 0.7836 -> 0.7484 (34 frames <0.80) because the
+   fitted gain field distorts face contrast. The scalar gains [1.0197, 0.9071, 1.0050, 1.0140,
+   1.0687] equalise wall exposure (98.7-100.9 across takes, steps 12.28/10.83 -> <=2.21) at an
+   identity cost of only -0.001 mean / -0.009 min.
+2. **Cross-dissolve, faces travelling in place.** `k=6` output frames replace the last 6 of the
+   outgoing take and first 6 of the incoming (clip loses 6 frames/cut). A naive landmark-similarity
+   crossfade ghosted (identity min 0.666): similarity aligns five points, not face *shape*. Now the
+   incoming face is **ECC-registered onto the outgoing frame first** (full affine, landmark fit only
+   as init, `DISSOLVE_DET=(0.3,3.0)` because cross-take det reaches 2.6 — a genuine 1.6x face-scale
+   difference at cut@144, where within-take det stays <=1.65), then both faces are carried on a
+   smoothstep-eased interpolating landmark path through the feathered oval; backgrounds blend raw.
+   Registration cut the oval residual 23.2 -> 14.0 at cut@144 and lifted identity min back up.
+
+Final `face_consistency_final.mp4` (**216 frames = 13.5 s**): identity mean **0.8793** / min 0.7824 /
+**0 <0.75** / 14 <0.80; dissolve windows at output [42, 84, 126, 168] (segment starts 48/90/132/174);
+wall steps <=2.21; mean-grey jump inside dissolves max 3.23 (was 11.18) vs 1.01 outside; pixel diff
+inside dissolve max 10.76 vs 3.99 outside (no teleports); analyzer **0 issues NONE** (sim 0.888,
+`runs/analysis/v13s5_final_analyzer.json`); v2_check **0/0 faces**, identity mean 0.8852 min 0.7996,
+IOD cv 0.098. 10 tests in `tests/test_cut_smooth.py`.
+
+**Artefacts:** `runs/kaggle/character_consistency_v2/out/face_consistency_final.mp4` (216 f),
+`runs/analysis/v13s5_final_analyzer.json`.
