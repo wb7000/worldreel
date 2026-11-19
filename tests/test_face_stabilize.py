@@ -217,3 +217,30 @@ def test_stabilize_rejects_length_mismatch() -> None:
     except ValueError:
         return
     raise AssertionError("expected ValueError for frame/landmark mismatch")
+
+
+def test_detail_reinjection_restores_high_frequencies_inside_the_oval_only() -> None:
+    rng = np.random.default_rng(7)
+    frames, lm, _centers = _square_clip()
+    # texture the blob so the blend has something high-frequency to average away
+    tex = rng.normal(0.0, 12.0, size=(24, 24, 3))
+    for f in frames:
+        blob = f[48:72, 48:72].astype(np.float32) + tex
+        f[48:72, 48:72] = np.clip(np.round(blob), 0, 255).astype(np.uint8)
+    base = stabilize(frames, lm, sigma=2.0, window_sigma=1.5, gate_h=12.0, detail=0.0)
+    sharper = stabilize(frames, lm, sigma=2.0, window_sigma=1.5, gate_h=12.0, detail=0.3)
+
+    def hf(clip: list[U8]) -> float:
+        vals = []
+        for f in clip[5:-5]:
+            g = cv2.cvtColor(f[48:72, 48:72], cv2.COLOR_BGR2GRAY)
+            vals.append(float(cv2.Laplacian(g, cv2.CV_64F).var()))
+        return float(np.mean(vals))
+
+    assert hf(sharper) > 1.15 * hf(base), f"{hf(base):.1f} -> {hf(sharper):.1f}"
+    # background outside the oval is untouched by the reinjection
+    diff = [
+        int(np.abs(sharper[t].astype(np.int16) - base[t].astype(np.int16))[130:, :].max())
+        for t in (10, 30, 50)
+    ]
+    assert max(diff) <= 1, f"background changed by {diff}"

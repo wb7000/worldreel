@@ -258,8 +258,14 @@ def _stabilize_take(
     sigma: float,
     window_sigma: float,
     gate_h: float,
+    detail: float,
 ) -> tuple[float, float, float, int]:
     """One take: ECC trajectory, jitter placement, gated temporal blend.
+
+    `detail` reinjects the centre frame's own high frequencies after the
+    blend (which averages +-window_sigma frames and therefore low-passes
+    the face); the residual is computed from the *placed* centre frame so
+    its edges land on the blended edges instead of doubling them.
 
     Returns (moved_mean, moved_max, cc_mean, ecc_fallbacks).
     """
@@ -335,6 +341,20 @@ def _stabilize_take(
             flags=cv2.INTER_CUBIC,
             borderMode=cv2.BORDER_REPLICATE,
         )
+        if detail > 0.0:
+            # High frequencies the blend averaged away, taken from this
+            # frame after the *same* placement warp so the edges coincide
+            # with the blended edges (adding the unwarped residual would
+            # double them by the 1-7 px placement offset).
+            center = cv2.warpAffine(
+                frames[t],
+                c_place[:2].astype(np.float32),
+                (w, h),
+                flags=cv2.INTER_CUBIC,
+                borderMode=cv2.BORDER_REPLICATE,
+            ).astype(np.float32)
+            resid = center - np.asarray(cv2.GaussianBlur(center, (0, 0), 1.0), dtype=np.float32)
+            placed = placed + detail * resid
         mixed = frames[t].astype(np.float32) * (1.0 - oval[..., None]) + placed * oval[..., None]
         # Round, do not truncate: truncation darkens the blended oval by 1 grey
         # level whenever the float lands just below an integer.
@@ -349,6 +369,7 @@ def _stabilize_all(
     sigma: float,
     window_sigma: float,
     gate_h: float,
+    detail: float = 0.3,
 ) -> tuple[list[U8], Stats]:
     if len(frames) != lm.shape[0]:
         raise ValueError(f"{len(frames)} frames but {lm.shape[0]} landmark rows")
@@ -360,7 +381,7 @@ def _stabilize_all(
     fallbacks = 0
     for lo, hi in segments:
         m_mean, m_max, cc_mean, fb = _stabilize_take(
-            out, frames, lm, lo, hi, sigma, window_sigma, gate_h
+            out, frames, lm, lo, hi, sigma, window_sigma, gate_h, detail
         )
         moved_parts.append(m_mean)
         moved_max = max(moved_max, m_max)
@@ -382,15 +403,17 @@ def stabilize(
     sigma: float = 2.0,
     window_sigma: float = 1.5,
     gate_h: float = 12.0,
+    detail: float = 0.3,
 ) -> list[U8]:
     """Remove head jitter and average away the per-frame face morph.
 
     Every frame's face is ECC-aligned to the take's middle frame, placed on
     the low-pass trajectory (sigma, per take) and the face oval is replaced
     by a time-blended, motion-aligned average of the surrounding frames
-    (window_sigma, appearance-gated by gate_h).
+    (window_sigma, appearance-gated by gate_h).  `detail` puts back the
+    centre frame's own high frequencies, which the blend low-passes away.
     """
-    return _stabilize_all(frames, lm, sigma, window_sigma, gate_h)[0]
+    return _stabilize_all(frames, lm, sigma, window_sigma, gate_h, detail)[0]
 
 
 def _read_video(path: str, max_frames: int | None) -> tuple[list[U8], float, tuple[int, int]]:
@@ -414,8 +437,18 @@ def _read_video(path: str, max_frames: int | None) -> tuple[list[U8], float, tup
 
 
 def _write_video(path: str, frames: Sequence[U8], fps: float, size: tuple[int, int]) -> None:
+    """Write frames, lossless for `.mkv` (FFV1) and `mp4v` otherwise.
+
+    The stabilize -> cut-smooth chain must not pass through lossy
+    intermediates: one mp4v round-trip costs ~20 points of face Laplacian
+    variance (66 -> 46 measured on the v12 render), two of them leave the
+    face at 27.  FFV1 in matroska round-trips bit-exact and is the format
+    for every intermediate; only the delivery encode is lossy, once, at
+    the end.
+    """
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    writer = cv2.VideoWriter(path, cv2.VideoWriter.fourcc(*"mp4v"), fps, size)
+    fourcc = "FFV1" if path.endswith(".mkv") else "mp4v"
+    writer = cv2.VideoWriter(path, cv2.VideoWriter.fourcc(*fourcc), fps, size)
     if not writer.isOpened():
         raise RuntimeError(f"cannot open writer for {path}")
     for frame in frames:
@@ -445,13 +478,21 @@ if __name__ == "__main__":
         default=12.0,
         help="Appearance gate in grey levels; 0 disables it (never do this: blinks ghost)",
     )
+    parser.add_argument(
+        "--detail",
+        type=float,
+        default=0.3,
+        help="High-frequency reinjection after the blend (0 = off); restores blend softness",
+    )
     parser.add_argument("--max-frames", type=int, default=None, help="Stop after N frames")
     args = parser.parse_args()
 
     src_frames, src_fps, src_size = _read_video(args.video, args.max_frames)
     swapper = FaceSwapper(YUNET, SFACE)
     landmarks, gaps = detect_landmarks(src_frames, swapper)
-    out_frames, stats = _stabilize_all(src_frames, landmarks, args.sigma, args.window, args.gate)
+    out_frames, stats = _stabilize_all(
+        src_frames, landmarks, args.sigma, args.window, args.gate, args.detail
+    )
     _write_video(args.output, out_frames, src_fps, src_size)
 
     print(f"stabilized {len(src_frames)} frames -> {args.output}")

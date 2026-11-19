@@ -2920,3 +2920,47 @@ IOD cv 0.098. 10 tests in `tests/test_cut_smooth.py`.
 
 **Artefacts:** `runs/kaggle/character_consistency_v2/out/face_consistency_final.mp4` (216 f),
 `runs/analysis/v13s5_final_analyzer.json`.
+
+### D-9.22 Sharpness: lossless intermediates + detail reinjection (the "not perfect" verdict)
+
+The user watched the 13.5 s package and said "its not perfect" without naming a defect, so the clip
+was re-measured for everything a viewer notices. Identity, cuts and flicker all held (identity mean
+0.8793 / min 0.7824, cut jumps <=3.23, analyzer 0 issues) — but **face sharpness had been halved**:
+Laplacian variance raw 66.3 -> final 26.9 (sigma=1 blur: 7.49 -> 5.6). Two causes, isolated by
+probing each stage separately (warp alone costs almost nothing: 66.3 -> 61.8):
+
+1. **Lossy intermediates.** The chain ran `mp4v` twice (stabilize + cut_smooth), each round-trip
+   costing ~20 points (66.3 -> 46.4 after one). `_write_video` now writes **FFV1 in matroska** for
+   `.mkv` outputs (verified bit-exact round-trip) and `mp4v` only for `.mp4`; the pipeline runs
+   raw -> `stab.mkv` -> `final.mkv` losslessly, and the delivery file is encoded **once** with
+   ffmpeg x264 CRF 16 (26.9 -> 37.6 noblur on the same content).
+2. **The stabilizer's temporal blend** (which is what kills the per-frame morph) low-passes the
+   face: 61.8 (warp only) -> 37.3. Window ablation showed the trade is bad at the extremes —
+   window 1.5 gives idlag1 0.9881 but sharp 37.3; window 0.5 gives sharp 50.7 but idlag1 drops to
+   0.9833; blend off idlag1 0.9809 ~= raw 0.9807 (morph fix gone). Fix chosen: keep window 1.5 and
+   **reinject the centre frame's own high frequencies** (`--detail`, default 0.3) — residual taken
+   from the frame *after the same placement warp*, so edges land on edges instead of doubling by
+   the 1-7 px placement offset (an unaligned reinjection probe overshot to sharp 71.9 and would
+   ring). detail=0.3: blur1 6.67 -> 7.87 (raw 7.49), idlag1 0.9861 (raw 0.9807), identity
+   unchanged; detail=0.6 oversoots (blur1 9.28 > raw = unsharp ringing risk).
+
+Final `face_consistency_final.mp4` rebuilt through the lossless chain (216 f, 13.5 s):
+
+| Metric | old (2x mp4v, no detail) | **new (FFV1 + x264 + detail 0.3)** |
+|---|---|---|
+| face sharpness (v2_check Lap) | 26.8 | **53.4** |
+| face blur / global / subject (analyzer) | 26.4 / 16.9 / 172 | **50.3 / 29.3 / 352** |
+| identity mean / min (identity_curve) | 0.8793 / 0.7824 | **0.8794 / 0.7847** |
+| frames <0.80 / <0.75 | 14 / 0 | **7 / 0** |
+| identity std | 0.0372 | **0.0318** |
+| frame-to-frame identity (idlag1) | ~0.983 | **0.9861** (raw 0.9807) |
+| analyzer | 0 issues, sim 0.888 | **0 issues, sim 0.895** |
+| v2_check | 0/0 faces, id 0.8852/0.7996 | **0/0 faces, id 0.8820/0.7950** |
+| cut jumps (inside dissolve / outside) | 3.23 / 1.01 | **3.01 / 0.92** |
+
+Net: every identity/cut metric equal or better, face detail doubled, and the morph fix (the
+reason the blend exists) is retained. 18 tests in `tests/test_face_stabilize.py` (new:
+`test_detail_reinjection_restores_high_frequencies_inside_the_oval_only`).
+
+**Rule recorded:** never pass a generated clip through a lossy intermediate — intermediates are
+FFV1 `.mkv`, exactly one lossy encode at delivery.
