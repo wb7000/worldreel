@@ -3019,3 +3019,48 @@ scheduler's flow_shift=3.0 sigma mapping, mean/std latent normalisation -- NOT t
 scaling factor v3 used), and to add the reward/punish loop the user asked for: SFace identity
 score every N steps, best adapter snapshot kept, worse checkpoints discarded, validation clip
 scored against the same 0.363 same-person mark.
+
+### D-9.24 Character LoRA v4: verified training loop + SFace reward/punish (design gate, pre-run)
+
+`training/kaggle/jobs/character_lora_v4.py` is the first character-LoRA job whose API usage was
+verified against the installed diffusers 0.42.1 source **and** a local tiny-model dry run before
+spending GPU quota. Every claim below was checked in source or executed locally, not assumed:
+
+* **Conditioning mirrors inference exactly** -- `preprocess_conditions` -> `prepare_video_latents`
+  -> `prepare_masks` -> `cat([cond, mask], dim=1)` (96 channels, 17 latent frames = 13 video +
+  4 reference at N=49). References are **prepended** (`torch.cat([reference_latent, latent])`),
+  so the training target stacks `[4 ref latents, 13 video latents]` in the same order.
+* **Objective** -- flow matching with the scheduler's own mapping: `sigma = 3u/(1+2u)`
+  (flow_shift=3.0, matching `UniPCMultistepScheduler.from_config(..., flow_shift=3.0)`),
+  timestep = sigma*1000, target = `eps - x0`. Sign verified against UniPC's `flow_prediction`
+  branch: `x0_pred = sample - sigma * model_output` only recovers x0 for `v = eps - x0`.
+* **Latent space** -- the pipeline decodes with `latents / latents_std + latents_mean` and the
+  denoising start is plain `randn`, so the model operates in mean/std-normalised space; targets
+  use `((vae.mode() - mean) * std)`, never the 0.18215 factor v3 used.
+* **Round-trip bugs found by the local dry run** (tiny random `WanVACETransformer3DModel`:
+  add_adapter -> backward -> save -> delete -> load -> forward equality):
+  1. `save_lora_adapter` writes `pytorch_lora_weights.safetensors` but `load_lora_adapter`
+     defaults to `pytorch_lora_weights.bin` -> OSError.
+  2. `load_lora_adapter` defaults to `prefix="transformer"`, which filters every saved key
+     (`blocks.*`) to **nothing** -- a *silent* no-op load with no exception. `prefix=""`
+     fails the same way. The job passes `prefix=None` and asserts `"default" in peft_config`.
+  3. A gaussian/zero `LoraConfig` leaves B at zero, so an un-perturbed adapter contributes
+     nothing and any load check passes vacuously; the dry run perturbs the weights first.
+  With those fixed the reloaded adapter reproduces the saved forward with **max abs delta 0.0**.
+* **Reward/punish loop** -- baseline at step 0 (zero-init adapter == base model), then every 20
+  steps a 10-step validation clip (frames 8/24/40, seed 42, production prompt) is scored with
+  SFace against the portrait: improvement -> snapshot + `save_lora_adapter` (REWARD), drop >
+  0.01 -> restore best weights (PUNISH), smaller drop -> keep and log. History is flushed to
+  `out/lora_v4_reward.json` after every evaluation so partial results survive a crash; the final
+  act reloads the adapter from disk and re-scores it (the path the render job will use) and the
+  job exits non-zero if that round trip fails.
+* **Budget** -- v12 measured 2830 s per 49-frame/50-step segment on T4 (~28 s/forward), so the
+  original 200 steps + 11 x 20-step evals would have needed ~9 h against a 6 h subprocess
+  timeout. Cut to 80 steps (4 evals) + 7 x 10-step evals ~= 4 h. Estimated peak ~8 GB
+  (2.6 GB weights + 2.5 GB checkpointed block inputs at seq 26520, 30 layers x 1536) < 15 GB.
+* Offload hooks are training-safe: `CpuOffload.pre_forward` uses `module.to(device)`, which
+  preserves Parameter objects (dtype unchanged), so the optimizer's references and its
+  GPU-resident AdamW state survive the CPU/GPU churn between validates.
+
+Gates before launch: ruff format/check (264 files), mypy (212), pytest **378 passed / 4 skipped**,
+job_script **31/31**, embedded script F/E9 clean.

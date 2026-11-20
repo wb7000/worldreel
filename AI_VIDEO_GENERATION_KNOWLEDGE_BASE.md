@@ -1328,3 +1328,27 @@ extracting the suspect frames and *looking at them*, comparing dissolve mid-wind
 interiors and the raw render. Also: identity training data matters more than the loss -- the two
 earlier character-LoRA jobs never trained at all (4D latent; missing VACE control latents), so
 any "LoRA results" before v4 are void.
+
+**Training Wan2.1-VACE with a reward loop (D-9.24):** a *verifiable* recipe, every step checked
+against diffusers 0.42.1 source plus a tiny-model dry run before spending GPU quota.
+Conditioning must be built the way `__call__` builds it (`preprocess_conditions` ->
+`prepare_video_latents` -> `prepare_masks` -> `cat([cond, mask], dim=1)`); references are
+**prepended** to the latent stack, so the x0 target is `[ref latents, video latents]`.
+Latents live in mean/std-normalised space (decode does `latents / std + mean`, the denoising
+start is plain `randn`) -- never the legacy 0.18215 factor. Objective: `x_t = (1-s)x0 + s*eps`,
+`target = eps - x0`, with `s = shift*u/(1+(shift-1)*u)` and timestep `s*1000`, matching
+`UniPCMultistepScheduler(..., flow_shift=3.0)`; the sign is forced by UniPC's
+`flow_prediction` conversion `x0 = sample - sigma * model_output`. **Three silent failure modes
+found by round-trip testing (all voided earlier "successes"):** `load_lora_adapter` defaults to
+`pytorch_lora_weights.bin` while `save_lora_adapter` writes `.safetensors`; its default
+`prefix="transformer"` filters out every saved key (`blocks.*`) and loads *nothing with no
+error* (assert `"default" in peft_config` after loading); and a gaussian/zero LoRA init leaves
+B=0, so an unperturbed adapter proves nothing -- perturb the weights before asserting
+forward-equality (delta must be exactly 0.0). Reward/punish that actually works: score a fixed
+short validation clip with SFace against the portrait every N steps (seed 42, production
+prompt), snapshot on improvement, restore best weights on a drop beyond tolerance, flush history
+after every eval so a crash keeps partial results, and end by reloading the adapter from disk
+and re-scoring it -- the exact path the render job uses -- exiting non-zero on failure. Budget
+from measurement, not hope: T4 does ~28 s per 26520-token forward (v12: 2830 s per 49-frame
+50-step segment), a checkpointed train step costs ~4 forwards, so 80 steps + 7 short evals fit
+~4 h under the 6 h Kaggle timeout where 200 steps + 20-step evals would need ~9.
