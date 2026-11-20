@@ -3065,7 +3065,7 @@ spending GPU quota. Every claim below was checked in source or executed locally,
 Gates before launch: ruff format/check (264 files), mypy (212), pytest **378 passed / 4 skipped**,
 job_script **31/31**, embedded script F/E9 clean.
 
-#### D-9.24 runs 1-2: two environment/grad bugs, both found before step 1
+#### D-9.24 runs 1-3: three environment/grad bugs, all found before the reward loop could run
 
 * **Run 1 -- `torchao` (crash in `add_adapter`).** Kaggle ships `torchao 0.10.0`. peft's LoRA
   dispatcher calls `is_torchao_available()`, which *raises* when an importable torchao is older
@@ -3083,7 +3083,25 @@ job_script **31/31**, embedded script F/E9 clean.
   encodes already were). Lesson: *any* direct call into diffusers pipeline internals inherits
   gradients unless you add `no_grad` yourself -- the decorator lives on `__call__`, not on the
   helpers.
-* Both runs failed fast (~4.5 min each), so the iteration cost was ~2 GPU-quota minutes, not
-  ~4 h: validate the cheap invariants (adapter attaches, conditioning builds, one forward +
-  backward) **before** the long training loop, and make the job print the first successful step
-  early so a failure is visible in minutes.
+* **Run 3 -- `ValueError: Attempting to unscale FP16 gradients`.** Everything before it worked:
+  conditioning `(1, 96, 17, 60, 104)` (32 latent + 64 mask channels, 13 video + 4 reference
+  frames), four target variants `(1, 16, 13, 60, 104)`, the **baseline validation clip rendered
+  and scored 0.8655** (sims 0.864 / 0.873 / 0.859), and the first forward **and** backward ran
+  without OOM. The crash was one line later: peft creates the adapter in the *base layer's*
+  dtype (fp16 here), so the gradients were fp16 and torch's `GradScaler` refuses to unscale
+  them. Fix: upcast the adapter to fp32 (`p.data = p.data.float()`, which keeps the Parameter
+  objects so the optimizer's references and the offload hooks stay valid) -- the standard
+  mixed-precision LoRA recipe, and safe here because peft casts the activations up for the
+  adapter branch and the result back to fp16
+  (`peft/tuners/lora/layer.py`: `_cast_input_dtype` / `result.to(torch_result_dtype)`), so the
+  frozen 2.17 B-param base stays fp16 and only the 0.81% adapter trains in fp32.
+* **Wall-clock guard added.** The outer job kills the step script at 6 h and a kill would skip
+  the final validate + round trip + report. The training loop now stops at `max_train_seconds`
+  (4.2 h) and keeps the best adapter, so the run always ends with a verified, re-loadable
+  artifact. Measured timings from run 3: baseline validate (10 steps, CFG) **9 m 19 s**
+  (56 s per denoising step = 2 forwards x 28 s), one train step (forward + backward + checkpoint
+  recompute) ~1.5-2 min -> 80 steps + 4 evals ~= 3.5-4 h.
+* All runs failed fast (~4.5 min for the two early bugs, ~19 min for the grad-scaler bug), so the
+  iteration cost was ~2 GPU-quota minutes, not ~4 h: validate the cheap invariants (adapter
+  attaches, conditioning builds, one forward + backward) **before** the long training loop, and
+  make the job print the first successful step early so a failure is visible in minutes.

@@ -1363,3 +1363,15 @@ directly (`preprocess_conditions`, `prepare_video_latents`, `prepare_masks`) are
 them outside `no_grad` makes the VAE encode keep every encoder activation of the 49-frame 480p
 conditioning video in an autograd graph, which alone cost >7 GB and OOM'd the T4 at 14.27 GiB.
 Any direct call into pipeline internals inherits gradients unless you add `no_grad` yourself.
+
+**Third trap (third run): fp16 adapters cannot use `GradScaler`.** peft creates the LoRA weights
+in the *base layer's* dtype, so with an fp16 base the adapter -- and therefore its gradients --
+are fp16, and `scaler.unscale_()` raises `ValueError: Attempting to unscale FP16 gradients` (this
+fired *after* a successful forward and backward, i.e. late and expensive). Fix: upcast the
+adapter only -- `for p in trainable: p.data = p.data.float()` (keeps the Parameter objects, so
+optimizer references and offload hooks stay valid) -- which is the standard mixed-precision LoRA
+recipe. It is safe because peft casts the activations up to the adapter dtype and casts the
+result back to the base dtype (`_cast_input_dtype` / `result.to(torch_result_dtype)` in
+`peft/tuners/lora/layer.py`), so the frozen 2.17 B-param base stays fp16 and only the 0.81%
+adapter trains in fp32. General rule: *check the dtype of the tensors you train, not just of the
+model you load* -- `from_pretrained(torch_dtype=...)` propagates into every adapter peft injects.

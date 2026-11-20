@@ -99,6 +99,12 @@ args = {
     # validate is val_steps*2 (CFG) forwards. 80 steps + 7 validates ~= 4 h,
     # well under the 6 h subprocess timeout.
     "train_steps": 80,
+    # Hard wall-clock guard on the training loop. The outer job kills the step
+    # script at 6 h; a kill skips the final validate + round trip + report.
+    # Measured run 3 timings: baseline validate (10 steps, CFG) = 9m19s,
+    # one train step (fwd + bwd + checkpoint recompute) ~= 1.5-2 min, so
+    # 80 steps + 4 evals ~= 3.5-4 h. Stop at 4.2 h and keep the best adapter.
+    "max_train_seconds": 4.2 * 3600,
     "lr": 1e-4,
     "reward_every": 20,
     "rollback_tol": 0.01,
@@ -218,6 +224,21 @@ step.write_text(
     n_train = sum(p.numel() for p in trainable)
     n_total = sum(p.numel() for p in transformer.parameters())
     log("LoRA trainable params: %d / %d (%.2f%%)" % (n_train, n_total, 100.0 * n_train / n_total))
+
+    # peft creates the adapter in the BASE layer's dtype, i.e. fp16 here, so the
+    # gradients come out fp16 and torch's GradScaler refuses them outright
+    # ("Attempting to unscale FP16 gradients" -- D-9.24 run 3, which died after a
+    # successful forward+backward). Upcast the adapter to fp32: the standard
+    # mixed-precision LoRA recipe. peft casts the fp16 activations up for the
+    # adapter branch and casts the result back to fp16
+    # (peft/tuners/lora/layer.py: _cast_input_dtype), so the frozen base stays
+    # fp16 and only the 0.81% adapter trains in fp32.
+    # p.data = ... keeps the Parameter objects, so the optimizer's references and
+    # the offload hooks' bookkeeping stay valid.
+    for p in trainable:
+        if p.dtype != torch.float32:
+            p.data = p.data.float()
+    log("adapter dtypes after upcast: %s" % sorted({str(p.dtype) for p in trainable}))
     transformer.train()
 
     # ---- VACE conditioning, identical to inference -----------------------------
@@ -395,10 +416,20 @@ step.write_text(
         return float(loss.detach().item())
 
     for step in range(1, a["train_steps"] + 1):
+        # Wall-clock guard: the outer job kills the step script at 6 h, and a kill
+        # would skip the final validate + round trip + report. Stop training early
+        # instead, keeping the best adapter, so the run always ends with a
+        # verified, re-loadable artifact.
+        if time.time() - t_start > a["max_train_seconds"]:
+            log("TIME BUDGET reached at step %d after %.0fs -- stopping training early, "
+                "keeping the best adapter" % (step, time.time() - t_start))
+            break
         loss_val = train_one(step)
         losses.append(loss_val)
         if step % 10 == 0:
-            log("train step %d: loss=%.5f elapsed=%.0fs" % (step, loss_val, time.time() - t_start))
+            log("train step %d: loss=%.5f elapsed=%.0fs peak_gb=%.2f"
+                % (step, loss_val, time.time() - t_start,
+                   torch.cuda.max_memory_allocated() / 1e9))
         if step % a["reward_every"] != 0:
             continue
         prev_best = best["reward"]
@@ -426,7 +457,7 @@ step.write_text(
     restore(best_snap)
     save_best()
     r_final, s_final = validate("final (best adapter)", export=True)
-    record(a["train_steps"] + 1, r_final, s_final, "final")
+    record(len(losses) + 1, r_final, s_final, "final")
 
     rt_ok = False
     rt_reward = None
@@ -462,6 +493,7 @@ step.write_text(
         "roundtrip_reward": rt_reward,
         "roundtrip_error": rt_err,
         "train_steps": a["train_steps"],
+        "train_steps_done": len(losses),
         "reward_every": a["reward_every"],
         "loss_first": round(losses[0], 6) if losses else None,
         "loss_last": round(losses[-1], 6) if losses else None,
