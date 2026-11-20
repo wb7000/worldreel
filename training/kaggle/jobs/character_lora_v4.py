@@ -232,10 +232,18 @@ step.write_text(
     n_ref = len(refs_for_pipe)
     gen = torch.Generator("cpu").manual_seed(0)
 
-    video_t, mask_t, refs_t = pipe.preprocess_conditions(video_list, mask_list, refs_for_pipe,
-                                                         1, H, W, N, torch.float32, device)
-    cond_vl = pipe.prepare_video_latents(video_t, mask_t, refs_t, gen, device)
-    mask_lat = pipe.prepare_masks(mask_t, refs_t, gen)
+    # Built directly, NOT through pipe.__call__ (which carries @torch.no_grad()):
+    # without it the VAE encodes below record an autograd graph over every
+    # encoder activation of the 49-frame 832x480 conditioning video, and the T4
+    # OOMs at 14.3 GB before step 1 (D-9.24 run 2; v12 never hit this because
+    # all of its VAE work happens inside the no_grad __call__).
+    with torch.no_grad():
+        video_t, mask_t, refs_t = pipe.preprocess_conditions(video_list, mask_list,
+                                                             refs_for_pipe,
+                                                             1, H, W, N,
+                                                             torch.float32, device)
+        cond_vl = pipe.prepare_video_latents(video_t, mask_t, refs_t, gen, device)
+        mask_lat = pipe.prepare_masks(mask_t, refs_t, gen)
     cond = torch.cat([cond_vl, mask_lat], dim=1).to(torch.float16)
     n_lat = (N - 1) // 4 + 1
     if cond.shape[2] != n_lat + n_ref:

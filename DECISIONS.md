@@ -3064,3 +3064,26 @@ spending GPU quota. Every claim below was checked in source or executed locally,
 
 Gates before launch: ruff format/check (264 files), mypy (212), pytest **378 passed / 4 skipped**,
 job_script **31/31**, embedded script F/E9 clean.
+
+#### D-9.24 runs 1-2: two environment/grad bugs, both found before step 1
+
+* **Run 1 -- `torchao` (crash in `add_adapter`).** Kaggle ships `torchao 0.10.0`. peft's LoRA
+  dispatcher calls `is_torchao_available()`, which *raises* when an importable torchao is older
+  than 0.16.0, so `add_adapter` died before the first training step. The local dry run could not
+  see it (no torchao installed locally) -- an environment difference, not a code difference.
+  Fix: both jobs `pip uninstall -y torchao`, which returns peft to the plain `nn.Linear` path the
+  dry run validated. Run 2 confirmed the adapter attaches: **17,694,720 / 2,171,666,752 params
+  (0.81%)**.
+* **Run 2 -- CUDA OOM at 14.27 / 14.56 GiB in the conditioning VAE encode.** The job called
+  `preprocess_conditions` / `prepare_video_latents` *directly*; the pipeline's `__call__` is
+  decorated `@torch.no_grad()`, but those helpers are not, so the VAE encode recorded an autograd
+  graph over every encoder activation of the 49-frame 832x480 conditioning video and the T4 ran
+  out of memory before step 1. v12 never hit this because all of its VAE work happens inside
+  `pipe()`. Fix: wrap the whole conditioning build in `torch.no_grad()` (the target/validation
+  encodes already were). Lesson: *any* direct call into diffusers pipeline internals inherits
+  gradients unless you add `no_grad` yourself -- the decorator lives on `__call__`, not on the
+  helpers.
+* Both runs failed fast (~4.5 min each), so the iteration cost was ~2 GPU-quota minutes, not
+  ~4 h: validate the cheap invariants (adapter attaches, conditioning builds, one forward +
+  backward) **before** the long training loop, and make the job print the first successful step
+  early so a failure is visible in minutes.

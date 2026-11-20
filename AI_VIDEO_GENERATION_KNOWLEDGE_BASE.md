@@ -1352,3 +1352,14 @@ and re-scoring it -- the exact path the render job uses -- exiting non-zero on f
 from measurement, not hope: T4 does ~28 s per 26520-token forward (v12: 2830 s per 49-frame
 50-step segment), a checkpointed train step costs ~4 forwards, so 80 steps + 7 short evals fit
 ~4 h under the 6 h Kaggle timeout where 200 steps + 20-step evals would need ~9.
+
+**Two traps that cost two Kaggle runs before step 1 (both environment/grad, not algorithm):**
+(1) Kaggle ships `torchao 0.10.0`, and peft's LoRA dispatcher calls `is_torchao_available()`,
+which *raises* for importable torchao older than 0.16 -- so `add_adapter` dies instantly;
+`pip uninstall -y torchao` restores the plain `nn.Linear` path. A local dry run cannot see this
+(no torchao locally) -- check the target image's package set before trusting local passes.
+(2) `WanVACEPipeline.__call__` is decorated `@torch.no_grad()`, but the helpers a trainer calls
+directly (`preprocess_conditions`, `prepare_video_latents`, `prepare_masks`) are **not**: calling
+them outside `no_grad` makes the VAE encode keep every encoder activation of the 49-frame 480p
+conditioning video in an autograd graph, which alone cost >7 GB and OOM'd the T4 at 14.27 GiB.
+Any direct call into pipeline internals inherits gradients unless you add `no_grad` yourself.
