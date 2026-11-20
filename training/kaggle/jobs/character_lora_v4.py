@@ -54,6 +54,18 @@ if r.returncode != 0:
     log(f"pip stderr: {r.stderr[-500:]}")
     raise SystemExit(1)
 
+# peft's LoRA module dispatcher calls is_torchao_available(), which RAISES when an
+# incompatible torchao is merely importable (Kaggle ships 0.10.0, peft wants >=0.16),
+# so add_adapter died before the first training step on run 1 (D-9.24). Uninstalling
+# it makes the check return False and the plain nn.Linear path is used -- the state the
+# local adapter dry run validated in.
+u = subprocess.run(
+    [sys.executable, "-m", "pip", "uninstall", "-y", "torchao"],
+    capture_output=True,
+    text=True,
+)
+log(f"torchao uninstall rc={u.returncode} {u.stdout.strip()[-200:]}")
+
 # Face models come from the mounted dataset only (never raw URLs) -- exit early if absent.
 MODEL_DIR = Path("/kaggle/input/datasets/wb3none/worldreel-data-facemodels")
 yunet_path = next((str(p) for p in MODEL_DIR.rglob("face_detection_yunet_2023mar.onnx")), None)
