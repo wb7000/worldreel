@@ -3105,3 +3105,37 @@ job_script **31/31**, embedded script F/E9 clean.
   iteration cost was ~2 GPU-quota minutes, not ~4 h: validate the cheap invariants (adapter
   attaches, conditioning builds, one forward + backward) **before** the long training loop, and
   make the job print the first successful step early so a failure is visible in minutes.
+
+#### D-9.24 run 4: the reward loop trained and the identity score improved (+0.0728)
+
+The training job completed all 80 steps and produced a verified adapter. Reward curve (SFace
+identity similarity against the portrait, mean of frames 8/24/40 of a fixed 10-step validation
+clip, seed 42):
+
+| step | reward | sims | event |
+|---|---|---|---|
+| 0 (base model) | 0.8655 | 0.864 / 0.873 / 0.859 | baseline |
+| 20 | 0.9134 | 0.911 / 0.914 / 0.915 | **REWARD** -> snapshot saved |
+| 40 | 0.9144 | 0.911 / 0.916 / 0.916 | **REWARD** -> snapshot saved |
+| 60 | 0.9113 | 0.910 / 0.909 / 0.915 | **PUNISH** (drop 0.0031 < tol 0.01) -> weights kept |
+| 80 | **0.9383** | 0.935 / 0.941 / 0.939 | **REWARD** -> best snapshot |
+| disk round trip | **0.9391** | 0.938 / 0.941 / 0.939 | OK (reloaded from disk) |
+
+* **Improvement +0.0728** over the base model (0.8655 -> 0.9383), and the reward is still rising
+  at step 80 -- the budget, not the method, is the limit.
+* The punish branch fired exactly as designed at step 60 and the loop continued from the kept
+  weights; the best snapshot was only overwritten when the score improved.
+* **Disk round trip verified inside the job**: the adapter was deleted from the model, reloaded
+  from `pytorch_lora_weights.safetensors` with `prefix=None`, and re-scored 0.9391 vs the best
+  0.9383 -> `roundtrip_ok=true`. This is the exact path the render job uses, so the render cannot
+  silently fall back to the base model.
+* Loss fell 0.0376 -> 0.0141; peak memory 13.42 / 14.56 GiB; 80 steps + 5 validates in 15,212 s
+  (4.2 h).
+* Adapter artefact: `out/lora_adapter_best/pytorch_lora_weights.safetensors` -- 720 fp32 tensors,
+  17,694,720 params (0.81% of the 2.17 B-param transformer), rank 16 / alpha 32, keys
+  `blocks.*` / `vace_blocks.*` (**no `transformer.` prefix**, which is exactly why the loader's
+  default `prefix="transformer"` silently loads nothing), LoRA config embedded in the
+  safetensors metadata. Published as the private dataset `worldreel-data-lorav4`; the render job
+  `character_render_lora_v4.py` mounts it with `--scene data:lorav4` and renders the v12 pipeline
+  (5 segments, 49 frames, 50 steps, seed 42+s, portrait-seeded conditioning) with the adapter
+  active, so the A/B against v12 is apples-to-apples.

@@ -1375,3 +1375,17 @@ result back to the base dtype (`_cast_input_dtype` / `result.to(torch_result_dty
 `peft/tuners/lora/layer.py`), so the frozen 2.17 B-param base stays fp16 and only the 0.81%
 adapter trains in fp32. General rule: *check the dtype of the tensors you train, not just of the
 model you load* -- `from_pretrained(torch_dtype=...)` propagates into every adapter peft injects.
+
+**What the reward loop actually bought (measured, not assumed).** Training Wan2.1-VACE with an
+SFace reward on a fixed validation clip moved the identity score 0.8655 -> **0.9383 (+0.0728)**
+in 80 steps (4.2 h on one T4, 13.42/14.56 GiB peak): 0.8655 baseline -> 0.9134 -> 0.9144 ->
+0.9113 (punish, kept) -> 0.9383, with the loss falling 0.0376 -> 0.0141. The curve was still
+rising when the budget ran out, so the binding constraint is GPU time, not the method. Two
+practical notes that generalise: (a) score a **fixed** clip (same seed, same frames, same prompt)
+every N steps -- otherwise the reward compares different videos and is noise; (b) make the loop
+**punish-tolerant**: a small drop keeps the weights (and logs "punish"), only a drop beyond
+tolerance restores the best snapshot, so a noisy metric cannot undo good progress. The final
+act must be a **disk round trip** (delete the adapter from the model, reload the file, re-score
+it) because the loader's defaults (`weight_name="pytorch_lora_weights.bin"`,
+`prefix="transformer"`) can load *nothing* while raising no error -- the score after the round
+trip is the only honest number you can ship.
