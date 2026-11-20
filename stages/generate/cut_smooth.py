@@ -12,15 +12,20 @@ in order:
    on this clip (0.784 -> 0.748), a uniform gain costs 0.009.
 2. **Cross-dissolve** -- `k` output frames replace the last `k` frames of
    the outgoing take and the first `k` of the incoming take, so the clip
-   loses `k` frames per cut.  The incoming face is first ECC-registered
-   onto the outgoing frame (landmark similarity alone aligns five points,
+   loses `k` frames per cut.  The incoming frame is first ECC-registered
+   onto the outgoing one (landmark similarity alone aligns five points,
    not face shape: a similarity-only dissolve ghosted into identity 0.666),
-   then both faces are carried onto one interpolating landmark path
-   (outgoing config -> incoming config, smoothstep eased) and composited
-   through the feathered oval before blending: the head travels in place
-   instead of double-imaging, while the backgrounds blend raw.  The path
-   starts exactly on the outgoing face and ends exactly on the incoming
-   one, so neither window edge introduces a new jump.
+   then BOTH frames are warped full-frame onto one interpolating landmark
+   path (outgoing config -> incoming config, smoothstep eased) and
+   blended: every pixel -- face, hair, body, wall -- travels through the
+   same transform, so the two contributions stay in registration for the
+   whole window.  Warping only the face oval (the first version) left the
+   hair and shoulders at their original scale while the face travelled:
+   with a 1.4x face-size jump between takes that tore a second hair
+   silhouette against the wall, which the viewer saw as the character
+   overlapping herself.  The path starts exactly on the outgoing frame
+   and ends exactly on the incoming one, so neither window edge
+   introduces a new jump.
 """
 
 from __future__ import annotations
@@ -41,7 +46,6 @@ from stages.generate.face_stabilize import (
     _face_box,
     _full_from_local,
     _local_from_full,
-    _oval_mask,
     _read_video,
     _similarity,
     _write_video,
@@ -111,11 +115,13 @@ def match_levels(
 
 
 def _face_warp(frame: U8, cfg_src: F64, cfg_dst: F64) -> U8:
-    """Warp `frame` so its face config lands on `cfg_dst`, oval only.
+    """Warp the whole frame so its face config lands on `cfg_dst`.
 
-    Only the feathered face oval takes the warped pixels; hair edges,
-    background and body keep their original pixels, so the warp cannot drag
-    the scene with it.
+    Full-frame on purpose: the outgoing take's hair, shoulders and wall
+    must travel with its face, or they stay behind while the incoming
+    take's do move (the doubled-silhouette tear the oval-only version
+    produced at 1.4x size jumps).  The wall is featureless, so warping it
+    is free.
     """
     h, w = frame.shape[:2]
     m = _similarity(cfg_src, cfg_dst)
@@ -126,10 +132,7 @@ def _face_warp(frame: U8, cfg_src: F64, cfg_dst: F64) -> U8:
         flags=cv2.INTER_CUBIC,
         borderMode=cv2.BORDER_REPLICATE,
     ).astype(np.uint8, copy=False)
-    oval = _oval_mask((h, w), cfg_dst)[..., None]
-    mixed = frame.astype(np.float32) * (1.0 - oval) + warped.astype(np.float32) * oval
-    blended: U8 = np.clip(np.round(mixed), 0, 255).astype(np.uint8)
-    return blended
+    return warped
 
 
 def _incoming_face(a_frame: U8, b_frame: U8, cfg_a: F64, cfg_b: F64, cfg_dst: F64) -> U8:
@@ -142,8 +145,9 @@ def _incoming_face(a_frame: U8, b_frame: U8, cfg_a: F64, cfg_b: F64, cfg_dst: F6
     guards from the stabilizer fall back to it), after which both
     contributions of every blend pair occupy the same place with sub-pixel
     registration.  A single rigid travel warp then carries the registered
-    face onto the interpolating path, so continuity at both window edges is
-    unchanged.
+    frame onto the interpolating path -- full-frame, for the same reason as
+    `_face_warp`: hair and body must travel with the face or the two takes
+    tear apart mid-window.  Continuity at both window edges is unchanged.
     """
     h, w = a_frame.shape[:2]
     x0, y0, x1, y1 = _face_box(np.vstack([cfg_a, cfg_b]), (h, w))
@@ -168,10 +172,7 @@ def _incoming_face(a_frame: U8, b_frame: U8, cfg_a: F64, cfg_b: F64, cfg_dst: F6
         flags=cv2.INTER_CUBIC,
         borderMode=cv2.BORDER_REPLICATE,
     ).astype(np.uint8, copy=False)
-    oval = _oval_mask((h, w), cfg_dst)[..., None]
-    mixed = b_frame.astype(np.float32) * (1.0 - oval) + moved.astype(np.float32) * oval
-    blended: U8 = np.clip(np.round(mixed), 0, 255).astype(np.uint8)
-    return blended
+    return moved
 
 
 def cross_dissolve(

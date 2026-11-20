@@ -1311,3 +1311,20 @@ between-take luminance steps never tripped the 0.05 threshold. Cost: a pose rese
 **Post-render fixes for the two v12 visual defects (D-9.20 / D-9.21):** (1) *Per-frame face morph* is ~1 px rigid jitter plus a lag-growing appearance morph; landmark-driven warps make it worse because YuLandmark noise (~1.5 px common + ~2 px shape, int64 casts) is the same scale as the jitter. Stabilise with **ECC intensity alignment only** (landmarks initialise, never decide). ECC's 2x2 det is **scale squared** - it correlates +0.60 with eye distance, i.e. it *is* real head-toward-camera scale; a guard tuned on within-take frames ([0.7, 1.4]) wrongly rejects genuine frames and its fallback causes 35 px spikes. Measured on the clip: 0/240 fallbacks, lag-1 pixel morph 3.07 -> 1.94, identity 0.8817/0.7836. (2) *Hard cuts* at 3/6/9/12 s: brightness-match with a **scalar per-take gain** (wall-mean; deflicker's fitted light field costs 0.035 identity min, a uniform gain costs 0.009), then a **6-frame cross-dissolve where the incoming face is ECC-registered onto the outgoing frame first** - a landmark-similarity-only dissolve ghosted to identity 0.666 because similarity aligns five points, not face shape; cross-take det reaches 2.6 (genuine 1.6x scale difference), so the registration needs wider det bounds than the stabilizer. Result: 216 f = 13.5 s, identity 0.8793/0.7824, 0 <0.75, cut luminance jumps 11.18 -> <=3.23, analyzer 0 issues, 0 ghost faces.
 
 **Post-process sharpness accounting (D-9.22):** the two invisible killers of rendered detail are (1) *lossy intermediates* - every mp4v round-trip costs ~30% of face Laplacian variance (66 -> 46 -> 27 over two passes), so chain post-processing through lossless FFV1 `.mkv` and encode exactly once at delivery (x264 CRF 16 on identical frames: 26.9 -> 37.6); (2) *temporal blending* - the motion-aligned average that kills the per-frame morph also low-passes the face (61.8 -> 37.3), and narrowing the window gives the morph back faster than it returns sharpness (window 0.5: sharp 50.7 but idlag1 0.9833 vs 0.9881 at 1.5). Keep both with **detail reinjection**: add the centre frame's high-pass residual *after the same placement warp that produced the blend* (unaligned: doubles edges by the 1-7 px placement offset), gain ~0.3 (0.6 overshoots into unsharp ringing). Result: idlag1 0.9861 vs raw 0.9807 with sigma=1 sharpness 7.87 vs raw 7.49, and the delivery clip's face Laplacian doubled 26.8 -> 53.4. Measure sharpness with both plain and sigma=1 Laplacian - codec grain inflates the former, so "sharper than the source" usually means ringing.
+
+**Cross-dissolve geometry (D-9.23):** when two takes differ in framing (measured: face size up
+to 52% apart, centre 12-35 px), a dissolve that warps *only the face oval* onto the travel path
+tears the scene -- hair, shoulders and wall stay at their original scale while the face moves,
+and the viewer sees a second silhouette of the character ("overlap"). Fix: warp **both
+contributions full-frame** through the same per-frame transform (outgoing: landmark similarity
+to the path target; incoming: ECC-registered first, then the same path warp), so every pixel
+travels in registration; a featureless background makes the full-frame warp free. Measured:
+doubled-silhouette frames viewed clean, identity min 0.795 -> 0.797, frames <0.80 7 -> 3,
+analyzer sim 0.895 -> 0.900, cut luminance jumps unchanged (3.04/0.93). **Negative result worth
+keeping:** no-reference ghost/overlap metrics failed twice (edge-twin detector: synthetic
+double-exposure scored *lower* than sharp, 0.068 vs 0.095; gradient-autocorrelation: the
+profile's low-frequency decay drowns the ghost spike at every shift tried) -- detect overlap by
+extracting the suspect frames and *looking at them*, comparing dissolve mid-windows against take
+interiors and the raw render. Also: identity training data matters more than the loss -- the two
+earlier character-LoRA jobs never trained at all (4D latent; missing VACE control latents), so
+any "LoRA results" before v4 are void.

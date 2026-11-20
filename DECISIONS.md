@@ -2964,3 +2964,58 @@ reason the blend exists) is retained. 18 tests in `tests/test_face_stabilize.py`
 
 **Rule recorded:** never pass a generated clip through a lossy intermediate — intermediates are
 FFV1 `.mkv`, exactly one lossy encode at delivery.
+
+### D-9.23 Overlap fix: full-frame dissolve travel (user verdict "blur, overlap, inconsistent")
+
+The user watched the D-9.22 rebuild and rejected it with three named defects: **blur, overlap of
+the character, inconsistency**, and asked to train the network with a reward/punish system.
+Diagnosis by direct frame inspection (extracted PNGs, viewed side by side):
+
+1. **Overlap is entirely in the cross-dissolves** (my D-9.21 post-processing). Mid-window frames
+   (output 42/84) showed a doubled hair silhouette against the wall and a second jaw contour;
+   take interiors and the RAW Kaggle render are clean (single contours everywhere). Mechanism:
+   `_face_warp`/`_incoming_face` composited **only the feathered face oval** -- faces travelled
+   the smoothstep path while hair, shoulders and background kept their original scale. Across a
+   cut the face size jumps up to 52% (93 -> 141 px measured, centre jump 12-35 px), so the
+   oval-only design superimposed two different framings of the character for 6 frames.
+2. **Inconsistency** is real but mostly presentation: every take starts re-pinned to the
+   portrait (~140 px face) and then drifts differently (ends 93-136 px), so cuts jump in framing
+   and expression. A cut that *travels* between framings reads as camera motion instead of a
+   defect -- which is what the fixed dissolve now does.
+3. **Blur**: portrait face Laplacian 269 vs raw render 66 -- most of it is model-inherent 480p
+   softness (D-9.22 already removed the pipeline's contribution: 26.8 -> 53.4 measured).
+
+**Fix (stages/generate/cut_smooth.py):** both dissolve contributions are now warped **full-frame**
+onto the interpolating landmark path -- the outgoing frame by the landmark similarity, the
+incoming frame after its ECC registration -- so face, hair, body and wall all travel through the
+same transform at every step of the window and stay in registration. The wall is featureless so
+warping it is free; `_oval_mask` is no longer used by cut_smooth. Window-edge continuity is
+unchanged (first frame = exact outgoing, last = incoming up to the ECC-vs-similarity residual).
+
+Measured on the rebuilt 216-frame delivery (same stabilizer, only cut_smooth re-run):
+
+| metric | D-9.22 (oval-only dissolve) | **D-9.23 (full-frame)** |
+|---|---|---|
+| visual: dissolve mid-frames (viewed) | doubled hair silhouette + jaw | **single contours, clean** |
+| identity mean / min (v2_check) | 0.8820 / 0.7950 | **0.8849 / 0.7970** |
+| identity min (identity_curve) | 0.7847 | **0.7920** |
+| frames <0.80 | 7 | **3** |
+| analyzer | 0 issues, sim 0.895 | **0 issues, sim 0.900** |
+| face sharpness (v2_check Lap) | 53.4 | 53.4 |
+| cut luminance jump (inside/outside) | 3.01 / 0.92 | 3.04 / 0.93 |
+| pixel diff inside dissolves | 6.44 mean | 8.77 mean (scene now travels -- motion, not ghost) |
+
+Gates: ruff format/check, mypy (212), pytest **378 passed / 4 skipped**, job_script 30/30.
+Repackaged `S017_face_consistent_13s5.wreel` (OK 0/0, embed byte-identical 1,713,371 B);
+copies at `runs/videos/S017_face_consistent_13s5.mp4` + `_annotated`.
+
+**Training track opened:** both previous character LoRA jobs died before training -- v1
+(`character_lora`) crashed on a 4D/5D latent mismatch, v3 crashed with
+`control_hidden_states=None` (the VACE transformer requires control latents; the training call
+never built them). Neither ever produced an adapter. `character_lora_v4` is being written to fix
+the API usage (VACE conditioning exactly as inference: seed frame + mask + reference images ->
+`prepare_video_latents`/`prepare_masks`), the objective (flow matching with the inference
+scheduler's flow_shift=3.0 sigma mapping, mean/std latent normalisation -- NOT the 0.18215
+scaling factor v3 used), and to add the reward/punish loop the user asked for: SFace identity
+score every N steps, best adapter snapshot kept, worse checkpoints discarded, validation clip
+scored against the same 0.363 same-person mark.
