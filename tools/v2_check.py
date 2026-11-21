@@ -1,4 +1,5 @@
-"""Quantitative QA for the D-9.13 run: one face per frame, stable geometry, sharpness.
+"""Quantitative QA for the generated clips: one face per frame, stable geometry,
+sharpness, identity AND MOTION.
 
 Replaces eyeballing extracted frames. Reports:
 - detections per frame (a pasted/ghost second face shows up as 2 or as
@@ -7,6 +8,12 @@ Replaces eyeballing extracted frames. Reports:
   makes the geometry pop between two populations)
 - identity cosine per sampled frame against the reference portrait
 - Laplacian variance (sharpness) inside the face oval
+- motion: the mean frame-to-frame difference and the share of consecutive frames
+  that barely change (D-9.26). The D-9.25 adapter render passed every other
+  check here -- one face, stable geometry, identity 0.93 -- and was still a
+  "still image that shakes": 211 of 239 consecutive frames differed by less than
+  0.5 grey levels (the base model: 0 of 239). A clip that does not move is not a
+  video, so motion belongs in this gate.
 """
 
 from __future__ import annotations
@@ -25,6 +32,9 @@ from stages.generate.face_swap import FaceSwapper
 
 YUNET = "training/kaggle/jobs/face_detection_yunet_2023mar.onnx"
 SFACE = "training/kaggle/jobs/face_recognition_sface_2021dec.onnx"
+
+# A frame-to-frame difference below this (grey levels) counts as "not moving".
+STILL_DIFF = 0.5
 
 
 def _reference_portrait() -> Path:
@@ -79,12 +89,17 @@ def main() -> int:
     heights: list[float] = []
     sims: list[float] = []
     sharp: list[float] = []
+    diffs: list[float] = []
+    prev: np.ndarray | None = None
     i = 0
     while True:
         ok, frame = cap.read()
         if not ok:
             break
         frame = to_uint8(frame)
+        if prev is not None:
+            diffs.append(float(np.abs(prev.astype(np.float32) - frame.astype(np.float32)).mean()))
+        prev = frame
         # Ask YuNet for up to 2 faces so a ghost overlay is not silently merged
         # into one detection.
         # Ask for every detection (not just the most confident one) so a ghost
@@ -144,6 +159,17 @@ def main() -> int:
         print(
             f"identity cosine      : mean={np.nanmean(v):.4f} "
             f"min={np.nanmin(v):.4f} (SAME_PERSON threshold 0.363)"
+        )
+    if diffs:
+        d = np.asarray(diffs, dtype=np.float64)
+        still = int(np.sum(d < STILL_DIFF))
+        print(
+            f"motion (frame diff)  : mean={d.mean():.3f} median={np.median(d):.3f} "
+            f"max={d.max():.3f}"
+        )
+        print(
+            f"still frames (<{STILL_DIFF}) : {still}/{len(d)}  "
+            f"<-- a shaking still image shows here (D-9.25: 211/239)"
         )
     return 0
 
