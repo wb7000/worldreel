@@ -3204,3 +3204,52 @@ face towards the reference photo.
 `runs/videos/S017_lorav4_13s5.mp4` + `_annotated.mp4`,
 `runs/analysis/lorav4_final_analyzer.json`. The previous best (`S017_face_consistent_13s5.wreel`)
 is untouched and remains the sharp-but-less-consistent alternative.
+
+### D-9.26 Character LoRA v5: the target must contain the motion (design gate)
+
+The user's verdict on the v4 package was blunt and correct: *"the new video is not a video its
+only image shaking"*. Measured, not argued:
+
+| metric | v12 (base) | v4 + adapter | verdict |
+|---|---|---|---|
+| global frame-to-frame diff (mean) | **2.468** | 0.414 | the adapter erased the motion |
+| consecutive frames that barely change (< 0.5 grey) | 0 / 239 | **211 / 239** | 88% of the clip is a still image |
+| face-region diff (mean) | 4.538 | 0.575 | the face is not moving either |
+| face sharpness (Lap) | 66.2 | 15.3 | the texture is gone too |
+
+**Root cause (not the reward, not the optimiser):** the v4 *target* was a still portrait plus
++-6 px micro-jitter. Flow matching to those latents teaches the transformer the statistics of
+one photograph, so the render came back as that photograph with a little jitter. The identity
+reward then "confirmed" the outcome, because the cheapest way to look like the reference photo
+is to *be* the reference photo. 8.3 h of GPU (4.2 h training + 4.1 h render) produced it
+faithfully -- the method was not broken, the training data was.
+
+**The fix is the target data.** D-9.26 rebuilds the training set out of a real rendered video
+(the D-9.25 reference render, published as the private dataset `worldreel-data-v12render`):
+
+* Each training variant is `[conditioning seed frame] + [48 frames of one real take]`, so the
+  target carries the character's **real motion and real texture** -- exactly what the v4 target
+  destroyed. Frame 0 is the conditioning seed itself, so the target and the conditioning agree.
+* The takes are **ranked by measured identity** and the best ones are used. Measured on the
+  render: take 2 = 0.9132 identity / sharpness 50.1 / motion 2.547, take 1 = 0.8881 / 71.1 /
+  2.261, take 0 = 0.8836 / 69.3 / 1.858, take 3 = 0.8457, take 4 = 0.8684. The best 48-frame
+  *window* anywhere in the clip is 0.9090, so 0.91 is the identity ceiling of this target set.
+* The face-swap route to a higher target identity was measured and **rejected**: blending the
+  portrait into the takes lifts identity to 0.9137-0.9309 but collapses face sharpness from
+  50-77 to 14-17, because the swap round-trips the face through the 112x112 SFace template.
+  Trading 70% of the texture for 0.02 of identity is the v4 mistake again.
+
+**The reward can no longer buy identity with texture.** The reward is still identity, but every
+evaluation also measures motion (mean frame-to-frame difference) and face sharpness, and a
+checkpoint that falls below 75% of the base model's value on either axis is **rolled back even
+if its identity improved**. Every evaluation also writes its own adapter snapshot, so the
+identity/motion/texture trade-off can be compared offline instead of trusting one scalar.
+
+**Artefacts:** `tools/lora_targets.py` (target builder: take split, identity ranking, variant
+assembly, motion measurement) with `tests/test_lora_targets.py`; the training job
+`training/kaggle/jobs/character_lora_v5.py` (targets from the mounted render dataset, gated
+reward, per-eval snapshots, unchanged proven flow-matching/round-trip machinery) and the render
+job `training/kaggle/jobs/character_render_lora_v5.py` (prefers `worldreel-data-lorav5`, falls
+back to `lorav4`, `adapter_strength` knob, and reports the render's **motion** and the share of
+still frames -- the number that exposed this defect). The target-building block was smoke-tested
+locally end to end before the job was queued.

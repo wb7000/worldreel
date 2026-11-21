@@ -1411,3 +1411,28 @@ motion), otherwise it will buy its metric with the others; (3) when a reward *se
 than *guides* (the gradient comes from the loss), the training target decides the look -- an
 identity-rich but static target yields a smooth, canonical, "photograph" face, so the target set
 needs motion and texture of its own.
+
+**The symptom that names the cause: "a video that is only an image shaking".** The v4 package
+was rejected with exactly that verdict, and the numbers locate the defect precisely: global
+frame-to-frame difference 2.468 (base) -> **0.414** (adapter), with **211 of 239** consecutive
+frames changing by < 0.5 grey levels (base: 0 of 239), and the face region down to 0.575 from
+4.538. A still image with +-6 px of jitter was the *training target*, so the model reproduced
+the statistics of one photograph -- and the identity reward rewarded it, because the cheapest
+way to look like the reference photo is to be the reference photo. The generalisable rule:
+**when a distilled/fine-tuned video model looks frozen, suspect the target, not the sampler.**
+Measure the target itself (identity vs the reference, sharpness, frame-to-frame motion) before
+touching the sampler, the scheduler or the LoRA scale. Three further measurements that shaped
+the fix: (1) the target's own motion is the ceiling of the output's motion -- a target built
+from a render keeps motion 1.9-2.5 grey levels/frame and sharpness 50-77, while a target built
+from the portrait has motion ~0 and collapses the render's face Laplacian from 66 to 15; (2)
+raising the target's identity by blending the reference portrait into the render frames (0.84 ->
+0.91-0.93) costs 70% of the face sharpness, because the face round-trips through the 112x112
+SFace template -- so "more identity in the target" and "more texture in the target" fight each
+other, and the target's identity ceiling has to be measured, not assumed; (3) the *identity
+ceiling of a target set* is measurable: rank contiguous 48-frame windows of a render by their
+SFace score against the portrait and take the best (0.9090 here) instead of using every take
+(0.8457-0.9132). Finally, the reward loop needs **gates, not just a score**: identity stayed the
+primary reward, but a checkpoint whose motion or face sharpness dropped below 75% of the base
+model's was rolled back regardless of its identity, and every evaluation wrote its own adapter
+snapshot so the identity/motion/texture trade-off could be compared offline instead of trusting
+one scalar.
