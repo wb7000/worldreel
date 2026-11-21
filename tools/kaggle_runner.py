@@ -24,6 +24,7 @@ unpacked the code. Outputs go to `/kaggle/working/out/`.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -52,6 +53,9 @@ CODE_DIRS = ("formats", "pipeline", "stages", "tools", "eval", "training", "spec
 JOBS_DIR = REPO_ROOT / "training" / "kaggle" / "jobs"
 BOOTSTRAP = REPO_ROOT / "training" / "kaggle" / "bootstrap.py"
 RUNS_DIR = REPO_ROOT / "runs" / "kaggle"
+# Remembers what the mounted code dataset already contains, so `run` only
+# re-uploads when the tracked code actually changed (D-9.26).
+CODE_STATE = RUNS_DIR / ".code_state.json"
 MACHINE_SHAPE = "NvidiaTeslaT4"
 
 
@@ -125,6 +129,50 @@ def push_code(message: str) -> None:
         _upload(Path(tmp), CODE_DATASET, "WorldReel code", message)
 
 
+def code_fingerprint() -> str:
+    """Hash of the tracked code files -- what the mounted code dataset must contain.
+
+    Kaggle jobs import repo modules from the mounted code dataset, so a module
+    that was committed but never uploaded makes the job die with
+    ModuleNotFoundError *after* the queue wait and the model download
+    (D-9.26: tools/lora_targets.py).
+    """
+    digest = hashlib.sha256()
+    for f in tracked_code_files():
+        try:
+            key = f.relative_to(REPO_ROOT).as_posix()
+        except ValueError:  # not under the repo (tests, ad-hoc paths)
+            key = f.as_posix()
+        digest.update(key.encode())
+        digest.update(b"\0")
+        digest.update(hashlib.sha256(f.read_bytes()).digest())
+    return digest.hexdigest()
+
+
+def ensure_code_pushed(force: bool = False) -> None:
+    """Upload the code dataset when the tracked code changed since the last push.
+
+    `run` used to assume the dataset was current, so a job that imported a new
+    module failed minutes into the run with ModuleNotFoundError. The upload is
+    skipped when the tracked files are unchanged, so this costs nothing on a
+    repeat run.
+    """
+    fingerprint = code_fingerprint()
+    if not force and CODE_STATE.exists():
+        try:
+            state = json.loads(CODE_STATE.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            state = {}
+        if state.get("fingerprint") == fingerprint:
+            return
+    push_code("code update")
+    CODE_STATE.parent.mkdir(parents=True, exist_ok=True)
+    CODE_STATE.write_text(
+        json.dumps({"fingerprint": fingerprint, "at": time.strftime("%Y-%m-%d %H:%M:%S")}),
+        encoding="utf-8",
+    )
+
+
 def push_scene(scene: Path, name: str) -> None:
     if not (scene / "gt.json").exists():
         raise SystemExit(f"{scene} is not a synthetic scene (no gt.json)")
@@ -189,6 +237,9 @@ def run(
     queued one waits for hours; DECISIONS D-3b.3)."""
     if not job.exists():
         job = JOBS_DIR / job.name
+    # The kernel imports repo modules from the mounted code dataset: make sure it
+    # matches the working tree before pushing (D-9.26).
+    ensure_code_pushed()
     _push(job, scenes, any_gpu, cpu)
     if requeue_after > 0:
         started = time.time()
