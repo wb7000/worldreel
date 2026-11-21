@@ -11,6 +11,7 @@ Replaces eyeballing extracted frames. Reports:
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -24,7 +25,31 @@ from stages.generate.face_swap import FaceSwapper
 
 YUNET = "training/kaggle/jobs/face_detection_yunet_2023mar.onnx"
 SFACE = "training/kaggle/jobs/face_recognition_sface_2021dec.onnx"
-REF = Path("C:/Users/li/AppData/Local/Temp/opencode/vacecast/C01_0.png")
+
+
+def _reference_portrait() -> Path:
+    """Locate the reference portrait.
+
+    Order: $WORLDREEL_REFERENCE_PORTRAIT, then the fetched vacecast copy under
+    runs/, then the old temp path. The temp path alone was a trap: the temp
+    directory gets wiped between sessions and the tool then failed with a
+    confusing "missing reference" assert.
+    """
+    candidates = [
+        os.environ.get("WORLDREEL_REFERENCE_PORTRAIT"),
+        "runs/kaggle/portraits_run3_merged/C01_0.png",
+        "C:/Users/li/AppData/Local/Temp/opencode/vacecast/C01_0.png",
+    ]
+    for cand in candidates:
+        if cand and Path(cand).exists():
+            return Path(cand)
+    raise SystemExit(
+        "reference portrait not found; set WORLDREEL_REFERENCE_PORTRAIT or fetch "
+        "runs/kaggle/portraits_run3_merged/C01_0.png"
+    )
+
+
+REF = _reference_portrait()
 
 
 def main() -> int:
