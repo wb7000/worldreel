@@ -3290,3 +3290,81 @@ the work was complete and every artefact was archived (the fetch recovered all o
 a job's final artefact check must name the files the job actually writes, otherwise a successful
 run is reported as a failure. Fixed in `character_render_lora_v5.py` (all three artefact names
 now match the files it writes).
+
+### D-9.27 v5 training result: the reward was measured in the wrong regime -- the best checkpoint is a no-op
+
+The v5 job ran to completion (80/80 steps, 16,563 s = 4.6 h of the 30 h weekly quota) and
+produced **no usable adapter**. The target data was exactly as designed -- the three selected
+takes carried real motion:
+
+| target take | identity | face sharpness | motion |
+|---|---|---|---|
+| take 2 (selected) | 0.9134 | 50.1 | 2.547 |
+| take 1 (selected) | 0.8880 | 71.1 | 2.261 |
+| take 0 (selected) | 0.8837 | 69.3 | 1.858 |
+| take 3 | 0.8459 | 64.0 | 1.861 |
+| take 4 | 0.8690 | 77.2 | 1.577 |
+
+but **every evaluated checkpoint scored below the base model**:
+
+| checkpoint | reward (identity) | motion | sharpness | gate verdict |
+|---|---|---|---|---|
+| step 0 (base model) | **0.8655** | 1.843 | 161.6 | baseline |
+| step 20 | 0.7686 | 1.607 | 82.0 | failed sharpness (floor 121.2) -> rolled back |
+| step 40 | 0.6293 | 3.809 | 104.0 | failed sharpness -> rolled back |
+| step 60 | 0.6832 | 2.647 | 68.8 | failed sharpness -> rolled back |
+| step 80 | 0.7142 | 3.581 | 205.2 | reward below best -> rolled back |
+
+so `best = step 0` and the "improvement" was **+0.0000**.
+
+**The best checkpoint is literally the base model.** `tools/check_adapter_delta.py` reads the
+saved weights: all **360 LoRA B matrices in `lora_adapter_best` are exactly zero** (max |B| =
+0.0), and PEFT's B@A product with a zero B is a zero delta -- the adapter is an exact no-op. The
+step snapshots are real (max |B| = 0.11-0.13). Rendering with `lora_adapter_best` would have
+re-rendered v12 for 4.1 h of GPU and produced a file that looks like a successful adapter run.
+
+**Root cause: the reward is measured in a different regime than the one that ships.** The
+reward loop validates on a **10-step** clip; the deployment render runs **50 steps**. The v5
+adapter was taught to reproduce a 50-step, motion-rich render, so its delta is off-distribution
+on a 10-step trajectory: identity collapses to 0.63-0.77 and the texture drops with it (the
+sharpness gate caught exactly that at steps 20/40/60). The checkpoint selector was therefore
+optimising a proxy that cannot see the deployment behaviour, and the proxy is *biased towards
+freezing*: at 10 steps the model stays near the portrait (sharpness 161.6), while the shipped
+50-step render moves away from it (sharpness 66, motion 2.468) and decays in identity **inside
+every segment** -- v12 raw: seg 0 0.9176 -> 0.8435, seg 3 0.9152 -> 0.8059 (min 0.7870, slope
+-0.00285/frame), 11/240 frames below 0.80. Identity is maximised by "stay near the portrait",
+so any motion-rich target is penalised by the metric that is supposed to protect it.
+
+**Decision: stop retraining and move the experiment to the render side.** The adapter's weight
+does not have to be constant over the trajectory. The transformer is called once per CFG branch
+with the current timestep, so the LoRA weight can be **scheduled**: the early, high-noise steps
+decide the layout, the pose and the trajectory (the motion the user rejected the v4 render
+for), and the late steps refine what is already there (the face texture and identity). A "late"
+schedule applies the identity adapter only to the end of the trajectory -- the base model keeps
+its motion, the adapter keeps its identity. The arithmetic lives in `tools/lora_schedule.py`
+(9 tests, `tests/test_lora_schedule.py`): `static` / `late` / `early`, with the step index
+recovered from the scheduler's timestep list so "late" means "the last N% of the steps" whatever
+the sigma schedule does.
+
+**The probe** (`training/kaggle/jobs/character_render_lora_probe.py`) renders the *same*
+21-frame / 50-step clip (seed 42, portrait-conditioned) once per configuration -- the same
+setup as the D-9.26 sweep, so its s = 0 (base) and s = 1.0 rows are the controls -- and measures
+identity, face sharpness, motion and the still-frame count per configuration:
+
+| configuration | adapter | schedule | strength | question it answers |
+|---|---|---|---|---|
+| `v4_late75` | v4 best | late, start 0.75 | 1.0 | can the identity adapter act after the pose is decided? |
+| `v4_late50` | v4 best | late, start 0.50 | 1.0 | how much of the trajectory does the identity need? |
+| `v5_step080` | v5 step-80 | static | 1.0 | is a motion-trained adapter usable at deployment quality? |
+| `v5_step020` | v5 step-20 | static | 1.0 | same, at the checkpoint with the best 10-step identity |
+
+Also recorded: `tools/video_metrics.py` gains `identity_stride` (default 15, unchanged QA
+numbers) so a ranking probe can score every frame; `tools/check_adapter_delta.py` proves what a
+saved snapshot actually does -- a cheap check that should have been part of every training run's
+report, because "the adapter saved" and "the adapter does something" are different claims.
+
+**Operational note (D-9.27):** the first v5 attempt died 4 min into the run with
+`ModuleNotFoundError: No module named 'tools.lora_targets'` -- the kernel had mounted an older
+code dataset, because `run` pushed the job but never uploaded the repo. `tools/kaggle_runner.py`
+now fingerprints the tracked code files and uploads the dataset whenever the fingerprint changed
+(`ensure_code_pushed`, 3 tests), so a job can never start against code the repo does not have.

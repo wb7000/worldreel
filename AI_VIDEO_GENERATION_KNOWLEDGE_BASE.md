@@ -1450,3 +1450,38 @@ LoRAs: when you interpolate a model between two behaviours, measure every axis t
 *and look at the frames*, because a metric can look fine while the thing the metric stands for
 (head movement, expression, gesture) has already been spent. The sweep saved 4.1 h of GPU by
 cancelling the render at the knee that the metrics alone would have approved.
+
+**The checkpoint selector must measure the regime that ships -- and "an adapter was saved" is not
+"an adapter does something".** The motion-target retrain (D-9.26) failed in a way that is worth
+generalising. Its reward loop validated on a **10-step** clip while the deployment render runs
+**50 steps**; the adapter was taught to reproduce a 50-step motion-rich render, so its delta was
+off-distribution on the 10-step trajectory. Every trained checkpoint scored below the base model
+(identity 0.63-0.77 vs 0.8655), the motion/sharpness gates rolled them all back, and the run
+"improved" by +0.0000. The saved winner was the **untrained initialisation**: all 360 LoRA B
+matrices in `lora_adapter_best` were exactly zero, so B@A = 0 and the adapter was the base model,
+byte-for-byte in behaviour. Three rules follow. (1) **A proxy that runs at a different quality
+than the product cannot select checkpoints**: match the validation to the deployment (steps,
+resolution, conditioning) or accept that the selector is choosing for a regime nobody ships. (2)
+**Identity metrics are biased towards freezing**: identity is maximised by "stay near the
+portrait", and a short/low-quality validation stays near the portrait (sharpness 161.6) while the
+shipped 50-step render moves away from it (sharpness 66, motion 2.468) and decays in identity
+*inside every segment* (seg 0 0.9176 -> 0.8435, seg 3 down to 0.7870, 11/240 frames below 0.80).
+Any reward built on identity alone will push a model towards a still face, so the motion and
+texture gates are not optional decoration -- they are the only thing standing between a good
+identity score and a shaking image. (3) **Check what a checkpoint actually does, not what it is
+called**: reading the saved tensors (are the B matrices zero? what is max|B|?) is a two-minute
+check that turns "the adapter saved" into "the adapter is a no-op", and it should be part of
+every training report.
+
+**A LoRA weight can be scheduled over the denoising trajectory, and that decouples identity from
+pose freedom.** The transformer is called once per CFG branch with the current timestep, so the
+adapter weight can depend on where the trajectory is: the early, high-noise steps decide layout,
+pose and trajectory (the motion), the late steps refine what is already there (texture and
+identity). A "late" schedule therefore lets the base model keep the head turn and the blink while
+the identity adapter still pulls the face towards the reference -- the trade-off that strength
+scaling could not express, because a constant delta of 0.25 already froze the pose. Recover the
+step index from the scheduler's timestep list rather than from the timestep value: with UniPC and
+flow_shift the sigmas are not linearly spaced, so "the last 30% of the noise" and "the last 30%
+of the steps" are different schedules, and only the second is predictable. This is the most
+promising untested lever on the "real motion AND the same person" requirement, and it costs one
+21-frame / 50-step clip per configuration (~21 min) instead of a 4.6 h training run.
