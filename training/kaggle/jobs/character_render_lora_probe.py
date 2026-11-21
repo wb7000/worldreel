@@ -135,42 +135,62 @@ log(f"Using SFace: {sface_path}")
 # a silently unloaded adapter renders the base model and looks like a
 # successful measurement of the wrong thing (D-9.24).
 CONFIGS = [
-    # The identity-strong v4 adapter, applied only to the END of the trajectory:
-    # the base model keeps the pose and the motion, the adapter refines the face.
+    # 2x2 design: {4 references, 6 references} x {seed 42, seed 43}.
+    #
+    # WHY references: the base model's identity decays INSIDE every segment
+    # (seg 0 0.9176 -> 0.8435 over 48 frames, seg 3 down to 0.7870) because the
+    # reference-image conditioning weakens with the temporal distance from the
+    # conditioning frame. The vacecast dataset holds SIX C01 portraits and the
+    # render job caps the reference list at FOUR, so two views of the same
+    # person are thrown away. More references = a stronger identity anchor, and
+    # unlike the LoRA it cannot freeze the pose.
+    #
+    # WHY two seeds: the segment-to-segment decay rate varies a lot
+    # (-0.00048 to -0.00285/frame), so one clip cannot separate "the change
+    # worked" from "this seed drifted less". The second seed is the noise floor.
     {
-        "name": "v4_late75",
-        "dataset": "worldreel-data-lorav4",
-        "subdir": "lora_adapter_best",
-        "strength": 1.0,
-        "schedule": "late",
-        "start": 0.75,
-    },
-    # The same adapter over the second half of the trajectory.
-    {
-        "name": "v4_late50",
-        "dataset": "worldreel-data-lorav4",
-        "subdir": "lora_adapter_best",
-        "strength": 1.0,
-        "schedule": "late",
-        "start": 0.50,
-    },
-    # The v5 checkpoints: trained against a real rendered motion target, so they
-    # are the only adapters that were ever taught to move.
-    {
-        "name": "v5_step080",
-        "dataset": "worldreel-data-lorav5",
-        "subdir": "lora_adapter_step080",
-        "strength": 1.0,
+        "name": "refs4_seed42",
+        "dataset": "",
+        "subdir": "",
+        "strength": 0.0,
         "schedule": "static",
         "start": 0.0,
+        "seed": 42,
+        "num_references": 4,
+        "guidance_scale": 5.0,
     },
     {
-        "name": "v5_step020",
-        "dataset": "worldreel-data-lorav5",
-        "subdir": "lora_adapter_step020",
-        "strength": 1.0,
+        "name": "refs6_seed42",
+        "dataset": "",
+        "subdir": "",
+        "strength": 0.0,
         "schedule": "static",
         "start": 0.0,
+        "seed": 42,
+        "num_references": 6,
+        "guidance_scale": 5.0,
+    },
+    {
+        "name": "refs4_seed43",
+        "dataset": "",
+        "subdir": "",
+        "strength": 0.0,
+        "schedule": "static",
+        "start": 0.0,
+        "seed": 43,
+        "num_references": 4,
+        "guidance_scale": 5.0,
+    },
+    {
+        "name": "refs6_seed43",
+        "dataset": "",
+        "subdir": "",
+        "strength": 0.0,
+        "schedule": "static",
+        "start": 0.0,
+        "seed": 43,
+        "num_references": 6,
+        "guidance_scale": 5.0,
     },
 ]
 
@@ -185,6 +205,8 @@ def resolve_adapter(dataset: str, subdir: str) -> str | None:
     the untrained no-op -- and the probe would then measure the base model
     while believing it measured the v4 adapter.
     """
+    if not dataset:
+        return None
     root = Path("/kaggle/input/datasets/wb3none") / dataset
     if not root.exists():
         return None
@@ -198,7 +220,7 @@ def resolve_adapter(dataset: str, subdir: str) -> str | None:
 
 for cfg in CONFIGS:
     cfg["adapter_dir"] = resolve_adapter(cfg["dataset"], cfg["subdir"])
-    if cfg["adapter_dir"] is None:
+    if cfg["dataset"] and cfg["adapter_dir"] is None:
         short = cfg["dataset"].replace("worldreel-data-", "")
         raise SystemExit(
             f"FATAL: adapter {cfg['dataset']}/{cfg['subdir']} not found. Push the dataset first: "
@@ -206,8 +228,9 @@ for cfg in CONFIGS:
             f"and pass --scene data:{short}."
         )
     log(
-        f"config {cfg['name']}: {cfg['adapter_dir']} strength={cfg['strength']} "
-        f"schedule={cfg['schedule']} start={cfg['start']}"
+        f"config {cfg['name']}: adapter={cfg['adapter_dir']} strength={cfg['strength']} "
+        f"schedule={cfg['schedule']} seed={cfg['seed']} refs={cfg['num_references']} "
+        f"guidance={cfg['guidance_scale']}"
     )
 
 # The training report of the v5 run, if the dataset is mounted: it explains why
@@ -352,7 +375,10 @@ step.write_text(
     grey = Image.new("RGB", (W, H), (128, 128, 128))
     mask_black = Image.new("L", (W, H), 0)
     mask_white = Image.new("L", (W, H), 255)
-    refs = ref_imgs[:4]
+    # The reference list is capped per configuration (num_references); the vacecast
+    # dataset holds SIX C01 views of the same person and the render job used only
+    # four of them.
+    refs = ref_imgs[:8]
 
     # ---- The adapter schedule ------------------------------------------------
     # The transformer is called once per CFG branch with the current timestep, so
@@ -393,41 +419,49 @@ step.write_text(
     for cfg in a["configs"]:
         name = cfg["name"]
         t0 = time.time()
+        seed_value = int(cfg.get("seed", 42))
+        n_refs = int(cfg.get("num_references", len(refs)))
+        guidance = float(cfg.get("guidance_scale", 5.0))
+        config_refs = refs[:n_refs]
         # (Re)load the adapter for this configuration. prefix=None is required:
         # the default prefix ("transformer") filters every saved key ("blocks.*")
         # out and loads nothing silently.
-        try:
-            pipe.transformer.delete_adapters("default")
-        except Exception:
-            pass
-        pipe.transformer.load_lora_adapter(
-            cfg["adapter_dir"],
-            weight_name="pytorch_lora_weights.safetensors",
-            prefix=None,
-            adapter_name="default",
-        )
-        if "default" not in getattr(pipe.transformer, "peft_config", {}):
-            raise SystemExit("LoRA adapter did not register on load: %s" % name)
+        if cfg.get("adapter_dir"):
+            try:
+                pipe.transformer.delete_adapters("default")
+            except Exception:
+                pass
+            pipe.transformer.load_lora_adapter(
+                cfg["adapter_dir"],
+                weight_name="pytorch_lora_weights.safetensors",
+                prefix=None,
+                adapter_name="default",
+            )
+            if "default" not in getattr(pipe.transformer, "peft_config", {}):
+                raise SystemExit("LoRA adapter did not register on load: %s" % name)
         state["mode"] = cfg.get("schedule", "static")
         state["strength"] = float(cfg.get("strength", 1.0))
         state["start"] = float(cfg.get("start", 0.0))
         state["timesteps"] = None
-        log("config %s: adapter=%s strength=%.2f schedule=%s start=%.2f -- rendering %d frames"
-            % (name, cfg["adapter_dir"], state["strength"], state["mode"], state["start"], N))
+        log("config %s: adapter=%s strength=%.2f schedule=%s seed=%d refs=%d guidance=%.1f "
+            "-- rendering %d frames"
+            % (name, cfg.get("adapter_dir"), state["strength"], state["mode"],
+               seed_value, len(config_refs), guidance, N))
 
         out = pipe(video=[seed, *[grey] * (N - 1)],
                    mask=[mask_black, *[mask_white] * (N - 1)],
-                   reference_images=refs,
+                   reference_images=config_refs,
                    prompt_embeds=pos, negative_prompt_embeds=neg, height=H, width=W,
-                   num_frames=N, num_inference_steps=steps, guidance_scale=5.0,
+                   num_frames=N, num_inference_steps=steps, guidance_scale=guidance,
                    conditioning_scale=1.0, output_type="pil",
-                   generator=torch.Generator("cpu").manual_seed(42)).frames[0]
+                   generator=torch.Generator("cpu").manual_seed(seed_value)).frames[0]
         new_frames = out[1:]
 
         # ---- Measure the clip: identity, sharpness, motion ----
         sims = []
         sharps = []
         faces_found = 0
+        embeddings = []
         for fr in new_frames:
             bgr = cv2.cvtColor(np.array(fr), cv2.COLOR_RGB2BGR)
             det = detect_face(bgr)
@@ -437,11 +471,29 @@ step.write_text(
             emb = swapper.compute_embedding(bgr)
             if emb is not None:
                 sims.append(float(emb @ ref_emb))
+                embeddings.append(np.asarray(emb, dtype=np.float64))
             bx, by, bw, bh = (int(v) for v in det[0][:4])
             roi = bgr[max(0, by):by + bh, max(0, bx):bx + bw]
             if roi.size:
                 gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
                 sharps.append(float(cv2.Laplacian(gray, cv2.CV_64F).var()))
+
+        # Self-consistency: every frame against the clip's OWN median face. This
+        # is the question "does the face morph into somebody else during the
+        # clip", which the absolute score against the reference photo mixes with
+        # pose and lighting.
+        self_mean = -1.0
+        self_min = -1.0
+        if embeddings:
+            matrix = np.stack(embeddings)
+            median = np.median(matrix, axis=0)
+            norm = float(np.linalg.norm(median))
+            if norm > 0:
+                median = median / norm
+                to_median = matrix @ median
+                self_mean = float(np.mean(to_median))
+                self_min = float(np.min(to_median))
+        drift = (sims[-1] - sims[0]) / max(1, len(sims) - 1) if len(sims) > 1 else 0.0
 
         diffs = []
         for i in range(1, len(new_frames)):
@@ -452,12 +504,20 @@ step.write_text(
 
         entry = {
             "name": name,
-            "adapter_dir": cfg["adapter_dir"],
+            "adapter_dir": cfg.get("adapter_dir"),
             "strength": state["strength"],
             "schedule": state["mode"],
             "start": state["start"],
+            "seed": seed_value,
+            "num_references": len(config_refs),
+            "guidance_scale": guidance,
             "identity_mean": round(float(np.mean(sims)), 4) if sims else -1.0,
             "identity_min": round(float(np.min(sims)), 4) if sims else -1.0,
+            "identity_first": round(float(sims[0]), 4) if sims else -1.0,
+            "identity_last": round(float(sims[-1]), 4) if sims else -1.0,
+            "identity_drift_per_frame": round(float(drift), 5),
+            "self_consistency_mean": round(self_mean, 4),
+            "self_consistency_min": round(self_min, 4),
             "identity_sims": [round(float(s), 4) for s in sims],
             "sharpness_mean": round(float(np.mean(sharps)), 2) if sharps else -1.0,
             "sharpness_min": round(float(np.min(sharps)), 2) if sharps else -1.0,
@@ -471,11 +531,12 @@ step.write_text(
             "seconds": round(time.time() - t0, 1),
         }
         results.append(entry)
-        log("RESULT %s identity %.4f (min %.4f) sharpness %.1f (min %.1f) motion %.3f "
-            "still %d/%d faces %d/%d %.0fs"
+        log("RESULT %s identity %.4f (min %.4f, drift %+.5f/frame) self %.4f/%.4f "
+            "sharpness %.1f motion %.3f still %d/%d %.0fs"
             % (name, entry["identity_mean"], entry["identity_min"],
-               entry["sharpness_mean"], entry["sharpness_min"], entry["motion_mean"],
-               still, len(diffs), faces_found, len(new_frames), entry["seconds"]))
+               entry["identity_drift_per_frame"], entry["self_consistency_mean"],
+               entry["self_consistency_min"], entry["sharpness_mean"],
+               entry["motion_mean"], still, len(diffs), entry["seconds"]))
         export_to_video(new_frames, str(out_dir / ("probe_%s.mp4" % name)), fps=16)
         json.dump({"results": results}, open(str(out_dir / "probe.json"), "w"), indent=2)
         gc.collect()
