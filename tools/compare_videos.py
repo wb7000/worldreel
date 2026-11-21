@@ -50,10 +50,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Compare generated clips on the QA axes")
     parser.add_argument("videos", nargs="+", help="clips to compare")
     parser.add_argument("--portrait", default=None, help="reference portrait")
+    parser.add_argument(
+        "--identity-stride",
+        type=int,
+        default=15,
+        help="score the identity every Nth frame (15 = the QA default; 1 = every frame)",
+    )
     args = parser.parse_args()
 
     portrait = reference_portrait(args.portrait)
-    metrics = [measure_clip(v, portrait) for v in args.videos]
+    metrics = [measure_clip(v, portrait, identity_stride=args.identity_stride) for v in args.videos]
 
     header = (
         f"{'clip':<28} {'frames':>5}  {'id.mean':>7} {'id.min':>7} {'id<.80':>5}  "

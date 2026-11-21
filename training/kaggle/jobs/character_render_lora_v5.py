@@ -14,6 +14,10 @@
 # `adapter_strength` scales the LoRA delta linearly (0 = base model, 1 = trained
 # adapter) -- the knob the strength sweep mapped (D-9.25).
 #
+# `adapter_schedule` (D-9.27) decides WHEN the adapter acts: "static" for the
+# whole trajectory, or "late" so the identity adapter only refines the face
+# after the base model has decided the pose and the motion.
+#
 # Usage:
 #   python -m tools.kaggle_runner run training/kaggle/jobs/character_render_lora_v5.py
 #       --scene data:vacecast --scene data:facemodels --scene data:lorav5 --wait
@@ -118,26 +122,34 @@ log(f"Using YuNet: {yunet_path}")
 log(f"Using SFace: {sface_path}")
 
 # ================================================================
-# STEP 2b: Find the trained LoRA adapter (mounted with --scene data:lorav4)
+# STEP 2b: Find the trained LoRA adapter (mounted with --scene data:lorav5)
 # ================================================================
 # D-9.24: character_lora_v4 writes out/lora_adapter_best/pytorch_lora_weights.safetensors.
 # Loading it needs weight_name (the loader defaults to .bin) and prefix=None (the default
 # prefix "transformer" silently filters out every saved key) -- both found by dry run.
+#
+# D-9.27: the adapter is chosen EXPLICITLY, never by a recursive search. The lorav5
+# dataset holds five snapshots (lora_adapter_best plus step020/040/060/080) and
+# `rglob` would return an arbitrary one -- and `lora_adapter_best` of the v5 run
+# is the untrained no-op (all 360 LoRA B matrices zero), so an accidental pick
+# would render the base model while the log claimed an adapter render.
+LORA_SUBDIR = "lora_adapter_best"
 LORA_DIR = None
 for slug in ("worldreel-data-lorav5", "worldreel-data-lorav4"):
     candidate = Path("/kaggle/input/datasets/wb3none") / slug
-    if candidate.exists() and next(candidate.rglob("pytorch_lora_weights.safetensors"), None):
+    wanted = candidate / LORA_SUBDIR
+    if wanted.exists() and next(wanted.rglob("pytorch_lora_weights.safetensors"), None):
         LORA_DIR = candidate
         break
 adapter_dir = None
 if LORA_DIR is not None:
-    hit = next(LORA_DIR.rglob("pytorch_lora_weights.safetensors"), None)
+    hit = next((LORA_DIR / LORA_SUBDIR).rglob("pytorch_lora_weights.safetensors"), None)
     if hit is not None:
         adapter_dir = str(hit.parent)
-        log(f"LoRA adapter: {adapter_dir}")
+        log(f"LoRA adapter: {adapter_dir} (subdir={LORA_SUBDIR})")
 if adapter_dir is None:
     raise SystemExit(
-        "FATAL: pytorch_lora_weights.safetensors not found under "
+        f"FATAL: {LORA_SUBDIR}/pytorch_lora_weights.safetensors not found under "
         "/kaggle/input/datasets/wb3none/worldreel-data-lorav5 (or lorav4). "
         "Push the training output first: "
         "python -m tools.kaggle_runner push-data --name lorav5 <out folder> "
@@ -295,6 +307,44 @@ step.write_text(
     strength = float(a.get("adapter_strength", 1.0))
     pipe.transformer.set_adapters("default", weights=[strength])
     log("LoRA adapter active on transformer (strength %.2f)" % strength)
+
+    # D-9.27: the adapter weight can also depend on WHERE the denoising
+    # trajectory is. The transformer is called once per CFG branch with the
+    # current timestep, so wrapping its forward lets a "late" schedule apply
+    # the identity adapter only to the end of the trajectory -- after the base
+    # model has decided the pose and the motion (the thing the v4 render
+    # destroyed). The schedule arithmetic is the tested repo module.
+    from tools.lora_schedule import schedule_at
+
+    schedule_state = {"mode": a.get("adapter_schedule", "static"),
+                      "strength": strength,
+                      "start": float(a.get("adapter_start", 0.0)),
+                      "timesteps": None}
+
+    original_forward = pipe.transformer.forward
+
+    def scheduled_forward(*call_args, **call_kwargs):
+        if schedule_state["timesteps"] is None:
+            try:
+                schedule_state["timesteps"] = [float(x) for x in pipe.scheduler.timesteps]
+            except Exception:
+                schedule_state["timesteps"] = []
+        t_value = None
+        if "timestep" in call_kwargs and call_kwargs["timestep"] is not None:
+            t_value = float(call_kwargs["timestep"].reshape(-1)[0].item())
+        else:
+            for value in call_args:
+                if torch.is_tensor(value) and value.ndim == 1:
+                    t_value = float(value.reshape(-1)[0].item())
+                    break
+        if t_value is not None:
+            weight = schedule_at(schedule_state["mode"], schedule_state["strength"],
+                                 schedule_state["start"], schedule_state["timesteps"], t_value)
+            pipe.transformer.set_adapters("default", weights=[weight])
+        return original_forward(*call_args, **call_kwargs)
+
+    pipe.transformer.forward = scheduled_forward
+    log("adapter schedule: %s start=%.2f" % (schedule_state["mode"], schedule_state["start"]))
 
     # Encode prompts
     pipe.text_encoder.to("cuda")
@@ -486,6 +536,8 @@ step.write_text(
     report["motion_max"] = round(float(np.max(diffs)), 4) if diffs else 0.0
     report["still_fraction"] = round(still_frac, 4)
     report["adapter_strength"] = float(a.get("adapter_strength", 1.0))
+    report["adapter_schedule"] = a.get("adapter_schedule", "static")
+    report["adapter_start"] = float(a.get("adapter_start", 0.0))
     report["adapter_dir"] = a["adapter_dir"]
     log("MOTION mean=%.3f median=%.3f max=%.3f frames<0.5: %d/%d"
         % (motion_mean, report["motion_median"], report["motion_max"],
@@ -514,6 +566,12 @@ args = {
     "adapter_dir": adapter_dir,
     # 1.0 = the trained adapter, lower values interpolate towards the base model.
     "adapter_strength": 1.0,
+    # D-9.27: "static" applies the adapter for the whole trajectory; "late" keeps
+    # the base model's early high-noise steps (pose, trajectory, motion) and
+    # applies the adapter only to the last `adapter_start`..1.0 fraction of the
+    # steps, where the face texture and identity are refined.
+    "adapter_schedule": "static",
+    "adapter_start": 0.75,
     "segments": 5,
     # Wan's causal VAE wants num_frames == 4k+1 (49 = 4*12 + 1). Every segment
     # keeps only 1 conditioned frame (the portrait, dropped from output), so
