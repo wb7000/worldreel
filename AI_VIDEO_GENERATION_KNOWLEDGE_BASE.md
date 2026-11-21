@@ -1436,3 +1436,17 @@ primary reward, but a checkpoint whose motion or face sharpness dropped below 75
 model's was rolled back regardless of its identity, and every evaluation wrote its own adapter
 snapshot so the identity/motion/texture trade-off could be compared offline instead of trusting
 one scalar.
+
+**A strength sweep maps the trade-off curve, but the knee still has to be watched, not measured.**
+Rendering the same clip with the adapter scaled at 0.0 / 0.25 / 0.5 / 0.75 / 1.0 (`set_adapters`
+scales the LoRA delta linearly) produced a curve that was *not* the linear interpolation one would
+assume: identity jumped from 0.8543 at s = 0 to **0.9199 at s = 0.25** and peaked at **0.9273 at
+s = 0.5**, while face sharpness fell 99.7 -> 71.9 -> 45.5 and motion fell 2.512 -> 1.244 -> 0.626
+grey levels per frame. So a quarter of the delta already buys +0.066 identity at 72% of the base
+sharpness. But the frames decided it: at s = 0.25 the base model's visible head turn and blink
+were gone -- the pose was already locked -- because **a static target can only be matched by a
+static output, so identity and pose freedom trade off directly**. The lesson generalises past
+LoRAs: when you interpolate a model between two behaviours, measure every axis the user can see
+*and look at the frames*, because a metric can look fine while the thing the metric stands for
+(head movement, expression, gesture) has already been spent. The sweep saved 4.1 h of GPU by
+cancelling the render at the knee that the metrics alone would have approved.

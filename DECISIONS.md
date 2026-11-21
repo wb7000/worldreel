@@ -3253,3 +3253,40 @@ job `training/kaggle/jobs/character_render_lora_v5.py` (prefers `worldreel-data-
 back to `lorav4`, `adapter_strength` knob, and reports the render's **motion** and the share of
 still frames -- the number that exposed this defect). The target-building block was smoke-tested
 locally end to end before the job was queued.
+
+#### D-9.26 sweep result: the knee is NOT shippable -- the identity gain is bought by freezing the pose
+
+`character_render_lora_v4_sweep.py` rendered the *same* 21-frame clip at five adapter strengths
+(seed 42, same portrait conditioning, only the adapter changed). Identity and face sharpness were
+measured in-job; motion was measured locally from the exported clips:
+
+| strength | identity mean | identity min | face sharpness | **motion (frame diff)** | still frames | face-region diff |
+|---|---|---|---|---|---|---|
+| 0.00 (base) | 0.8543 | 0.7611 | 99.7 | **2.512** | 0/19 | 4.399 |
+| 0.25 | **0.9199** | 0.9046 | **71.9** | **1.244** | 1/19 | 1.956 |
+| 0.50 | **0.9273** | **0.9205** | 45.5 | 0.626 | 7/19 | 0.900 |
+| 0.75 | 0.9248 | 0.9128 | 30.5 | 0.598 | 10/19 | 0.791 |
+| 1.00 | 0.9131 | 0.9059 | 22.9 | 0.760 | 8/19 | 0.920 |
+
+Two findings that changed the plan:
+
+1. **The curve is not the linear interpolation it was assumed to be.** Identity does not fall
+   monotonically with strength: it jumps from 0.8543 (base) to 0.9199 at s = 0.25 and *peaks* at
+   s = 0.50 (0.9273), then decays. So the adapter's delta is not simply "more identity, less
+   everything" -- a quarter of the delta already buys +0.066 identity at 72% of the base
+   sharpness. That is the knee the sweep was looking for.
+2. **But the knee still fails the user's test, and the frames say why.** At s = 0.25 the motion
+   is half the base's (1.244 vs 2.512) and, inspected frame by frame (frames 0/6/12/18 of every
+   strength), the *base* model visibly turns its head and blinks while **s = 0.25 already holds
+   the pose** -- the remaining change is breathing and micro-sway. The identity gain is bought
+   by freezing the pose: a static target can only be matched by a static output. s = 0.25 would
+   have produced a "breathing still image" -- the very complaint -- so **the 4.1 h full render at
+   the knee was cancelled** and the GPU went to the v5 retrain instead.
+
+**Operational note (D-9.26):** the sweep kernel reported `KernelWorkerStatus.ERROR` *after*
+printing "DONE - SUCCESS". The cause was its own final artefact check, which still looked for
+the v4 render's file names (`face_consistency.mp4`) while the sweep writes `sweep_sXXX.mp4` --
+the work was complete and every artefact was archived (the fetch recovered all of them). Lesson:
+a job's final artefact check must name the files the job actually writes, otherwise a successful
+run is reported as a failure. Fixed in `character_render_lora_v5.py` (all three artefact names
+now match the files it writes).
