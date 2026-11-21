@@ -3139,3 +3139,68 @@ clip, seed 42):
   `character_render_lora_v4.py` mounts it with `--scene data:lorav4` and renders the v12 pipeline
   (5 segments, 49 frames, 50 steps, seed 42+s, portrait-seeded conditioning) with the adapter
   active, so the A/B against v12 is apples-to-apples.
+
+### D-9.25 Adapter render: identity and stability solved, texture traded away
+
+The render with the adapter (`character_render_lora_v4.py`, adapter active per the log) finished
+in 5 x 2958 s and is a clean A/B against v12 -- same pipeline, same seeds, same 240 frames, the
+adapter is the only difference.
+
+**Per-segment identity (SFace vs portrait), v12 -> v4:**
+
+| segment | v12 | v4 +adapter | delta |
+|---|---|---|---|
+| 0 | 0.8714 | 0.9348 | +0.0634 |
+| 1 | 0.8517 | 0.9431 | +0.0914 |
+| 2 | 0.9109 | 0.9222 | +0.0113 |
+| 3 | 0.8453 | 0.9157 | +0.0704 |
+| 4 | 0.8660 | 0.9149 | +0.0489 |
+| **mean** | **0.8691** | **0.9261** | **+0.0571** |
+| **min** | **0.8453** | **0.9149** | **+0.0696** |
+
+**Delivery measurements (216-frame, 13.5 s, same tools for both):**
+
+| metric | v12 (`S017_face_consistent_13s5`) | **v4 +adapter** |
+|---|---|---|
+| identity mean / min / std | 0.8804 / 0.7860 / 0.0325 | **0.9256 / 0.9105 / 0.0085** |
+| frames < 0.80 | 8 / 216 | **0 / 216** |
+| worst interior drift (identity/frame) | -0.00106 | **-0.00022** |
+| worst handoff step | -0.0256 | -0.0170 |
+| inter-ocular cv (raw render) | 0.099 | **0.012** |
+| face-height cv (raw render) | 0.106 | **0.015** |
+| frames with >1 face | 0 | 0 |
+| analyzer | 0 issues, sim 0.900 | 0 issues, sim 0.975 |
+| **face sharpness (Lap, raw render)** | **66.2** | **15.3** |
+| face sharpness (Lap, delivery) | 53.4 | 19.6 |
+| analyzer blur / global / subject | 50.3 / 29.3 / 352 | 18.5 / 10.4 / 104.2 |
+
+**Read:** the adapter did exactly what it was trained to do -- identity is up everywhere, the
+within-take identity decay is essentially gone (-0.00106 -> -0.00022 per frame), and the framing
+no longer walks between takes (inter-ocular cv 0.099 -> 0.012). The **landmark-based cut
+detector now finds NO cuts at all** (v12: 21-47 px jumps; v4: every step < 12 px), because the
+takes are geometrically continuous -- so the D-9.23 full-frame dissolve is now safe by
+construction, and the four dissolve windows were verified frame by frame (no doubled hair
+silhouette, no second jaw, no ghost).
+
+**But it cost texture.** The adapter was trained on a *near-static portrait* target, so it
+learned a smooth, canonical, "photograph" face: face Laplacian 66 -> 15 on the raw render, and
+the analyzer agrees (blur 50.3 -> 18.5). No post-process can recover detail the render never
+produced (the D-9.22 detail reinjection can only re-add frequencies that exist -- and it only
+recovered 15.3 -> 19.6). This is the honest trade: **identity +0.057 and stability +0.087, but
+texture -77%**. It is the same failure mode as a reward that only measures identity: nothing in
+the loop asked for texture, so the cheapest way to raise the identity score was to smooth the
+face towards the reference photo.
+
+**Actions (D-9.25):**
+1. `character_render_lora_v4_sweep.py` -- renders the *same* 21-frame clip at adapter strengths
+   0.0 / 0.25 / 0.5 / 0.75 / 1.0 and measures identity **and** face sharpness per strength. A
+   LoRA delta scales linearly (`transformer.set_adapters("default", weights=[s])`), so one short
+   run (~2 h) maps the whole trade-off curve and picks the knee instead of guessing.
+2. If no knee is good enough, retrain with a reward that *also* measures texture (and targets
+   that contain motion), because a reward loop that scores identity alone will always buy
+   identity with texture.
+
+**Artefacts:** `runs/generated/S017_lorav4.wreel` (782.8 KB, 13.50 s, `formats validate` OK 0/0),
+`runs/videos/S017_lorav4_13s5.mp4` + `_annotated.mp4`,
+`runs/analysis/lorav4_final_analyzer.json`. The previous best (`S017_face_consistent_13s5.wreel`)
+is untouched and remains the sharp-but-less-consistent alternative.

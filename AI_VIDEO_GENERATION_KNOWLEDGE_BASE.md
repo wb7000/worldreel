@@ -1389,3 +1389,25 @@ act must be a **disk round trip** (delete the adapter from the model, reload the
 it) because the loader's defaults (`weight_name="pytorch_lora_weights.bin"`,
 `prefix="transformer"`) can load *nothing* while raising no error -- the score after the round
 trip is the only honest number you can ship.
+
+**The adapter's real trade-off (identity bought with texture).** Rendering the trained adapter
+through the same pipeline as the base model (same seeds, same frames, only the adapter differs)
+gave: per-segment identity **0.8691 -> 0.9261** (min 0.8453 -> 0.9149), identity std
+0.0325 -> 0.0085, frames below 0.80 **8 -> 0**, within-take identity drift -0.00106 -> -0.00022
+per frame, inter-ocular cv 0.099 -> 0.012, and the landmark cut detector now finds **no cuts at
+all** (v12 jumped 21-47 px at take boundaries; every step is now < 12 px) -- i.e. the takes became
+geometrically continuous, which is why the cross-dissolve windows came out clean with no doubled
+silhouette. **But face texture collapsed**: face Laplacian 66 -> 15 on the raw render (analyzer
+blur 50.3 -> 18.5). No post-process can recover detail the render never produced (a detail
+reinjection can only re-add frequencies that exist: 15.3 -> 19.6). Mechanism: the LoRA was
+trained on a **near-static portrait target**, so the cheapest way to lower the flow-matching loss
+*and* raise the identity score was to smooth the face towards the reference photo -- the same
+failure mode as any reward that measures only one axis. Three transferable lessons: (1) a LoRA
+delta scales linearly, so `set_adapters(name, weights=[s])` turns a trained adapter into a
+**continuous knob** between base and adapted behaviour; render the same clip at s = 0 / 0.25 /
+0.5 / 0.75 / 1 and measure the trade-off curve instead of shipping s = 1 blind; (2) a
+reward/punish loop must score **every axis the viewer notices** (identity *and* texture *and*
+motion), otherwise it will buy its metric with the others; (3) when a reward *selects* rather
+than *guides* (the gradient comes from the loss), the training target decides the look -- an
+identity-rich but static target yields a smooth, canonical, "photograph" face, so the target set
+needs motion and texture of its own.
