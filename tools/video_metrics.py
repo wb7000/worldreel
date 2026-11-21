@@ -116,8 +116,13 @@ class ClipMetrics:
         return self.still_fraction > 0.5
 
 
-def measure_clip(path: str, portrait_path: str | Path) -> ClipMetrics:
-    """Measure one clip against the reference portrait."""
+def measure_clip(path: str, portrait_path: str | Path, identity_stride: int = 15) -> ClipMetrics:
+    """Measure one clip against the reference portrait.
+
+    `identity_stride` samples the identity every Nth frame (15 = the QA default,
+    one embedding per ~1 s of video). A ranking probe wants every frame, so it
+    passes 1; the default keeps the published QA numbers unchanged.
+    """
     swapper = FaceSwapper(YUNET, SFACE)
     loaded = cv2.imread(str(portrait_path))
     if loaded is None:
@@ -168,7 +173,7 @@ def measure_clip(path: str, portrait_path: str | Path) -> ClipMetrics:
             roi = gray[y0:y1, x0:x1]
             if roi.size:
                 metrics.sharpness.append(float(cv2.Laplacian(roi, cv2.CV_64F).var()))
-            if index % 15 == 0:
+            if index % identity_stride == 0:
                 emb = swapper.compute_embedding(frame)
                 metrics.identity.append(float(emb @ ref_emb) if emb is not None else float("nan"))
         metrics.frames += 1
