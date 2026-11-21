@@ -561,7 +561,7 @@ r = subprocess.run(
     env=env,
 )
 
-log_path = OUT_DIR / "face_consistency.log"
+log_path = OUT_DIR / "lora_v5_face_consistency.log"
 stdout_part = r.stdout[-20000:] if r.stdout else ""
 stderr_part = r.stderr[-8000:] if r.stderr else ""
 log_path.write_text(
@@ -588,14 +588,18 @@ for stray in (Path("/tmp/kaggle_out"), WORK_DIR / "out"):
             shutil.copy2(p, OUT_DIR / p.name)
             log(f"Recovered stray output -> {p.name}")
 
-expected = ["face_consistency.mp4", "face_consistency.json", "face_consistency.log"]
+expected = [
+    "lora_v5_face_consistency.mp4",
+    "lora_v5_face_consistency.json",
+    "lora_v5_face_consistency.log",
+]
 present = {name: (OUT_DIR / name) for name in expected}
 for name, p in present.items():
     size = p.stat().st_size if p.exists() else -1
     log(f"artefact {name}: {'MISSING' if size < 0 else f'{size} bytes'}")
 
-if not present["face_consistency.mp4"].exists():
-    log("FATAL: face_consistency.mp4 was not produced inside the archived output directory")
+if not present["lora_v5_face_consistency.mp4"].exists():
+    log("FATAL: lora_v5_face_consistency.mp4 was not produced inside the archived output directory")
     raise SystemExit(2)
 
 log("done")
