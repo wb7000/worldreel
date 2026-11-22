@@ -1545,3 +1545,38 @@ principle closed the LoRA direction earlier: `tools/check_adapter_delta.py` prov
 that the "best" adapter was a no-op, which would otherwise have cost 4.1 h of GPU on a re-render of
 the base model.
 
+**The delivery: five segments, six references, no adapter, 5.4 h of GPU -- and it beats both
+parents.** The split render (3 + 2 segments, so no job is near the 6 h kernel timeout and the first
+half ships early) measured every frame of every segment in the kernel:
+
+| segment | seed | identity mean / min | first -> last | drift / frame | self-consistency min | sharpness |
+|---|---|---|---|---|---|---|
+| 0 | 43 | 0.8823 / 0.8510 | 0.9290 -> 0.8641 | -0.00117 | 0.9155 | 166.0 |
+| 1 | 44 | 0.8926 / 0.8759 | 0.9161 -> 0.8933 | -0.00071 | 0.9215 | 126.8 |
+| 2 | 45 | 0.8692 / 0.8078 | 0.9207 -> 0.8141 | -0.00199 | 0.9196 | 124.4 |
+| 3 | 46 | 0.9120 / 0.8839 | 0.9202 -> 0.8925 | -0.00059 | 0.9399 | 140.1 |
+| 4 | 47 | 0.8998 / 0.8560 | 0.9234 -> 0.8931 | -0.00064 | 0.9224 | 162.1 |
+
+The worst within-segment slope is **-0.00199/frame** against the base model's **-0.00285/frame**,
+and no segment ends below **0.8078** (the base model: 0.7870, 11 of 240 frames below 0.80). After
+the lossless chain (`face_stabilize` -> `cut_smooth --dissolve 6` -> one x264 CRF 16), the delivered
+clip is 216 frames / 13.5 s:
+
+| build | id.mean | id.min | frames < 0.80 | sharpness | motion | still | analyzer |
+|---|---|---|---|---|---|---|---|
+| base, 4 refs | 0.8804 | 0.7860 | 8 | 53.4 | 2.631 | 0/215 | 0 issues |
+| LoRA adapter | 0.9256 | 0.9105 | 0 | 19.6 | 0.484 | **180/215** | 0 issues |
+| **6 refs, no adapter** | **0.8967** | 0.7637 | **1** | **58.6** | **3.522** | **0/215** | **0 issues** |
+
+The single frame below 0.80 (170, 0.7637) is *inside* the fourth dissolve window, where two poses
+are blended; the frames of that window show a clean single-face transition. The generalisable
+result: **the conditioning was the bottleneck, and fixing it needed no weights at all** -- +0.016
+identity mean, +34% motion and +10% sharpness over the previous delivery, and the first build that
+carries the base model's movement *and* the adapter's identity. Two operational lessons came with
+it: (1) the pipeline returns **PIL** frames, so a statistics block that calls `.astype()` on them
+crashes *after* the video was exported and loses the report while the video survives -- convert
+with `np.asarray` and never let a stats failure take the report down with it; (2) Kaggle keeps only
+the newest kernel version's outputs, so a `fetch` that deletes the previous directory destroys the
+first half of a split render -- move it aside instead.
+
+

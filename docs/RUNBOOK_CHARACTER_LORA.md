@@ -163,11 +163,16 @@ Then record the outcome in `DECISIONS.md` and
 
 ## 7. A/B reference numbers
 
-| Build | identity mean / min | motion | sharpness (raw) | frames < 0.80 |
-| --- | --- | --- | --- | --- |
-| v12 base | 0.8804 / 0.7860 | 2.468 | 66.2 | 8 |
-| v4 adapter | 0.9256 / 0.9105 | 0.414 | 15.3 | 0 |
-| refs6 (six references) | pending | pending | pending | pending |
+| Build | identity mean / min | motion | sharpness (raw) | frames < 0.80 | analyzer |
+| --- | --- | --- | --- | --- | --- |
+| v12 base (4 refs) | 0.8804 / 0.7860 | 2.631 | 66.2 | 8 | 0 issues |
+| v4 adapter | 0.9256 / 0.9105 | 0.484 | 15.3 | 0 | 0 issues |
+| **refs6 (6 refs, no adapter)** | **0.8967 / 0.7637** | **3.522** | **58.6** | **1** | **0 issues** |
+
+The single frame below 0.80 is inside the fourth dissolve window (two poses blended); the frames of
+that window show a clean single-face transition. Per-segment identity and drift are in
+`runs/analysis/refs6_half1/` and `runs/analysis/refs6_half2/` (the kernel reports) and in
+`DECISIONS.md` D-9.28.
 
 ## 8. Closed: the LoRA chain
 
