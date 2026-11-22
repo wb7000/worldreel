@@ -510,23 +510,34 @@ step.write_text(
     # ---- Motion: the number that exposed the v4 "shaking image" defect -------
     # Mean frame-to-frame difference and the share of frames that barely change.
     # The base model scores ~2.5 / 0%; the v4 adapter scored 0.41 / 88%.
+    #
+    # `all_frames` holds PIL images (the pipeline returns PIL frames), so they
+    # have to be converted to arrays first -- calling .astype() on a PIL Image
+    # raised AttributeError here and cost the first run its JSON report (the
+    # video itself was already exported and was fine).
     diffs = []
-    for i in range(1, len(all_frames)):
-        d = np.abs(all_frames[i - 1].astype(np.float32) - all_frames[i].astype(np.float32))
-        diffs.append(float(d.mean()))
+    try:
+        for i in range(1, len(all_frames)):
+            prev = np.asarray(all_frames[i - 1], dtype=np.float32)
+            cur = np.asarray(all_frames[i], dtype=np.float32)
+            diffs.append(float(np.abs(prev - cur).mean()))
+    except Exception as exc:  # noqa: BLE001 - a stats failure must not lose the report
+        log(f"motion measurement failed: {type(exc).__name__}: {exc}")
     motion_mean = float(np.mean(diffs)) if diffs else 0.0
     still_frac = float(np.mean([1.0 if d < 0.5 else 0.0 for d in diffs])) if diffs else 0.0
     report["motion_mean"] = round(motion_mean, 4)
     report["motion_median"] = round(float(np.median(diffs)), 4) if diffs else 0.0
     report["motion_max"] = round(float(np.max(diffs)), 4) if diffs else 0.0
     report["still_fraction"] = round(still_frac, 4)
+    report["motion_pairs"] = len(diffs)
     report["num_references"] = len(refs)
     report["reference_names"] = [Path(p).name for p in ref_paths[: len(refs)]]
     log("MOTION mean=%.3f median=%.3f max=%.3f frames<0.5: %d/%d"
         % (motion_mean, report["motion_median"], report["motion_max"],
            int(round(still_frac * len(diffs))), len(diffs)))
 
-    json.dump(report, open(str(out_dir / ("%s.json" % stem)), "w"), indent=2)
+    with open(str(out_dir / ("%s.json" % stem)), "w") as fh:
+        json.dump(report, fh, indent=2)
     log(f"Report: {json.dumps(report, indent=2)}")
     log(f"TOTAL VIDEO SECONDS: {report['total_seconds']:.2f}")
     log("DONE - SUCCESS")
@@ -554,8 +565,12 @@ args = {
     # independent regenerations from the portrait, so a run can render any
     # subset of the timeline. Seed 43 is the one the probe measured as the
     # good draw (6 refs: identity 0.9145, no decay); the rest are fresh draws.
-    "segment_seeds": [43, 44, 45, 46, 47],
-    "segments": 3,
+    #
+    # The render is split over two jobs (D-9.28): the first half (43, 44, 45)
+    # is fetched and measured before the second half is pushed, because Kaggle
+    # keeps only the newest kernel version's outputs.
+    "segment_seeds": [46, 47],
+    "segments": 2,
     # Wan's causal VAE wants num_frames == 4k+1 (49 = 4*12 + 1). Every segment
     # keeps only 1 conditioned frame (the portrait, dropped from output), so
     # 5 segments give 5 * 48 = 240 frames = 15.0 s at 16 fps.
