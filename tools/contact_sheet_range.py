@@ -1,7 +1,18 @@
-"""Contact sheet over a RANGE of frames of one clip (to see slow drift)."""
+"""Contact sheet over a RANGE of frames of one clip (to see slow drift).
+
+Usage:
+    python tools/contact_sheet_range.py VIDEO NAME [INDEX ...]
+
+With no indices, ten frames are spread evenly over the clip. The sheet is
+written to runs/analysis/contact_sheets/<name>.png.
+
+The metrics cannot tell "the head turned" from "the lighting flickered" --
+only the frames can, and the user's verdict is the acceptance criterion.
+"""
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import cv2
@@ -45,9 +56,24 @@ def build(video: str, indices: list[int], name: str) -> None:
     print(f"{video} ({len(frames)} frames) -> {path}")
 
 
+def default_indices(total: int, count: int = 10) -> list[int]:
+    if total <= 1:
+        return [0]
+    step = (total - 1) / (count - 1)
+    return [round(i * step) for i in range(count)]
+
+
 if __name__ == "__main__":
-    build(
-        "runs/kaggle/character_consistency_v2/out/face_consistency.mp4",
-        [0, 40, 80, 120, 150, 170, 187, 200, 220, 239],
-        "v12_raw_drift",
-    )
+    if len(sys.argv) < 3:
+        print("usage: contact_sheet_range.py VIDEO NAME [INDEX ...]")
+        raise SystemExit(2)
+    video = sys.argv[1]
+    name = sys.argv[2]
+    if len(sys.argv) > 3:
+        indices = [int(v) for v in sys.argv[3:]]
+    else:
+        cap = cv2.VideoCapture(video)
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
+        indices = default_indices(total)
+    build(video, indices, name)
