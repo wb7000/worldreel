@@ -46,14 +46,20 @@ def sheet(path: Path, indices: list[int], labels: list[str], out: Path) -> None:
 
 if __name__ == "__main__":
     # (video, output name)
+    sweep = "runs/kaggle/character_render_lora_v4_sweep/out"
+    probe = "runs/kaggle/character_render_lora_probe/out"
     targets = [
-        ("runs/kaggle/character_render_lora_v4_sweep/out/sweep_s000.mp4", "sweep_base_s000"),
-        ("runs/kaggle/character_render_lora_v4_sweep/out/sweep_s025.mp4", "sweep_static_s025"),
-        ("runs/kaggle/character_render_lora_v4_sweep/out/sweep_s050.mp4", "sweep_static_s050"),
-        ("runs/kaggle/character_render_lora_probe/out/probe_v4_late75.mp4", "probe_v4_late75"),
-        ("runs/kaggle/character_render_lora_probe/out/probe_v4_late50.mp4", "probe_v4_late50"),
-        ("runs/kaggle/character_render_lora_probe/out/probe_v5_step080.mp4", "probe_v5_step080"),
-        ("runs/kaggle/character_render_lora_probe/out/probe_v5_step020.mp4", "probe_v5_step020"),
+        (f"{sweep}/sweep_s000.mp4", "sweep_base_s000"),
+        (f"{sweep}/sweep_s025.mp4", "sweep_static_s025"),
+        (f"{sweep}/sweep_s050.mp4", "sweep_static_s050"),
+        (f"{probe}/probe_v4_late75.mp4", "probe_v4_late75"),
+        (f"{probe}/probe_v4_late50.mp4", "probe_v4_late50"),
+        (f"{probe}/probe_v5_step080.mp4", "probe_v5_step080"),
+        (f"{probe}/probe_v5_step020.mp4", "probe_v5_step020"),
+        (f"{probe}/probe_refs4_seed42.mp4", "probe_refs4_seed42"),
+        (f"{probe}/probe_refs6_seed42.mp4", "probe_refs6_seed42"),
+        (f"{probe}/probe_refs4_seed43.mp4", "probe_refs4_seed43"),
+        (f"{probe}/probe_refs6_seed43.mp4", "probe_refs6_seed43"),
     ]
     indices = [0, 6, 12, 18]
     for video, name in targets:
