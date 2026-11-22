@@ -322,9 +322,19 @@ def wait_for(job: Path, poll_s: int = 60, max_hours: float = 12.0) -> None:
 
 
 def fetch(job: Path) -> Path:
+    """Download a kernel's outputs.
+
+    Kaggle keeps only the newest kernel version's outputs, so fetching the
+    second half of a split render would destroy the first half. The previous
+    copy is therefore moved aside to `<stem>.prev` instead of being deleted.
+    """
     target = RUNS_DIR / job.stem
     if target.exists():
-        shutil.rmtree(target)
+        previous = RUNS_DIR / f"{job.stem}.prev"
+        if previous.exists():
+            shutil.rmtree(previous)
+        shutil.move(str(target), str(previous))
+        print(f"previous outputs kept in {previous}")
     target.mkdir(parents=True)
     kaggle("kernels", "output", f"{username()}/{kernel_slug(job)}", "-p", str(target))
     print(f"outputs in {target}")

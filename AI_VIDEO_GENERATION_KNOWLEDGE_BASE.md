@@ -1485,3 +1485,63 @@ flow_shift the sigmas are not linearly spaced, so "the last 30% of the noise" an
 of the steps" are different schedules, and only the second is predictable. This is the most
 promising untested lever on the "real motion AND the same person" requirement, and it costs one
 21-frame / 50-step clip per configuration (~21 min) instead of a 4.6 h training run.
+
+**Scheduling the adapter does not work, because the identity gain and the pose-freezing are the
+same effect.** The scheduled-adapter hypothesis was tested on the same 21-frame / 50-step clip with
+four configurations and then *watched*, not just scored. `late75` (the identity adapter active only
+in the last quarter of the trajectory) scored identity 0.8615/0.7783 with motion 3.11 and 0 still
+frames -- and the frames showed the **base model**: head turn and blink intact, no identity gain.
+`late50` scored 0.9131/0.9059 -- and the frames showed the **frozen portrait again**, identical to
+the static s = 1.0 row of the strength sweep. The v5 checkpoints (trained against real motion)
+scored 0.764 and 0.799 with violent motion. The generalisable rule: **a delta that pulls the output
+towards a still reference photo buys identity by spending pose freedom, and no scheduling can buy
+one without the other** -- the moment the delta is strong enough to hold the face, the face is a
+photograph. Before building an elaborate schedule, check whether the two effects are separable at
+all; if they are not, the lever is not in the weights.
+
+**Measure the defect before choosing the lever: the identity decayed *inside* the segments.** The
+base model's identity falls within every segment (seg 0 0.9176 -> 0.8435, seg 3 down to 0.7870,
+11/240 frames below 0.80) and is *reset* by every cut (+0.02..+0.076). That is not a model-quality
+problem, it is a conditioning problem: VACE's reference-image conditioning weakens with the
+temporal distance from the conditioning frame, so a 48-frame segment outruns its anchor. Two
+measurement lessons came with it. (1) **Separate "is it the same person as in the photo?" from
+"does the face morph during the clip?"** -- score every frame against the clip's *own median face*
+(`tools/clip_consistency.py`): v12 raw scores 0.9379 mean / 0.8765 min against itself but only
+0.8804 / 0.7860 against the photo, and the frames that look worst (170-190) are **closed eyes**,
+which SFace scores lower, not a different person. Absolute identity against a photo mixes pose,
+light and expression into one number. (2) **Check the dataset before blaming the model**: the
+`vacecast` dataset holds **six** C01 portraits of the same person and the render job capped the
+reference list at **four**, throwing away two views of the same identity for no reason.
+
+**The identity anchor is the reference set, not the weights.** A 2x2 probe on the same clip --
+{4 references, 6 references} x {seed 42, seed 43} -- measured what the missing views were worth:
+
+| refs | seed | identity mean / min | drift / frame | self-consistency | sharpness | motion | still |
+|---|---|---|---|---|---|---|---|
+| 4 | 42 | 0.8543 / 0.7611 | -0.00798 | 0.9553 / 0.8785 | 99.7 | 3.04 | 0/19 |
+| 6 | 42 | 0.8964 / 0.8581 | -0.00303 | 0.9724 / 0.9394 | 92.4 | 3.06 | 0/19 |
+| 4 | 43 | 0.8988 / 0.8699 | -0.00063 | 0.9748 / 0.9479 | 174.3 | 3.67 | 0/19 |
+| 6 | 43 | 0.9145 / 0.8982 | +0.00029 | 0.9762 / 0.9259 | 202.1 | 3.38 | 0/19 |
+
+Six references halve the within-segment drift on the same seed and lift the worst frame by **+0.10**
+-- and unlike every LoRA configuration they cost **nothing**: the motion and the sharpness do not
+suffer, the still-frame count stays zero, and the frames keep the head turn and the blink. The
+ordering is consistent at both reference counts (seed 42 bad, seed 43 good at 4 and at 6 refs),
+which is what a real effect looks like rather than a lucky seed -- always run a second seed before
+believing a render-side change. The cost is known and bounded: every extra reference is one more
+latent step in the attention sequence, so 6 refs cost ~27% more than 4 (21 frames / 50 steps: 1206 s
+-> 1530 s) and the peak memory stayed at 7.53 GB (4 refs) on a 15.4 GB T4. The delivery render is
+split accordingly (3 segments ~3.0 h, then 2 segments ~2.0 h) so no job is near the 6 h kernel
+timeout and the first half can ship early.
+
+**Operational pattern that paid off twice: name the seeds, measure every frame, and let a weak
+segment be re-rendered instead of the whole timeline.** Each segment is an independent regeneration
+from the portrait (no chaining), so `segment_seeds` names the noise seed of every segment and the
+output name is derived from exactly the seeds used (`refs6_segs43-45.mp4`). Every frame of every
+segment is measured -- identity mean/min/first/last, drift per frame, self-consistency against the
+segment's own median face, face sharpness, peak GPU memory -- so a bad draw is visible in the
+report before the full video is assembled, and only that segment has to be redone. The same
+principle closed the LoRA direction earlier: `tools/check_adapter_delta.py` proved in two minutes
+that the "best" adapter was a no-op, which would otherwise have cost 4.1 h of GPU on a re-render of
+the base model.
+

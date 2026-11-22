@@ -3368,3 +3368,76 @@ report, because "the adapter saved" and "the adapter does something" are differe
 code dataset, because `run` pushed the job but never uploaded the repo. `tools/kaggle_runner.py`
 now fingerprints the tracked code files and uploads the dataset whenever the fingerprint changed
 (`ensure_code_pushed`, 3 tests), so a job can never start against code the repo does not have.
+
+### D-9.28 The scheduled adapter is refuted; the identity anchor is the reference set, not the weights
+
+**The schedule hypothesis is dead, and the frames said so.** The D-9.27 probe rendered the same
+21-frame / 50-step clip with four adapter configurations:
+
+| configuration | identity mean / min | sharpness | motion | still | what the frames show |
+|---|---|---|---|---|---|
+| `v4_late75` (v4 adapter, last 25% of the trajectory) | 0.8615 / 0.7783 | 91.2 | 3.11 | 0/19 | **visually the base model**: head turn and blink intact, no identity gain |
+| `v4_late50` (v4 adapter, last 50%) | 0.9131 / 0.9059 | 22.9 | 0.94 | 0/19 | **the frozen portrait again**: identical to the static s = 1.0 row of the D-9.26 sweep |
+| `v5_step080` | 0.7640 / 0.7024 | - | 5.95 | - | damaged identity, violent motion |
+| `v5_step020` | 0.7994 / 0.7715 | - | 3.10 | - | damaged identity |
+
+The adapter's identity gain and its pose-freezing are **the same phenomenon**: wherever the delta
+acts strongly enough to hold the face, the pose dies with it, and wherever the pose survives, the
+face drifts again. No schedule can separate them, and no retraining on a different target can
+either -- the adapter is a "be the reference photo" delta. **The LoRA direction is closed.**
+
+**The defect was measured, not assumed.** The base model's identity decays *inside every segment*
+(v12 raw: seg 0 0.9176 -> 0.8435, seg 1 0.9173 -> 0.8739, seg 2 0.9283 -> 0.8222, seg 3 0.9152 ->
+0.8059 with a minimum of 0.7870, seg 4 0.9072 -> 0.8647; 11/240 frames below 0.80; cuts *reset* the
+identity by +0.02..+0.076). The cause is the conditioning itself: VACE's reference-image
+conditioning weakens with the temporal distance from the conditioning frame, so a 48-frame segment
+outruns its anchor.
+
+Part of that "drift" is also a measurement artefact. `tools/clip_consistency.py` scores every frame
+against the clip's **own median face** (the question "does the face morph into somebody else?",
+separated from "is it the same person as in the photo?"): v12 raw scores 0.9379 mean / 0.8765 min
+(frame 187) against itself, while it scores 0.8804 / 0.7860 against the photo; and the frames at
+170-190 that look worst are **closed eyes**, which SFace scores lower, not a different person.
+
+**The lever that is left is the anchor, not the weights.** The `worldreel-data-vacecast` dataset
+holds **six** C01 portraits of the same person (`C01_0.png` .. `C01_5.png`) and the render job
+capped the reference list at **four**, discarding two views of the same identity. The probe was
+rewritten as a 2x2 design on the same clip -- {4 refs, 6 refs} x {seed 42, seed 43} -- with the
+second seed as the noise floor (the per-segment decay rate varies by 6x between segments, so one
+clip cannot separate "the change worked" from "this seed drifted less"):
+
+| refs | seed | identity mean / min | drift / frame | self-consistency mean / min | sharpness | motion | still |
+|---|---|---|---|---|---|---|---|
+| 4 | 42 | 0.8543 / 0.7611 | -0.00798 | 0.9553 / 0.8785 | 99.7 | 3.04 | 0/19 |
+| **6** | 42 | 0.8964 / **0.8581** | **-0.00303** | 0.9724 / 0.9394 | 92.4 | 3.06 | 0/19 |
+| 4 | 43 | 0.8988 / 0.8699 | -0.00063 | 0.9748 / 0.9479 | 174.3 | 3.67 | 0/19 |
+| **6** | 43 | **0.9145** / **0.8982** | **+0.00029** | 0.9762 / 0.9259 | **202.1** | 3.38 | 0/19 |
+
+Six references halve the within-segment drift on the same seed and lift the worst frame by **+0.10**
+-- and unlike every LoRA configuration they cost **nothing**: the motion and the sharpness do not
+suffer, the still-frame count stays at zero, and the frames show the head turn and the blink still
+there. The ordering is consistent at both reference counts (seed 42 is the bad draw, seed 43 the
+good one), which is what a real effect looks like rather than a lucky seed.
+
+**Decision: render the delivery with the base model and six references, no adapter.** The job is
+`training/kaggle/jobs/character_render_refs6.py`:
+* `segment_seeds` names the noise seed of every segment explicitly; each segment is an independent
+  regeneration from the portrait (D-9.17/D-9.18: no chaining), so a run can render any subset of
+  the timeline and the segments can still be assembled.
+* The render is split over several jobs so none is near the 6 h kernel timeout and the first
+  segments ship early: 6 refs cost ~27% more than 4 (21 frames / 50 steps: 1206 s -> 1530 s), so
+  5 segments are ~5.0 h and are split 3 + 2 (~3.0 h + ~2.0 h). Seeds 43-47; seed 43 is the draw the
+  probe measured, the rest are fresh.
+* Every frame of every segment is measured -- identity mean/min/first/last, drift per frame,
+  self-consistency against the segment's own median face, face sharpness, peak GPU memory -- so a
+  weak segment is visible in the report before the full video is assembled, and a single segment
+  can be re-rendered instead of the whole timeline.
+* The output name is derived from exactly the seeds used (`refs6_segs43-45.mp4`), and the artefact
+  check verifies that file inside the archived output directory (D-9.10).
+
+**Operational note (D-9.28):** the delivery render is fetched, measured and assembled locally with
+the lossless chain (`face_stabilize` -> `cut_smooth --dissolve 6` -> one x264 CRF 16 encode), and
+the user's **visual** verdict remains the acceptance criterion -- the metrics cannot tell a head
+turn from a lighting flicker, so the frames are inspected directly (`tools/contact_sheet.py`,
+`tools/contact_sheet_range.py`).
+
