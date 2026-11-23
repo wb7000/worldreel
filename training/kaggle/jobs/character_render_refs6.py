@@ -1,5 +1,19 @@
 # Job: Render the character with SIX reference views (D-9.28) -- no adapter.
 #
+# D-9.30 (this revision): the user rejected S017_refs6 for blur and
+# inconsistency, and the D-9.29 probe localised the cause in the CONDITIONING
+# set itself -- the six references are 512x512 squares with mixed lighting, face
+# scale and backgrounds, and diffusers' preprocess_conditions letterboxes each
+# onto a WHITE canvas (176 px white bars at 480p). This revision therefore
+# normalises the references in-step (tools/prepare_refs.py: output aspect, one
+# face scale, one tone), uses the probe's strengthened prompt/negative, and
+# exports at quality=10. Measured on the probe's same clip/seed (arm B):
+#   sharpness 91 -> 441 encoded (728 pre-encode), identity 0.9227 -> 0.9256,
+#   face-scale cv 0.039 -> 0.013, lighting sd 2.51 -> 1.72, 0 still frames.
+# The low-denoise V2V "sharpen" pass was measured and REFUTED in the same
+# probe (identity 0.92 -> 0.77 with mottled artifacts at strength 0.25), so
+# there is no refine step here.
+#
 # This is the delivery render that replaces the adapter approach, and the
 # evidence behind it is a 2x2 probe (character_render_lora_probe.py, same 21-frame
 # / 50-step clip, seed 42 and 43):
@@ -232,17 +246,38 @@ step.write_text(
     # VACE takes a LIST of reference images. Several views of the same identity
     # anchor the character far more strongly than a single photo, which is what
     # keeps the face consistent across segments WITHOUT a post-hoc face swap.
+    #
+    # D-9.30: normalise the references first (tools/prepare_refs.py) -- the arm
+    # the D-9.29 probe measured at 441 vs 91 mean sharpness (encoded), identity
+    # flat at 0.92, face-scale cv 3x tighter and lighting sd down. The raw
+    # references are 512x512 squares with mixed lighting, face scale and
+    # backgrounds, and diffusers' preprocess_conditions letterboxes each one
+    # onto a WHITE canvas, so the model saw 480x480 images with 176 px white
+    # bars on each side. Normalised: output aspect (no bars), one face scale,
+    # one tone. The ORIGINAL primary portrait stays the metric reference below,
+    # so every in-job identity number stays comparable with earlier runs.
     ref_paths = a.get("references") or [a["portrait"]]
+    from tools.prepare_refs import normalize_references
+
+    norm_paths = normalize_references(
+        ref_paths, Path(a["out"]) / "refs_norm",
+        yunet_path=a["yunet"], sface_path=a["sface"], target=0,
+        tone_strength=float(a.get("tone", 1.0)),
+    )
+    norm_paths = norm_paths[: int(a.get("num_references", 6))]
     ref_imgs = []
-    for rp in ref_paths:
+    for rp in norm_paths:
         try:
             ref_imgs.append(Image.open(rp).convert("RGB"))
         except Exception as exc:  # noqa: BLE001 - one bad file must not kill the run
             log(f"skipping unreadable reference {rp}: {exc}")
     if not ref_imgs:
         raise SystemExit("no readable reference portraits")
+    log("normalised references: %s" % [Path(p).name for p in norm_paths])
     ref_img = ref_imgs[0]
-    ref_bgr = cv2.cvtColor(np.array(ref_img), cv2.COLOR_RGB2BGR)
+
+    metric_img = Image.open(a["portrait"]).convert("RGB")
+    ref_bgr = cv2.cvtColor(np.array(metric_img), cv2.COLOR_RGB2BGR)
     ref_face = detect_face(ref_bgr)
     if ref_face is None:
         raise SystemExit("no face found in reference portrait")
@@ -504,7 +539,10 @@ step.write_text(
     seed_tag = "%d-%d" % (segment_seeds[0], segment_seeds[-1]) if segment_seeds else "none"
     stem = "refs%d_segs%s" % (len(refs), seed_tag)
     out_mp4 = str(out_dir / ("%s.mp4" % stem))
-    export_to_video(all_frames, out_mp4, fps=16)
+    # D-9.30: quality=10. The default (quality=5) cost the probe's arm B 40% of
+    # its sharpness through the FIRST encode alone (728 pre-encode -> 441 in the
+    # mp4), and the chain re-encodes again downstream.
+    export_to_video(all_frames, out_mp4, fps=16, quality=10)
     log(f"Video exported: {out_mp4}")
 
     # ---- Motion: the number that exposed the v4 "shaking image" defect -------
@@ -568,9 +606,11 @@ args = {
     #
     # The render is split over two jobs (D-9.28): the first half (43, 44, 45)
     # is fetched and measured before the second half is pushed, because Kaggle
-    # keeps only the newest kernel version's outputs.
-    "segment_seeds": [46, 47],
-    "segments": 2,
+    # keeps only the newest kernel version's outputs. D-9.30 re-renders the same
+    # five segments with the normalised references + strengthened prompt; one job
+    # cannot hold 5 segments inside the 6 h timeout (5 x ~68 min + T5 download).
+    "segment_seeds": [43, 44, 45],
+    "segments": 3,
     # Wan's causal VAE wants num_frames == 4k+1 (49 = 4*12 + 1). Every segment
     # keeps only 1 conditioned frame (the portrait, dropped from output), so
     # 5 segments give 5 * 48 = 240 frames = 15.0 s at 16 fps.
@@ -580,19 +620,33 @@ args = {
     "width": 832,
     "height": 480,
     "steps": 50,
+    # D-9.30: the strengthened prompt the D-9.29 probe measured WITH the
+    # normalised references (arm B). The flicker/morphing terms are the
+    # community's standard guard against texture shimmer and face morphing; the
+    # camera-lock and framing terms attack the head-scale walk the contact
+    # sheets exposed.
     "prompt": (
         "real video footage of the same woman shown in the reference photographs, "
         "standing still in a studio, breathing gently, blinking naturally, mouth closed, "
-        "subtle natural head movement, fixed camera, head and shoulders framing, "
-        "plain grey studio wall behind, soft even natural light, detailed natural skin "
-        "with visible pores, natural hair, sharp focus, shot on 35mm film, photorealistic"
+        "calm neutral expression, eyes open looking directly at the camera, "
+        "subtle natural head movement, locked-off tripod camera, no camera movement, "
+        "no zoom, consistent head and shoulders framing throughout, "
+        "plain grey studio wall behind, soft even natural light, consistent lighting, "
+        "detailed natural skin with visible pores, natural hair, sharp focus, crisp detail, "
+        "shot on 35mm film, photorealistic"
     ),
     "negative": (
         "cartoon, CGI, 3d render, plastic skin, video game, doll, painting, mannequin, "
-        "blurry, deformed face, extra eyes, second face, overlapping face, double face, "
+        "blurry, soft focus, out of focus, deformed face, extra eyes, second face, "
+        "overlapping face, double face, morphing face, changing face, inconsistent face, "
+        "warped face, flickering, jitter, strobing, pulsing brightness, "
         "text, watermark, overexposed, dark blotches on skin, static, still picture, "
-        "talking, open mouth, camera movement"
+        "talking, open mouth, camera movement, camera zoom, dolly, pull back, push in, "
+        "handheld shake"
     ),
+    # Reference tone-match strength (tools/prepare_refs.py); 1.0 is the value
+    # the probe ran.
+    "tone": 1.0,
 }
 
 args_path = WORK_DIR / "face_consistency_args.json"
