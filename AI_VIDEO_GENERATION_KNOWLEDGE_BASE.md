@@ -1580,3 +1580,77 @@ the newest kernel version's outputs, so a `fetch` that deletes the previous dire
 first half of a split render -- move it aside instead.
 
 
+
+## 16. Blur and inconsistency in generated video — causes, refutations, and the fix ladder
+
+Recorded after the user rejected `S017_refs6` with "there is still the blur and inconsistency"
+(DECISIONS D-9.29). Everything below is either measured on our own clips or sourced from the
+community/literature; claims that failed against our frames are marked **REFUTED**.
+
+### 16.1 The four visible defects, and why the metric table missed them
+
+Contact sheets of the delivered clip (`tools/contact_sheet.py`, plus tight face crops) show four
+defects that no metric we reported could see:
+
+1. **Softness that comes and goes** — skin detail is present in one frame and gone two frames
+   later. *Uniform across the clip*, not worse at segment ends.
+2. **Head-scale walk** — a slow pull-back inside each 48-frame segment that resets at every cut
+   (the camera drift the model invents even under "fixed camera").
+3. **Per-segment lighting/exposure** — flat bright studio on one segment, hard side-key and
+   near-black on the next.
+4. **Gaze variation** — several frames look down while the rest look at the camera.
+
+Measurement lesson: identity mean/min, face Laplacian, motion and "0 analyzer issues" are all
+*frame-local* or *whole-clip* aggregates. They cannot express "this frame is softer than its
+neighbour" (use `tools/tail_quality.py`: sharpness bucketed by head/middle/tail + per-frame
+curve), nor "the lighting differs between segments" (use contact sheets — visually decisive).
+
+### 16.2 REFUTED: "VACE 1.3B blurs the final frames of every window"
+
+Community claim (Wan2GP notes, repeated in threads) that the 1.3B model degrades toward the end of
+each window, so trimming tails fixes softness. `tools/tail_quality.py` on our 240-frame raw join:
+sharpness slopes per segment are **+0.54 / +0.14 / -0.04 / -0.02 / +0.23** per frame and
+head/middle/tail thirds are equal or tail-higher. The tail is *not* the soft part; the whole clip
+is equally soft (mean 69.7, min 39.2). Trimming cannot help. (Our segments are 49 frames, safely
+below the 81-frame reference-degradation limit of GitHub ali-vilab/VACE#99 anyway.)
+
+### 16.3 The reference set is the lighting and framing instruction — and ours was a mess
+
+VACE has exactly two conditioning sources: the reference images and the text. Whatever lighting,
+background and framing spread exists in the reference set **reappears in the output**, because the
+model has nowhere else to learn them from. Ours: six 512x512 squares, backgrounds light grey to
+near-black, lighting flat frontal to hard side key, face scale varying ~30%, one three-quarter
+turn — and the delivered segments reproduce exactly that spread.
+
+Community checklist for reference conditioning (r/comfyui, r/StableDiffusion, Aliyun VACE tutorial):
+match the reference **resolution** to the output; one high-quality, sharp source; neutral/cut-out
+background; **consistent lighting across the set**; resize with Lanczos; several views of the same
+identity beat one.
+
+**The mechanism (diffusers `WanVACEPipeline.preprocess_conditions`, pipeline_wan_vace.py:499-510):**
+each reference is scaled to *fit* the output size, then pasted centred onto
+`canvas = torch.ones(3, H, W)` — a **white** canvas. A square 512x512 ref therefore reaches the
+model as a 480x480 image with **176 px of white bars on each side** of an 832x480 frame: half the
+conditioning width is white padding and the effective conditioning resolution is halved. Feeding
+refs already at the output size/aspect (832x480) removes the bars entirely — this is the code-level
+reason "make your reference the size of your output" is repeated in every VACE thread.
+
+### 16.4 The fix ladder (cheapest first) and what each rung costs
+
+| rung | what it fixes | cost | status |
+|---|---|---|---|
+| 1. reference prep: full-bleed 832x480, face-framed, tone-matched to the primary ref | per-segment lighting jumps, likeness breakdown, white bars | free (local) | D-9.29 |
+| 2. prompt/negative: camera-lock terms, gaze, `flickering, jitter, morphing face, inconsistent face` | scale walk, gaze jumps, texture shimmer | free | D-9.29 |
+| 3. **second pass at low denoise** (V2V, strength 0.2-0.3) | softness — the standard community blur fix; re-synthesises detail, keeps structure | ~5-10 min per 21 frames on T4 (pattern proven in `realism_pass.py`, D-8.12) | D-9.29 |
+| 4. deflicker **before** sharpening/upscale (`face_stabilize` + `cut_smooth`) | exposure flicker, per-take gain steps | already in chain | shipped |
+| 5. lower CFG (2-3), Skip Layer Guidance (blocks 9-10), Tile LoRA at denoise 0.3 | per-frame jitter | one probe each | deferred |
+| 6. AI upscale / frame interpolation **after** deflicker | delivery resolution | one encode | deferred |
+| 7. VACE-14B at 720p | the real quality jump | 40-65 GB VRAM — **infeasible on a 15.4 GB T4** | closed |
+
+**What must NOT be used:** per-frame face restorers (GFPGAN/CodeFormer). They invent detail
+independently per frame and *cause* flicker/jitter (CVPR 2025 video face enhancement papers show
+their temporal-consistency scores losing to video-native restorers) — the same conclusion our own
+D-9.13 reached about post-hoc face swapping. Restoration must be video-temporal, which is exactly
+what a low-denoise V2V pass is: the model denoises the whole clip jointly with temporal attention,
+so the added detail is coherent across frames.
+

@@ -3497,3 +3497,87 @@ without a single training run.
    The runner now moves the previous fetch aside to `<stem>.prev` instead of deleting it.
 
 
+
+### D-9.29 Why the delivery is soft and inconsistent: three refutations, one mechanism, and the fix ladder
+
+**The user rejected `S017_refs6`: "there is still the blur and inconsistency".** The metrics said
+0 issues and the identity table said +0.016 -- the metrics were measuring the wrong things. This
+entry records what was measured next (all free), what the community and the literature actually
+claim, and which of those claims survive contact with our own frames.
+
+**Refutation 1: the blur is not a tail problem.** The community claim (Wan2GP's VACE notes, echoed
+in several threads) is that the 1.3B model "tends to blur the final frames" of every window, which
+would have made trimming tails the fix. `tools/tail_quality.py` (new) measures identity and
+face-Laplacian sharpness by *position inside each segment* on `refs6_raw.mp4`:
+
+| seg | sh.head | sh.mid | sh.tail | sharpness slope/frame |
+|---|---|---|---|---|
+| 0 | 63.9 | 86.7 | 88.9 | **+0.54** |
+| 1-4 | ~equal or tail higher | | | +0.14 / -0.04 / -0.02 / +0.23 |
+
+Sharpness does **not** decay toward the tail -- the tail is as sharp as (often sharper than) the
+head. The blur is *uniform across the whole clip* (mean 69.7, min 39.2), so cutting frames cannot
+fix it. Identity mean 0.8953 / min 0.8141 on the raw join, with a slightly negative slope in 4 of 5
+segments (worst -0.00094/frame): drift exists but is small; the *visible* complaint is elsewhere.
+
+**What the frames actually show** (`tools/contact_sheet.py` on the delivered 13.5 s clip, plus
+5 face crops): (a) some frames are visibly softer than their neighbours -- skin detail comes and
+goes; (b) the head **scale walks** inside a segment (a slow pull-back) and jumps back at every
+cut; (c) **lighting and exposure differ per segment** -- flat bright studio on some, hard side-key
+and near-black on others; (d) gaze varies (several frames look down while the rest look at the
+camera). None of these four appear in any metric we had been reporting.
+
+**Refutation 2 (partial): the reference set is the cause of (c) and (d), and it is fixable for
+free.** The six conditioning portraits `C01_0..C01_5` are 512x512 squares whose backgrounds run
+from light grey (`C01_0`, `C01_2`) to near-black (`C01_4`), whose lighting runs from flat frontal
+to a hard side key, whose face scale varies by ~30%, and one of which is a three-quarter turn.
+The generated segments reproduce exactly that spread -- because **the references are the lighting
+and framing instruction**: VACE has no other source for them. Community rule #1 for reference
+conditioning (r/comfyui, r/StableDiffusion, the Aliyun VACE tutorial) is: match the reference
+resolution to the output, use one high-quality sharp source, cut out or neutralise the background,
+keep lighting consistent across the set. We violated the whole list.
+
+**The mechanism behind that rule (read out of the source, not guessed).** diffusers'
+`WanVACEPipeline.preprocess_conditions` (pipeline_wan_vace.py:499-510) does, for every reference:
+scale to *fit* the output size, then paste it centred onto `canvas = torch.ones(3, H, W)` -- a
+**white** canvas. Our square 512x512 refs are therefore seen by the model as a 480x480 image with
+**176 px of white bars on each side** of an 832x480 frame: half the conditioning width is white
+padding, and the effective reference resolution is 480x480, not 832x480. Feeding refs already at
+832x480 (same aspect as the output) removes the bars and doubles the effective conditioning
+resolution in one step. This is the code-level reason "make your reference the size of your
+output" is the most repeated piece of advice in every VACE thread.
+
+**Refutation 3: the model ceiling is real, so the fix ladder runs bottom-up.** VACE-1.3B is a
+480P model; the community consensus is "1.3B -- you have a fight to get high quality", and the
+quality jump is VACE-14B at 720p, which needs 40-65 GB VRAM (not on a 15.4 GB T4, KB 15.7). We
+are already at the model's trained resolution (832x480), at 50 steps, at the default CFG 5.0.
+
+**What the community and the literature prescribe, and what it costs us:**
+
+| lever | claim | source | our status |
+|---|---|---|---|
+| second pass at low denoise (V2V, strength 0.2-0.3) | the standard blur fix; re-synthesises detail without changing identity | comfyuiblog Wan 2.1 sharpen workflow, promptus, unifab | **untried**; `training/kaggle/jobs/realism_pass.py` (D-8.12) is the proven T4 pattern |
+| reference: resolution match, one lighting, neutral bg | #1 cause of likeness breakdown and of inconsistent look | r/StableDiffusion, r/comfyui, Aliyun VACE tutorial | **untried** (512x512, white bars, mixed lighting) |
+| deflicker BEFORE any sharpening/upscale | sharpening amplifies texture shimmer | aiunderstanding flicker guide, kwaflux, unifab | already in chain (`face_stabilize` + `cut_smooth`) |
+| per-frame restorers (GFPGAN/CodeFormer) | **cause** flicker/jitter -- they invent detail independently per frame | CVPR 2025 video face enhancement (PGTFormer/KEEP) | **rejected**, consistent with our D-9.13 finding |
+| VACE reference degrades beyond 81 frames | GitHub ali-vilab/VACE #99 | our segments are 49 frames -- safe |
+| negative prompt: flickering, jitter, morphing face | cheap guard against texture shimmer and face morphing | several flicker guides | **untried** (our negative has "blurry" only) |
+| lower CFG (2-3), Skip Layer Guidance, Tile LoRA | reduce per-frame jitter; SLG blocks 9-10, Tile LoRA at denoise 0.3 | r/comfyui | deferred: CFG 5.0 is the model default and lowering it weakens the reference conditioning |
+| 14B @ 720p | the real quality jump | Wan2.1 README | **infeasible on T4** (40-65 GB) |
+
+**Decision: one 21-frame probe job (`character_probe_sharp.py`) that tests the three cheapest
+levers in a single GPU run, arms measured against the existing baseline clip:**
+
+* **arm A** = `probe_refs6_seed43.mp4` (already on disk, old refs/prompt, no pass) -- the control;
+* **arm B** = new references (normalised: 832x480 full-bleed, face-framed, tone-matched to the
+  primary) + strengthened prompt/negative (camera lock, gaze, flicker/morphing terms), same seed
+  43 / 50 steps / CFG 5.0 -- isolates the conditioning change;
+* **arm D/G** = arm B re-painted by `WanVideoToVideoPipeline` at strength 0.25 / 0.35 -- isolates
+  the sharpen pass (dose response for the price of two cheap passes);
+* **arm C** = arm A re-painted at strength 0.25 -- answers "can the *existing* delivery be fixed
+  without a re-render?" (the cheapest possible visible win).
+
+The probe is ~40-70 min of T4 against 5.4 h for a full re-render, and every arm is scored with the
+same suite (`compare_videos --identity-stride 1`, `v2_check`, `clip_consistency`, `tail_quality`)
+plus contact sheets -- because the user's visual verdict, not the metric table, is the acceptance
+criterion (D-9.28). Identity gains bought with stillness remain rejected (D-9.25/D-9.26).
