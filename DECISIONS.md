@@ -3676,3 +3676,74 @@ original portrait as the metric reference so every in-job identity number stays 
 earlier runs, and exports at quality 10. The render is split over two jobs as in D-9.28 (seeds
 43/44/45, then 46/47) because five 49-frame segments plus the T5 download do not fit inside the
 6 h job timeout, and Kaggle keeps only the newest kernel version's outputs.
+
+### D-9.31 The D-9.30 delivery: `S018_refsnorm` — every gate green, 9x the sharpness
+
+The recipe (normalised references + strengthened prompt + `quality=10`, no refine pass) was
+rendered in two Kaggle jobs (seeds 43/44/45, then 46/47; ~54 min of T4 per segment, peak 7.86 GB),
+joined by stream copy, stabilised with a **light** setting, dissolved at the four cuts and encoded
+once at x264 CRF 16. The result is `runs/generated/S018_refsnorm.wreel` (13.5 s, 832x480, 216
+frames) and `runs/videos/S018_refsnorm_13s5.mp4`, presented for the user's visual verdict.
+
+**The table that matters (same measurements, old delivery vs new):**
+
+| metric | S017_refs6 (rejected) | **S018_refsnorm** | gate |
+|---|---|---|---|
+| identity mean / min (stride 1) | 0.8967 / 0.7637 | **0.9176 / 0.8466** | >= 0.90, none < 0.80 |
+| frames below 0.80 | 1 | **0** (0 below 0.75 too) | 0 |
+| face sharpness (Laplacian, encoded) | 58.6 | **549.5** (min 183.7) | >= 200 |
+| motion (mean frame diff) | 3.522 | **1.917**, 0 still | >= 1.0, near-0 still |
+| inter-ocular cv (scale walk) | 0.151 | **0.032** | - |
+| face-height cv | - | 0.020 | <= 0.02 |
+| analyzer issues | 0 | **0** (flicker index 0.008, 0 blur frames, 0 drift) | 0 |
+| per-take exposure gains | - | 0.983-1.018 (within 1.8%) | - |
+| cut flash at f48 (dL) | -13.08 | **-4.53** raw, absorbed by dissolve | - |
+
+**Decision 1: the stabiliser runs light on this footage (`sigma 1.0 / window 1.0 / detail 0.5`).**
+Rehearsed on half 1 before committing the chain: the defaults (`2.0 / 1.5 / 0.3`) were tuned on the
+old *soft* render and cost the new footage 17.5% of its face Laplacian (489.6 -> 403.9) to apply a
+placement correction of only 0.5 px -- the normalised references already removed the scale walk the
+defaults were built for. The light setting keeps the correction (0.24-0.25 px mean, max 2.2 px) and
+*raises* measured sharpness to 648.9 on half 1 because `detail 0.5` reinjects the high frequencies
+the blend removes; the native-resolution crop sheet (`stab_cmp_f024.png`) shows genuine texture, not
+crunch or ringing. Identity at the light setting: 0.9069/0.8518, 0 frames < 0.80 -- statistically
+identical to raw (0.9134/0.8557). Runbook step 4 now records the flags and the reasoning.
+
+**Decision 2: the two-job split works and the halves are consistent.** Half 1 (seeds 43/44/45):
+identity 0.9234 / 0.9364 / 0.8756, sharpness 561.7 / 420.8 / 481.1. Half 2 (seeds 46/47): 0.9395 /
+0.9248, sharpness 567.7 / 426.7. Every segment 48/48 faces, 0 still, drift per frame -0.0006 to
+-0.0017. The join is a stream copy (identical stream parameters), so the raw timeline is bit-faithful
+to the renders.
+
+**What the chain did (and did not do) to the new footage:**
+
+* `face_stabilize` (light): 240 frames, takes 2 at [48] -- only the first cut reads as a take
+  boundary now, because the per-segment lighting match made the other three cuts nearly invisible to
+  the detector. Benign: with a +/-1-frame window any cross-boundary blend lands inside the 6-frame
+  dissolve region. ECC cc 0.995, 0 fallbacks, 0 landmark gaps.
+* `cut_smooth`: 5 takes detected at the true source cuts [48, 96, 144, 192], exposure gains
+  0.983-1.018 (the render is now internally consistent enough that gain correction is a rounding
+  error), 240 -> 216 frames with 6-frame dissolves at output 42/84/126/168.
+* single x264 CRF 16 encode. The chain's total sharpness cost on the new footage: 489.6 (raw) ->
+  549.5 (delivered) -- i.e. it *ends higher than it started*, because the light stabiliser's
+  reinjection outweighs the blend and the encode, where the old chain ended at 58.6 from 63.3.
+
+**Verification on the delivered file:** `v2_check` 216/216 faces, 0 multi-face, IOD cv 0.032, face
+height cv 0.020, sharpness mean 549.5 / min 183.7, identity 0.9194/0.8600, 0 still. `identity_curve`
+at the four cut points: all 216 frames >= 0.80 (0 below 0.75), per-segment interior slopes -0.0003
+to -0.0014/frame, handoff steps +0.047 / -0.007 / +0.080 / +0.001 (the +0.080 at cut@126 is the
+transition into the seed segment that starts at its own min 0.8466, still far above the line).
+`clip_consistency`: vs own median 0.9546/0.9108, frame-to-frame pair 0.9121/0.8214. `video_analyzer`:
+0 issues. Contact sheets and native-resolution frames inspected: skin pores, crisp hair, steady
+gaze, consistent exposure across all five segments; the frames around every cut read as continuous.
+
+**Known artefacts carried forward (from D-9.30, unchanged):** wider medium-shot framing than S017
+(IOD 83 vs 129), the faint desk/ledge object in the bottom-right (present in the original
+references), residual gaze variation (two of the six references look away), and one segment (seed
+45) whose identity min (0.8460) is the lowest of the five -- all far above the 0.363 SAME_PERSON
+threshold and none visible as a defect in the contact sheets.
+
+**Honest limitation:** this delivery has not yet been seen by the user. The metrics and my own frame
+inspection say it fixes all four defects of D-9.29 (softness, scale walk, per-segment lighting
+jumps, gaze/consistency), but D-9.28 taught that the metric table alone is not acceptance --
+`S017_refs6` also showed 0 analyzer issues and was rejected.

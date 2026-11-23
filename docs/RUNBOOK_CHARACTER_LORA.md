@@ -168,16 +168,16 @@ python -m stages.generate.video_analyzer --video runs/analysis/refsnorm_dissolve
 frame-to-frame difference and the still-frame count, so no separate probe
 script is needed.
 
-**Gates (from the D-9.25/D-9.26/D-9.28/D-9.30 measurements):**
+**Gates (from the D-9.25/D-9.26/D-9.28/D-9.30/D-9.31 measurements):**
 
-| Metric | v12 base | v4 adapter | refs6 (D-9.28, rejected) | refsnorm (D-9.30) target |
+| Metric | v12 base | v4 adapter | refs6 (D-9.28, rejected) | **refsnorm (D-9.31, delivered)** |
 | --- | --- | --- | --- | --- |
-| identity mean / min | 0.8804 / 0.7860 | 0.9256 / 0.9105 | 0.8967 / 0.7637 | >= 0.90, no frame < 0.80 |
-| motion (mean frame diff) | 2.468 | 0.414 | 3.522 | >= 1.0, still frames near 0 |
-| face sharpness (Laplacian, encoded) | 66.2 | 15.3 | 58.6 | >= 200 (probe arm: 442) |
-| face-scale cv (scale walk) | - | - | 0.039 (probe) | <= 0.02 (probe arm: 0.013) |
-| lighting L sd (per-segment jump) | - | - | 2.51 (probe) | <= 2.0 (probe arm: 1.72) |
-| analyzer issues | 0 | 0 | 0 | 0 |
+| identity mean / min | 0.8804 / 0.7860 | 0.9256 / 0.9105 | 0.8967 / 0.7637 | **0.9176 / 0.8466, 0 frames < 0.80** |
+| motion (mean frame diff) | 2.468 | 0.414 | 3.522 | **1.917, 0 still** |
+| face sharpness (Laplacian, encoded) | 66.2 | 15.3 | 58.6 | **549.5 (min 183.7)** |
+| face-scale cv (scale walk) | - | - | 0.039 (probe) | **0.032 (IOD) / 0.020 (height)** |
+| lighting L sd (per-segment jump) | - | - | 2.51 (probe) | **cut flash -4.53, gains within 1.8%** |
+| analyzer issues | 0 | 0 | 0 | **0 (flicker index 0.008)** |
 | cuts detected | 4 | 0 | 0 | 0 (geometrically continuous) |
 
 Quantitative gates are necessary but **not sufficient**: the user's visual
