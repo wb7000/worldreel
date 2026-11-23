@@ -609,8 +609,10 @@ args = {
     # keeps only the newest kernel version's outputs. D-9.30 re-renders the same
     # five segments with the normalised references + strengthened prompt; one job
     # cannot hold 5 segments inside the 6 h timeout (5 x ~68 min + T5 download).
-    "segment_seeds": [43, 44, 45],
-    "segments": 3,
+    # Second half: seeds 46 and 47 (the first half, 43/44/45, is fetched and
+    # kept in runs/analysis/refsnorm_half1).
+    "segment_seeds": [46, 47],
+    "segments": 2,
     # Wan's causal VAE wants num_frames == 4k+1 (49 = 4*12 + 1). Every segment
     # keeps only 1 conditioned frame (the portrait, dropped from output), so
     # 5 segments give 5 * 48 = 240 frames = 15.0 s at 16 fps.
