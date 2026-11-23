@@ -1,10 +1,23 @@
 # Runbook: character delivery (render -> assemble -> verify -> package)
 
-The reproducible chain for the D-9.28 delivery render: Wan2.1-VACE with **six
-reference views of the same person and no adapter**. Every command runs from
-the repo root (`D:\new_IDEA\worldreel`) and relies only on repo files -- nothing
-in `C:\Users\li\AppData\Local\Temp` (that directory is wiped on server
-restarts).
+The reproducible chain for the D-9.30 delivery render: Wan2.1-VACE with **six
+reference views of the same person, normalised in-step, and no adapter**. Every
+command runs from the repo root (`D:\new_IDEA\worldreel`) and relies only on
+repo files -- nothing in `C:\Users\li\AppData\Local\Temp` (that directory is
+wiped on server restarts).
+
+> **D-9.30 (current recipe).** The user rejected the D-9.28 delivery
+> (`S017_refs6`) for blur and inconsistency. The D-9.29 probe found the cause in
+> the *conditioning set*, not in the model or the post-chain: the six references
+> were 512x512 squares with mixed lighting, face scale and backgrounds, and
+> diffusers' `preprocess_conditions` letterboxes each one onto a white canvas
+> (176 px white bars at 480p). The render job therefore (a) normalises the
+> references in-step with `tools/prepare_refs.py` (output aspect, one face
+> scale, one tone), (b) uses the strengthened prompt/negative, and (c) exports
+> at `quality=10`. There is **no refine pass**: the low-denoise V2V "sharpen"
+> was measured and refuted (identity 0.92 -> 0.77, sharpness *fell*). Measured
+> on the probe's clip: sharpness 91 -> 442 encoded (729 pre-encode), identity
+> unchanged, face-scale cv 3x tighter, lighting sd 2.51 -> 1.72.
 
 ## Background
 
@@ -51,8 +64,18 @@ python -m tools.kaggle_runner run training/kaggle/jobs/character_render_refs6.py
 
 The job renders `segments` segments of `frames_per_segment - 1` generated frames
 (48 each, the conditioned portrait frame is dropped) and writes
-`refs6_segs43-45.mp4`, `refs6_segs43-45.json` and `refs6_render.log` into the
-archived output directory.
+`refs6_segs43-45.mp4`, `refs6_segs43-45.json`, `refs6_render.log` and the
+normalised references (`refs_norm/C01_*_norm.png`) into the archived output
+directory. The normalised references are written out on purpose: they are the
+actual conditioning, and inspecting them is how the next defect gets found.
+
+**Two things the job does that the D-9.28 version did not** (D-9.30):
+
+* the references are normalised in-step (`tools/prepare_refs.py`, `tone=1.0`);
+* the export runs at `quality=10`. The diffusers default is `quality=5.0`
+  (variable bitrate), and it cost the probe 40% of the new detail in the first
+  encode alone (729 -> 442). The soft D-9.28 delivery lost nothing in that
+  encode (91.6 -> 91.5), which is why the defect never showed up.
 
 Check the kernel state with `python -m tools.kaggle_runner status <job>`; fetch
 only once it reports COMPLETE or ERROR:
@@ -72,8 +95,8 @@ the first half is copied out of the fetch directory (the runner also moves the
 previous fetch aside to `runs/kaggle/character_render_refs6.prev`):
 
 ```powershell
-New-Item -ItemType Directory -Force runs\analysis\refs6_half1 | Out-Null
-Copy-Item -Force runs\kaggle\character_render_refs6\out\* runs\analysis\refs6_half1\
+New-Item -ItemType Directory -Force runs\analysis\refsnorm_half1 | Out-Null
+Copy-Item -Force runs\kaggle\character_render_refs6\out\* runs\analysis\refsnorm_half1\
 ```
 
 ## 2. Render the second half (segments 46-47, ~2.0 h)
@@ -89,14 +112,14 @@ then run and fetch exactly as in step 1. The output is named from the seeds that
 were used (`refs6_segs46-47.mp4`).
 
 ```powershell
-New-Item -ItemType Directory -Force runs\analysis\refs6_half2 | Out-Null
-Copy-Item -Force runs\kaggle\character_render_refs6\out\* runs\analysis\refs6_half2\
+New-Item -ItemType Directory -Force runs\analysis\refsnorm_half2 | Out-Null
+Copy-Item -Force runs\kaggle\character_render_refs6\out\* runs\analysis\refsnorm_half2\
 ```
 
 ## 3. Join the halves (no re-encode)
 
 ```powershell
-python tools/join_clips.py runs/analysis/refs6_raw.mp4 runs/analysis/refs6_half1/refs6_segs43-45.mp4 runs/analysis/refs6_half2/refs6_segs46-47.mp4
+python tools/join_clips.py runs/analysis/refsnorm_raw.mp4 runs/analysis/refsnorm_half1/refs6_segs43-45.mp4 runs/analysis/refsnorm_half2/refs6_segs46-47.mp4
 ```
 
 `tools/join_clips.py` uses a **stream copy** when the clips share their stream
@@ -113,9 +136,9 @@ FFV1 `.mkv` intermediates, one single x264 CRF 16 delivery encode. A render
 never passes through a lossy intermediate.
 
 ```powershell
-python -m stages.generate.face_stabilize --video runs/analysis/refs6_raw.mp4 --output runs/analysis/refs6_stab.mkv
-python -m stages.generate.cut_smooth --video runs/analysis/refs6_stab.mkv --output runs/analysis/refs6_dissolved.mkv --dissolve 6 --bounds 48 96 144 192
-& D:\ffmpeg\bin\ffmpeg.exe -y -v error -i runs/analysis/refs6_dissolved.mkv -c:v libx264 -crf 16 -pix_fmt yuv420p runs/analysis/refs6_dissolved.mp4
+python -m stages.generate.face_stabilize --video runs/analysis/refsnorm_raw.mp4 --output runs/analysis/refsnorm_stab.mkv
+python -m stages.generate.cut_smooth --video runs/analysis/refsnorm_stab.mkv --output runs/analysis/refsnorm_dissolved.mkv --dissolve 6 --bounds 48 96 144 192
+& D:\ffmpeg\bin\ffmpeg.exe -y -v error -i runs/analysis/refsnorm_dissolved.mkv -c:v libx264 -crf 16 -pix_fmt yuv420p runs/analysis/refsnorm_dissolved.mp4
 ```
 
 The cut bounds are the segment boundaries in the **raw** render (48/96/144/192);
@@ -125,25 +148,27 @@ after the 6-frame dissolve they land at 42/84/126/168 in the 216-frame output
 ## 5. Verification battery
 
 ```powershell
-python -m tools.v2_check runs/analysis/refs6_dissolved.mp4
-python -m tools.clip_consistency.py runs/analysis/refs6_dissolved.mp4
-python -m tools.identity_curve runs/analysis/refs6_dissolved.mp4 runs/kaggle/portraits_run3_merged/C01_0.png 42 84 126 168
-python -m stages.generate.video_analyzer --video runs/analysis/refs6_dissolved.mp4 --portrait runs/kaggle/portraits_run3_merged/C01_0.png --output runs/analysis/refs6_final_analyzer.json
+python -m tools.v2_check runs/analysis/refsnorm_dissolved.mp4
+python -m tools.clip_consistency.py runs/analysis/refsnorm_dissolved.mp4
+python -m tools.identity_curve runs/analysis/refsnorm_dissolved.mp4 runs/kaggle/portraits_run3_merged/C01_0.png 42 84 126 168
+python -m stages.generate.video_analyzer --video runs/analysis/refsnorm_dissolved.mp4 --portrait runs/kaggle/portraits_run3_merged/C01_0.png --output runs/analysis/refsnorm_final_analyzer.json
 ```
 
 `tools.v2_check` is the single source of truth for motion: it prints the mean
 frame-to-frame difference and the still-frame count, so no separate probe
 script is needed.
 
-**Gates (from the D-9.25/D-9.26/D-9.28 measurements):**
+**Gates (from the D-9.25/D-9.26/D-9.28/D-9.30 measurements):**
 
-| Metric | v12 base | v4 adapter | refs6 target |
-| --- | --- | --- | --- |
-| identity mean / min | 0.8804 / 0.7860 | 0.9256 / 0.9105 | >= 0.90, no frame < 0.80 |
-| motion (mean frame diff) | 2.468 | 0.414 | >= 1.0, still frames near 0 |
-| face sharpness (Laplacian, raw) | 66.2 | 15.3 | >= 40 |
-| analyzer issues | 0 | 0 | 0 |
-| cuts detected | 4 | 0 | 0 (geometrically continuous) |
+| Metric | v12 base | v4 adapter | refs6 (D-9.28, rejected) | refsnorm (D-9.30) target |
+| --- | --- | --- | --- | --- |
+| identity mean / min | 0.8804 / 0.7860 | 0.9256 / 0.9105 | 0.8967 / 0.7637 | >= 0.90, no frame < 0.80 |
+| motion (mean frame diff) | 2.468 | 0.414 | 3.522 | >= 1.0, still frames near 0 |
+| face sharpness (Laplacian, encoded) | 66.2 | 15.3 | 58.6 | >= 200 (probe arm: 442) |
+| face-scale cv (scale walk) | - | - | 0.039 (probe) | <= 0.02 (probe arm: 0.013) |
+| lighting L sd (per-segment jump) | - | - | 2.51 (probe) | <= 2.0 (probe arm: 1.72) |
+| analyzer issues | 0 | 0 | 0 | 0 |
+| cuts detected | 4 | 0 | 0 | 0 (geometrically continuous) |
 
 Quantitative gates are necessary but **not sufficient**: the user's visual
 verdict is the acceptance criterion. Inspect the delivered frames directly
@@ -152,10 +177,10 @@ verdict is the acceptance criterion. Inspect the delivered frames directly
 ## 6. Package and deliver
 
 ```powershell
-python stages/generate/package_wreel_video.py --video runs/analysis/refs6_dissolved.mp4 --portrait runs/kaggle/portraits_run3_merged/C01_0.png --output runs/generated/S017_refs6.wreel --title "S017 Face-Consistent 13.5s (six references)"
-python -m formats validate runs/generated/S017_refs6.wreel
-Copy-Item -Force runs\analysis\refs6_dissolved.mp4 runs\videos\S017_refs6_13s5.mp4
-python -m stages.generate.video_annotator --video runs/analysis/refs6_dissolved.mp4 --portrait runs/kaggle/portraits_run3_merged/C01_0.png --output runs/videos/S017_refs6_13s5_annotated.mp4
+python stages/generate/package_wreel_video.py --video runs/analysis/refsnorm_dissolved.mp4 --portrait runs/kaggle/portraits_run3_merged/C01_0.png --output runs/generated/S018_refsnorm.wreel --title "S018 Face-Consistent 13.5s (six normalised references)"
+python -m formats validate runs/generated/S018_refsnorm.wreel
+Copy-Item -Force runs\analysis\refsnorm_dissolved.mp4 runs\videos\S018_refsnorm_13s5.mp4
+python -m stages.generate.video_annotator --video runs/analysis/refsnorm_dissolved.mp4 --portrait runs/kaggle/portraits_run3_merged/C01_0.png --output runs/videos/S018_refsnorm_13s5_annotated.mp4
 ```
 
 Then record the outcome in `DECISIONS.md` and
