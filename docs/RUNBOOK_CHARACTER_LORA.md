@@ -135,8 +135,18 @@ the segment boundaries at frames 48 / 96 / 144 / 192.
 FFV1 `.mkv` intermediates, one single x264 CRF 16 delivery encode. A render
 never passes through a lossy intermediate.
 
+**Stabilizer settings for the D-9.30 footage** (rehearsed on the half-1 render,
+`runs/analysis/contact_sheets/stab_cmp_f024.png`): the defaults
+(`sigma 2.0 / window 1.5 / detail 0.3`) were tuned on the old *soft* render and
+cost the new detail 17.5% (489.6 -> 403.9 Laplacian) for only 0.5 px of
+placement correction. The light setting keeps the correction (0.24 px mean, the
+new footage barely jitters) and *raises* measured sharpness to 648.9 because the
+higher high-frequency reinjection (0.5) restores blend softness; the native-res
+crop sheet shows genuine texture, not crunch. Identity stays at 0.9069 / 0.8518
+with 0 frames < 0.80.
+
 ```powershell
-python -m stages.generate.face_stabilize --video runs/analysis/refsnorm_raw.mp4 --output runs/analysis/refsnorm_stab.mkv
+python -m stages.generate.face_stabilize --video runs/analysis/refsnorm_raw.mp4 --output runs/analysis/refsnorm_stab.mkv --sigma 1.0 --window 1.0 --detail 0.5
 python -m stages.generate.cut_smooth --video runs/analysis/refsnorm_stab.mkv --output runs/analysis/refsnorm_dissolved.mkv --dissolve 6 --bounds 48 96 144 192
 & D:\ffmpeg\bin\ffmpeg.exe -y -v error -i runs/analysis/refsnorm_dissolved.mkv -c:v libx264 -crf 16 -pix_fmt yuv420p runs/analysis/refsnorm_dissolved.mp4
 ```
