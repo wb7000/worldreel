@@ -3581,3 +3581,98 @@ The probe is ~40-70 min of T4 against 5.4 h for a full re-render, and every arm 
 same suite (`compare_videos --identity-stride 1`, `v2_check`, `clip_consistency`, `tail_quality`)
 plus contact sheets -- because the user's visual verdict, not the metric table, is the acceptance
 criterion (D-9.28). Identity gains bought with stillness remain rejected (D-9.25/D-9.26).
+
+### D-9.30 The probe results: normalised references win, the low-denoise "sharpen" pass is refuted
+
+The D-9.29 probe ran as one Kaggle job (41 min of T4, kernel `worldreel-character-probe-sharp`,
+`training/kaggle/jobs/character_probe_sharp.py`) and produced four arms. Every arm is the same
+21-frame clip, the same seed 43, the same 50 steps and CFG 5.0; only the conditioning and the
+second pass differ.
+
+| arm | identity mean/min | self-cons mean/min | sharpness mean/min | motion | still | peak GB |
+|---|---|---|---|---|---|---|
+| A control (old refs, old prompt) | 0.9229 / 0.9015 | 0.9811 / 0.9348 | 91.6 / 48.4 | 2.788 | 0 | - |
+| **B normalised refs + strengthened prompt** | **0.9209 / 0.8597** | 0.9684 / 0.9326 | **728.6 / 650.4** | 2.396 | 0 | 6.61 |
+| B + V2V pass at strength 0.25 | 0.7703 / 0.7092 | 0.9640 / 0.8873 | 494.8 | 1.974 | 0 | 3.94 |
+| B + V2V pass at strength 0.35 | 0.7024 / 0.6234 | 0.9605 / 0.8763 | 456.4 | 1.963 | 0 | 3.94 |
+| A + V2V pass at strength 0.25 | 0.8750 / 0.8622 | 0.9810 / 0.9520 | 73.6 | 2.646 | 0 | 3.94 |
+
+(The job's numbers are on the pre-encode PIL frames; `compare_videos` on the exported mp4s gives
+sharpness 91.5 for the control and 441.7 for arm B, identity 0.9256 / 0.8854 for B. The gap is the
+encoder -- see the quality finding below.)
+
+**Decision 1: normalise the references. It is the fix, and it is free.** `tools/prepare_refs.py`
+rewrites each reference into the output aspect (832x480, so diffusers' `preprocess_conditions`
+adds no white bars), one face scale (42% of the window height, face centre at 38%), one tone
+(matched to the primary at strength 1.0) and a light sharpen (0.6). Measured on the same clip:
+
+| defect the user named | control | normalised refs |
+|---|---|---|
+| softness (face Laplacian, exported) | 91.5 | **441.7** |
+| softness (pre-encode) | 91.6 | **728.6** |
+| head-scale walk (face-height cv) | 0.039 | **0.013** (3x tighter) |
+| lighting instability (L sd / max step) | 2.51 / 1.81 | **1.72 / 1.53** |
+| colour warmth (R-B mean, max step) | 6.17 / 0.58 | **1.80 / 0.31** (neutral, half the jumps) |
+| identity vs the original portrait | 0.9090 / 0.9013 | **0.9450 / 0.9440** |
+| frames with no face / with two faces | 0 / 0 | 0 / 0 |
+| still frames | 0 | 0 |
+
+The face crops make it unambiguous: arm B shows real pores, crisp catchlights and individual hair
+strands; the control is mushy at the same face size. The identity min dips to 0.8597 in one frame
+but stays far above the 0.363 SAME_PERSON threshold, and the *portrait-relative* identity is the
+highest of all arms.
+
+**Decision 2: the low-denoise V2V "sharpen" pass is REFUTED -- it does not sharpen, it repaints.**
+Every refine arm lost identity (0.92 -> 0.77 at strength 0.25, 0.92 -> 0.70 at 0.35, with
+negative drift of -0.0045 and -0.0052 per frame) and *lost* sharpness relative to its own input
+(728 -> 495, 728 -> 456, and 91.6 -> 73.6 for the control). `compare_videos` puts 18 of 20 frames
+below the 0.80 identity line at strength 0.25 and 20 of 20 at 0.35. Visually the damage is worse
+than the numbers: arm B's frame 18 after the 0.25 pass has mottled, patchy skin, and the control's
+frame 18 has drifted into a different face. The mechanism is clear from the pipeline: the V2V pass
+re-runs the clip through the *T2V* transformer, which has no reference-image conditioning, so it
+repaints the face from its own prior instead of sharpening what is there. The community recipe
+("re-paint at low denoise to add detail") assumes the model already agrees with the source; here
+it does not, so the pass trades identity for nothing. Ladder step 3 of D-9.29 is closed, and with
+it the "can we fix the existing delivery without re-rendering" question: no, arm C shows the
+cheapest possible pass still costs 0.05 identity and adds no sharpness.
+
+**Decision 3: export at quality 10.** diffusers' `export_to_video` defaults to `quality=5.0`
+(variable bitrate). Arm B's frames score 728.6 as PIL images and 441.7 after that encode -- the
+first encode alone throws away **40% of the new detail**. The soft control loses nothing in the
+same encode (91.6 -> 91.5), which is why the defect never showed up in the delivery. The delivery
+render now exports with `quality=10`; the chain re-encodes again downstream, so this matters.
+
+**Two pipeline traps found by reading the diffusers source (both would have silently ruined a run):**
+
+1. **The Wan VAE silently drops frames unless the count is `4k+1`.** `AutoencoderKLWan._encode`
+   (autoencoder_kl_wan.py:1147-1158) reads `x[:, :, 1+4*(i-1) : 1+4*i]` for each latent chunk and
+   never touches the remainder, so a 20-frame clip comes back as 17 frames with its tail chopped.
+   The refine arms now pad by repeating the last frame to the next `4k+1` and trim the result back.
+2. **`WanVideoToVideoPipeline.__call__` defaults to `output_type="np"`**, while the VACE render
+   returns PIL frames. Without an explicit `output_type="pil"` the arms would not be comparable
+   and `measure()`/`export_to_video` would see different types per arm.
+
+**Honest limitation: B changes references *and* prompt, so B-A measures the bundle.** The 8x
+sharpness gain is attributed to the reference geometry on mechanism grounds (the white-bar
+letterbox is code-level certainty, and "crisp detail"/"locked-off tripod" cannot plausibly produce
+an 8x Laplacian jump), but a one-arm probe (old refs + new prompt) would settle it for ~30 min of
+T4. We ship the bundle because it is what wins, and the question only matters if a further
+re-render is ever needed.
+
+**Two known artefacts carried into the delivery, recorded so they are not mistaken for new bugs.**
+(1) The framing is wider: arm B's inter-ocular distance is 82 px against the control's 129 px
+(the face-scale cv is also 3x tighter, i.e. the head no longer walks). A medium shot with visible
+shoulders is a legitimate read of the normalised reference, and the sharper skin hides the
+softness the tight framing exposed. (2) A faint horizontal seam appears behind the shoulders: it
+is a desk/ledge edge that exists in several *original* references (`C01_0`, `C01_1`, `C01_3`) and
+normalisation preserves it. It is stable across frames (it reads as set geometry, not flicker), but
+it is a property of the reference set, not of the render. The residual gaze variation also comes
+from the references themselves (two of the six look away from the camera) and is *not* fixed by
+this change.
+
+**Decision 4: ship the bundle, no refine pass.** `character_render_refs6.py` now normalises the
+references in-step (`tools/prepare_refs.py`), uses the strengthened prompt/negative, keeps the
+original portrait as the metric reference so every in-job identity number stays comparable with
+earlier runs, and exports at quality 10. The render is split over two jobs as in D-9.28 (seeds
+43/44/45, then 46/47) because five 49-frame segments plus the T5 download do not fit inside the
+6 h job timeout, and Kaggle keeps only the newest kernel version's outputs.

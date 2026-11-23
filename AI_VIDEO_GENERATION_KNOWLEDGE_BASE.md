@@ -1641,7 +1641,7 @@ reason "make your reference the size of your output" is repeated in every VACE t
 |---|---|---|---|
 | 1. reference prep: full-bleed 832x480, face-framed, tone-matched to the primary ref | per-segment lighting jumps, likeness breakdown, white bars | free (local) | D-9.29 |
 | 2. prompt/negative: camera-lock terms, gaze, `flickering, jitter, morphing face, inconsistent face` | scale walk, gaze jumps, texture shimmer | free | D-9.29 |
-| 3. **second pass at low denoise** (V2V, strength 0.2-0.3) | softness — the standard community blur fix; re-synthesises detail, keeps structure | ~5-10 min per 21 frames on T4 (pattern proven in `realism_pass.py`, D-8.12) | D-9.29 |
+| 3. **second pass at low denoise** (V2V, strength 0.2-0.3) | softness — the standard community blur fix; re-synthesises detail, keeps structure | ~5-10 min per 21 frames on T4 (pattern proven in `realism_pass.py`, D-8.12) | D-9.30: **REFUTED** — it repainted instead of sharpening: identity 0.92 → 0.77 (strength 0.25) / 0.70 (0.35), and sharpness *fell* (728 → 495 / 456) |
 | 4. deflicker **before** sharpening/upscale (`face_stabilize` + `cut_smooth`) | exposure flicker, per-take gain steps | already in chain | shipped |
 | 5. lower CFG (2-3), Skip Layer Guidance (blocks 9-10), Tile LoRA at denoise 0.3 | per-frame jitter | one probe each | deferred |
 | 6. AI upscale / frame interpolation **after** deflicker | delivery resolution | one encode | deferred |
@@ -1654,3 +1654,58 @@ D-9.13 reached about post-hoc face swapping. Restoration must be video-temporal,
 what a low-denoise V2V pass is: the model denoises the whole clip jointly with temporal attention,
 so the added detail is coherent across frames.
 
+
+### 16.5 What the probe measured (D-9.30) — and three traps that would have silently ruined the run
+
+One Kaggle job, four arms, the same 21-frame clip at seed 43 / 50 steps / CFG 5.0. Arm A was the
+old conditioning, arm B the normalised references plus the strengthened prompt, and D/G/C were
+low-denoise V2V passes over B/B/A.
+
+| arm | identity mean/min | sharpness (exported) | face-scale cv | lighting L sd | still frames |
+|---|---|---|---|---|---|
+| A control | 0.9229 / 0.9015 | 91.5 | 0.039 | 2.51 | 0 |
+| **B normalised refs** | 0.9209 / 0.8597 | **441.7** (728.6 pre-encode) | **0.013** | **1.72** | 0 |
+| B + V2V 0.25 | 0.7703 / 0.7092 | 277.9 | - | 1.14 | 0 |
+| B + V2V 0.35 | 0.7024 / 0.6234 | 260.9 | - | - | 1 |
+| A + V2V 0.25 | 0.8750 / 0.8622 | 46.8 | 0.028 | 2.32 | 0 |
+
+Three things generalise beyond this project:
+
+**1. A reference-preparation step can beat a post-processing step by an order of magnitude, for
+free.** Nothing here was learned by watching videos: the references were already the wrong shape
+(512x512 squares letterboxed onto a white canvas by `preprocess_conditions`), the wrong scale
+(face size varying ~30%), and the wrong light (grey-to-black backgrounds, flat-to-hard key).
+Fixing the *input* took the face Laplacian from 91 to 442 and tightened the face-scale cv 3x. The
+same lesson as the community rule "make your reference the size of your output", but now measured
+end to end on our own model.
+
+**2. A "sharpen" pass that re-synthesises through a *different* model repaints the subject.**
+Wan's video-to-video pipeline re-runs the clip through the T2V transformer, which carries no
+reference-image conditioning, so it replaces the face with its own prior instead of sharpening
+what is there. The dose-response was clean (0.25 → 0.77 identity, 0.35 → 0.70, with negative
+drift) and the visual damage (mottled skin, a different face in the last frame) was worse than the
+numbers. **Rule: a low-denoise pass may only be used when the source clip already agrees with the
+conditioning.** If it does not, it is a re-generation, and the identity cost is the price.
+
+**3. Encoder quality can hide the fix you just measured.** diffusers' `export_to_video` defaults to
+`quality=5.0` (VBR): the new arm scored 728.6 as frames and 441.7 as an mp4 — **40% of the
+detail gone in the first encode**. The soft control lost nothing in the same encode (91.6 → 91.5),
+which is exactly why a delivery could look unchanged while the frames improved. Always measure the
+*decoded* artefact, and export at `quality=10` when detail is the point.
+
+Two diffusers traps, both silent, both worth a permanent note:
+
+* **The Wan VAE encodes only `4k+1` frames.** `AutoencoderKLWan._encode` slices
+  `x[:, :, 1+4*(i-1) : 1+4*i]` per latent chunk and ignores the remainder, so a 20-frame clip
+  comes back as 17 frames with its tail chopped — no warning. Pad with the last frame to the next
+  `4k+1`, then trim the decode back to the true length.
+* **`WanVideoToVideoPipeline.__call__` defaults to `output_type="np"`** while the VACE render
+  returns PIL frames. An arm that mixes the two types cannot be compared frame by frame, and
+  `export_to_video` silently accepts both. Pass `output_type="pil"` explicitly when the arms must
+  match.
+
+**What the probe did not settle:** arm B changed the references *and* the prompt, so the 8x
+sharpness gain is a bundle result. The mechanism (white-bar letterboxing) is code-level, and
+prompt words like "crisp detail" cannot plausibly produce an 8x Laplacian jump, but a one-arm
+control (old references + new prompt) would settle it for ~30 min of T4 if the question ever
+matters again.
