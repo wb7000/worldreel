@@ -206,7 +206,7 @@ CODE_DIR = Path(os.environ.get("CODE", "."))
 step = WORK_DIR / "step_face_consistency.py"
 step.write_text(
     textwrap.dedent("""
-    import gc, json, sys, time, torch, cv2, numpy as np
+    import gc, json, shutil, sys, time, torch, cv2, numpy as np
     from pathlib import Path
     from PIL import Image
     from diffusers import AutoencoderKLWan, WanVACEPipeline
@@ -274,6 +274,11 @@ step.write_text(
     if not ref_imgs:
         raise SystemExit("no readable reference portraits")
     log("normalised references: %s" % [Path(p).name for p in norm_paths])
+    # Keep the exact conditioning with the artefacts, FLAT in the output
+    # directory: the archive and the recovery sweep both pick up top-level
+    # files, and the normalised references are how the next defect gets found.
+    for p in norm_paths:
+        shutil.copy2(p, Path(a["out"]) / ("ref_" + Path(p).name))
     ref_img = ref_imgs[0]
 
     metric_img = Image.open(a["portrait"]).convert("RGB")
