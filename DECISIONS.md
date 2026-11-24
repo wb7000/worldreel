@@ -3824,3 +3824,58 @@ boundaries and the four 6-frame dissolves consume 24 more (240 -> 190). The stab
 auto-detect finds 0 takes on the assembled footage (the jumps are now sub-threshold), which is
 harmless *because* the chain passes explicit `--bounds`; run it without bounds and the exposure
 match would treat the clip as one take. Acceptance still rests on the user's visual verdict.
+
+### D-9.33 Route A probe complete: VACE seam bridges verified on our exact stack
+
+**What was tried.** Instead of a pixel-level cross-dissolve (which can only *spread* a pose jump,
+never remove it), each cut region is replaced by VACE-generated bridge frames: 4 context frames
+from each take are kept as conditioning (black mask = keep), and 5 frames between them are
+generated (white mask = generate), guided by reference portraits so the face identity holds
+through the transition. This is `ComfyUI-Wan-VACE-Video-Joiner` done natively with
+`WanVACEPipeline(video, mask, reference_images)` on our own Wan2.1-VACE-1.3B — the exact model
+and environment the delivery render uses.
+
+**Job:** `training/kaggle/jobs/character_render_seam_bridge.py`, one Kaggle T4 job (~33 min),
+attaching `data:vacecast` (portraits), `data:facemodels` (YuNet/SFace), and
+`data:seam-timeline` (the stabilized assembly `refsnorm_asm_stab.mkv`, pushed as a private
+dataset). Output: `refs_bridge_seams.mp4` (234 frames vs 214 original — 4 bridges x 5 generated
+frames add 20).
+
+**A diffusers shape bug blocks 6 references.** With 6 references,
+`prepare_video_latents` (conditioning_latents with temporal size = refs + video latent frames)
+and `prepare_masks` (mask with temporal size = video latent frames) disagree on the frame count
+(17-frame region: conditioning=11 vs mask=10; 13-frame: 10 vs 8; 9-frame: 9 vs 6). 1 reference
+works cleanly at every size tested, so the probe ran with 1 reference. Route A is therefore
+*proven on our stack* but identity numbers below use 1 reference, not 6; with 6 refs they would
+be higher (measured 0.9145/0.8982 with 6 vs 0.8964/0.8581 with 4 on the same seed in the D-9.28
+2x2 probe).
+
+**Results (1 reference, 5-frame bridges at cuts 46/84/125/168):**
+
+| metric | S019 (dissolve) | **bridge (route A)** | gate |
+|---|---|---|---|
+| frames | 190 | **234** (+20 bridge frames) | - |
+| identity mean / min | 0.9186 / 0.8606 | **0.9124 / 0.8491** | >= 0.90, none < 0.80 |
+| frames < 0.80 | 0 | **0** | 0 |
+| face sharpness (encoded) | 568.4 (min 164.9) | **669.4** (min 339.3) | >= 200 |
+| window-exit frame diff | 1.10 / 2.16 / 1.28 / 2.15 | **absorbed into bridge** | <= interior ~1.6 |
+| analyzer issues | 0 | **0** (sim 0.927, blur 703.5) | 0 |
+| PTS | 62.50 ms exact | **62.50 ms exact, 0 irregular** | regular |
+| motion / still | 1.903 / 0 | **2.217 / 0** | >= 1.0, 0 still |
+| handoff steps | - | **+0.0044 / -0.0013 / +0.0724 / -0.0029** | small |
+
+**Contact sheet `s019_bridge_vis_a4.png`:** every bridge frame single-imaged (no double face),
+pose glides smoothly through the 5 generated frames, continuous with raw context frames on both
+sides. The transitions read as natural head movement, not as cuts.
+
+**Verdict.** Route A works and fixes the residual cuts/lags/blur by replacing the dissolve with
+generated in-between motion. The 1-reference identity min (0.8491) is comfortably above 0.80 but
+below S019's 0.8606 — with 6 references it would likely match or exceed S019. Next steps in
+priority order:
+
+1. **Route C** (code-level): fix the diffusers `WanVACEPipeline` shape mismatch so 6 references
+   work, then re-run route A with 6 refs for best identity.
+2. **Route B** (re-render): continuation-chain re-render where each take starts from the previous
+   take's tail — eliminates boundaries at the source, loses take-order freedom (~2 Kaggle jobs).
+3. If neither is pursued, S019 remains the accepted delivery (already pushed, user verdict
+   pending).
