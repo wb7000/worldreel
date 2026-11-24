@@ -383,7 +383,7 @@ args = {
     "num_references": 6,
     "cuts": [46, 84, 125, 168],
     "context_frames": 4,
-    "bridge_frames": 9,
+    "bridge_frames": 5,
     "steps": 50,
     "width": 832,
     "height": 480,
