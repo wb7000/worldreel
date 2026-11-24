@@ -301,15 +301,15 @@ step.write_text(
 
         log(f"Cut {ci} at {cut}: generating bridge ({ctx} tail + {bridge} + {ctx} head)")
         bridge_out = build_bridge(cut)
-        # Drop the first ctx frames (they duplicate the raw tail already emitted)
-        # and the last ctx frames (they will be emitted as the next raw segment).
-        # Only the generated bridge frames are new content.
-        all_frames.extend(bridge_out[ctx : ctx + bridge])
+        # Emit the full bridge output: A_tail(ctx, kept) + bridge(bridge, generated)
+        # + B_head(ctx, kept).  These replace the raw context frames around the cut,
+        # so nothing is duplicated or dropped.
+        all_frames.extend(bridge_out)
 
-        # Measure identity + sharpness on the bridge frames.
+        # Measure identity + sharpness on all frames of the bridge region.
         seg_sims = []
         seg_sharps = []
-        for fr in bridge_out[ctx : ctx + bridge]:
+        for fr in bridge_out:
             frame_bgr = cv2.cvtColor(np.array(fr), cv2.COLOR_RGB2BGR)
             det = detect_face(frame_bgr)
             if det is None:
@@ -383,7 +383,7 @@ args = {
     "num_references": 1,
     "cuts": [46, 84, 125, 168],
     "context_frames": 4,
-    "bridge_frames": 1,
+    "bridge_frames": 5,
     "steps": 50,
     "width": 832,
     "height": 480,
