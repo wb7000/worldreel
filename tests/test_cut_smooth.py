@@ -160,6 +160,37 @@ def test_dissolve_face_travels_between_the_takes() -> None:
     assert abs(centroid(out[s + 6])[0] - 110.0) < 5.0
 
 
+def test_dissolve_window_edges_are_the_raw_frames() -> None:
+    # D-9.32: alpha spans 0..1, so the window opens on the pure outgoing
+    # frame and closes on the pure incoming one.  The old (i+1)/(k+1)
+    # topped out at k/(k+1) and snapped -- the pop heard as a lag.
+    frames, lm = _two_takes(bg_b=40, blob_b=230)
+    out, starts = cross_dissolve(frames, lm, [30], k=6)
+    s = starts[0]
+    assert np.array_equal(out[s], frames[24])  # pure outgoing
+    assert np.array_equal(out[s + 5], frames[35])  # pure incoming
+    # the neighbours are raw too, so both edges are pixel-continuous
+    assert np.array_equal(out[s - 1], frames[23])
+    assert np.array_equal(out[s + 6], frames[36])
+
+
+def test_dissolve_window_edge_steps_do_not_pop() -> None:
+    # Same clip with a big content jump: an edge step must be small next
+    # to the raw cut, or the window exit reads as a second cut.
+    frames, lm = _two_takes(bg_b=40, blob_b=230)
+    raw_jump = float(np.abs(frames[30].astype(np.float32) - frames[29].astype(np.float32)).mean())
+    out, starts = cross_dissolve(frames, lm, [30], k=6)
+    s = starts[0]
+
+    def step(i: int) -> float:
+        return float(np.abs(out[i + 1].astype(np.float32) - out[i].astype(np.float32)).mean())
+
+    # entry: raw A -> first window frame (both pure A here: static take)
+    assert step(s - 1) < 0.1 * raw_jump, f"entry step {step(s - 1):.2f}"
+    # exit: last window frame -> raw B (both pure B: static take)
+    assert step(s + 4) < 0.5 * raw_jump, f"exit step {step(s + 4):.2f}"
+
+
 def test_smooth_cuts_end_to_end() -> None:
     frames, lm = _two_takes(bg_b=24, pos_b=(110.0, 70.0))
     out, stats = smooth_cuts(frames, lm, dissolve=6, levels=True)

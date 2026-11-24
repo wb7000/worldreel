@@ -23,9 +23,17 @@ in order:
    hair and shoulders at their original scale while the face travelled:
    with a 1.4x face-size jump between takes that tore a second hair
    silhouette against the wall, which the viewer saw as the character
-   overlapping herself.  The path starts exactly on the outgoing frame
-   and ends exactly on the incoming one, so neither window edge
-   introduces a new jump.
+   overlapping herself.
+
+   The window's blend weight spans the full 0..1 (D-9.32): the first
+   window frame IS the pure outgoing frame and the last IS the pure
+   incoming one, with smoothstep alpha strictly between them.  The earlier
+   `alpha = (i+1)/(k+1)` topped out at `k/(k+1)` and then snapped to the
+   raw incoming take -- a 14% pop at every window exit the viewer heard as
+   a lag and saw as a cut, and the partial-weight blend double-imaged the
+   face through the window (sharpness 650 -> 167 mid-window on the D-9.31
+   delivery).  Pixel-continuous ends also mean the window edge frame diffs
+   equal the interior motion (1.5-2.4 measured vs 7.0-11.0 before).
 """
 
 from __future__ import annotations
@@ -183,6 +191,15 @@ def cross_dissolve(
     Returns the new frames and, for each cut, the first output index of its
     dissolve window.  Each window consumes `k` frames from either side of
     the cut and emits `k` frames, so the clip loses `k` frames per cut.
+
+    The blend weight spans exactly 0..1 (D-9.32): the first window frame is
+    the pure outgoing frame and the last the pure incoming one, so both
+    window edges are pixel-continuous with the surrounding raw frames --
+    no pop when the warp ends, no partial-weight ghost ("blur when the
+    frame comes").  The interior frames ride one smoothstep curve for BOTH
+    the landmark path and the alpha, so the face travels and dissolves in
+    step.  `k >= 3` is the smallest window that can open, blend and close;
+    k=1/2 degrade to a plain cut at the boundary (no room for a blend).
     """
     n = len(frames)
     if lm.shape[0] != n:
@@ -205,14 +222,19 @@ def cross_dissolve(
         out.extend(frames[pos : c - k])
         start = len(out)
         for i in range(k):
-            t = 0.5 if k == 1 else i / (k - 1)
-            ease = t * t * (3.0 - 2.0 * t)  # starts and ends at zero velocity
             a_idx, b_idx = c - k + i, c + i
+            if i == k - 1:
+                out.append(frames[b_idx])  # close on the pure incoming frame
+                continue
+            if i == 0:
+                out.append(frames[a_idx])  # open on the pure outgoing frame
+                continue
+            t = i / (k - 1)
+            ease = t * t * (3.0 - 2.0 * t)  # starts and ends at zero velocity
             target = (1.0 - ease) * lm[a_idx] + ease * lm[b_idx]
             oa = _face_warp(frames[a_idx], lm[a_idx], target)
             ob = _incoming_face(frames[a_idx], frames[b_idx], lm[a_idx], lm[b_idx], target)
-            alpha = (i + 1) / (k + 1)
-            mixed = (1.0 - alpha) * oa.astype(np.float32) + alpha * ob.astype(np.float32)
+            mixed = (1.0 - ease) * oa.astype(np.float32) + ease * ob.astype(np.float32)
             out.append(np.clip(np.round(mixed), 0, 255).astype(np.uint8))
         starts.append(start)
         pos = c + k

@@ -3746,4 +3746,81 @@ threshold and none visible as a defect in the contact sheets.
 **Honest limitation:** this delivery has not yet been seen by the user. The metrics and my own frame
 inspection say it fixes all four defects of D-9.29 (softness, scale walk, per-segment lighting
 jumps, gaze/consistency), but D-9.28 taught that the metric table alone is not acceptance --
-`S017_refs6` also showed 0 analyzer issues and was rejected.
+`S017_refs6` also showed 0 analyzer issues and was rejected. (The user then rejected S018 for
+cuts/lags/blur -- see D-9.32.)
+
+### D-9.32 S018's three defects, diagnosed and fixed: reorder+trim assembly + a dissolve whose alpha spans 0..1
+
+**The rejection.** S018 was green on every quantitative gate yet the user rejected it: *"still the
+cuts, lags and little bit blur when the frame comes, other than that the quality is good"*. All
+three complaints were traced to measured causes -- none of them playback or encoding:
+
+1. **Blur = ghosting created by the dissolve itself.** Inside each 6-frame window the face was a
+   partial-weight blend of two unwrapped poses: face-crop Laplacian dropped from 1.11-1.40 in the
+   raw frames around the window to 0.38-0.64 inside it (window sharpness 167-310 against 347-391
+   on the fix). The double image reads as "little bit blur".
+2. **Lag = an alpha that never reached 1.** `alpha = (i+1)/(k+1)` topped out at `k/(k+1)` = 0.857
+   on the last window frame, then the timeline snapped to the pure incoming take -- a 14% pop at
+   every window exit (frame diffs 6.97 / 10.98 / 9.24 / 5.24 against ~1.9 of interior motion) and a
+   pose step backwards. The eye reads the settle-then-jump as the frame "lagging". PTS was
+   perfectly regular (62.50 ms exactly), so playback stutter was ruled out first.
+3. **Cuts = real content jumps the dissolve could not hide.** Per-boundary pose jumps of 0.063-0.222
+   normalised landmark distance, face scale -3.7..-6.1%, luminance -2.3..-5.7%. A cross-dissolve
+   spreads a jump over 6 frames; it does not remove it.
+
+**Refuted routes.** (a) Blur/defocus transitions replacing the dissolve: rejected on identity --
+SFace min 0.07-0.39 with 13-16 frames below 0.80, because a defocus hands the identity encoder an
+unrecognisable face. (b) A plain warp dissolve on the *raw* (unordered) footage scored
+0.9210/0.8468 but still carried the pose jumps, i.e. route 3 survived every blending trick.
+
+**Decision 1: reorder and trim the assembly -- the boundaries are free.** The five takes are
+independent seeds with no narrative order, so a full permutation search over the pair jump matrix
+chose order **[3,4,2,1,0]** with trims (2,5)(5,2)(5,5)(0:2): segment lengths 46/38/41/43/46 =
+214 frames, cuts at 46/84/125/168. Worst boundary jump 0.222 -> **0.119**, total 0.379 -> 0.283.
+New tool `tools/assemble_segments.py` does this losslessly (FFV1 `.mkv`, D-9.22/23 hold) and
+prints the new cut bounds for `cut_smooth --bounds` -- landmark auto-detection misses cuts once
+the jumps are small, so explicit bounds are mandatory from now on.
+
+**Decision 2: fix the alpha, don't replace the dissolve.** `cross_dissolve` now spans exactly
+0..1: the first window frame **is** the pure outgoing frame, the last **is** the pure incoming
+one, and one smoothstep curve drives BOTH the landmark path and the blend weight (interior frames
+only, k>=3; k=1/2 degrade to a plain cut). The window edges are then pixel-continuous with the
+raw neighbours. k=6 chosen over k=4 after visual read of `win_cmp_a1.png`: k6 glides the pose
+gradually across the window (kills the cut feel), k4 is ~40 sharpness points crisper but steps the
+pose faster per frame, closer to a micro-cut. Window sharpness 380-427 (FFV1) is far above S018's
+167-310 either way.
+
+**The chain (reproducible):**
+
+```powershell
+python tools/assemble_segments.py --video runs/analysis/refsnorm_raw.mp4 --output runs/analysis/refsnorm_asm.mkv --bounds 48 96 144 192 --order 3 4 2 1 0 --trims 2:5 5:2 5:5 0:2
+python -m stages.generate.face_stabilize --video runs/analysis/refsnorm_asm.mkv --output runs/analysis/refsnorm_asm_stab.mkv --sigma 1.0 --window 1.0 --detail 0.5
+python -m stages.generate.cut_smooth --video runs/analysis/refsnorm_asm_stab.mkv --output runs/analysis/refsnorm_asm_dissolved.mkv --dissolve 6 --bounds 46 84 125 168
+ffmpeg -i runs/analysis/refsnorm_asm_dissolved.mkv -c:v libx264 -crf 16 -pix_fmt yuv420p runs/videos/S019_asmfix_11s875.mp4
+```
+
+**Delivery `S019_asmfix_11s875` (190 frames, 11.875 s; `runs/generated/S019_asmfix.wreel`
+validates 0 errors):**
+
+| metric | S018 (rejected) | **S019** | gate |
+|---|---|---|---|
+| identity mean / min | 0.9176 / 0.8466 | **0.9186 / 0.8606** | >= 0.90, none < 0.80 |
+| frames < 0.80 | 0 | **0** (identity_curve stride 1: min 0.8529) | 0 |
+| face sharpness (encoded) | 549.5 (min 183.7) | **568.4** (min 164.9) | >= 200 |
+| window-exit frame diff | 6.97 / 10.98 / 9.24 / 5.24 | **1.10 / 2.16 / 1.28 / 2.15** | ~= interior ~1.6 |
+| window sharpness | 167-310 | **347-391** | no ghosting |
+| segment head/mid sharpness | 0.38-0.64 | **0.55-0.87** | - |
+| motion / still | 1.917 / 0 | **1.903 / 0** | >= 1.0, 0 still |
+| analyzer issues | 0 | **0** | 0 |
+| PTS | 62.50 ms exact | **62.50 ms exact, 0 irregular** | regular |
+
+Grid inspection of all four windows (`s019_win_grid_a3.png`): endpoints pixel-continuous with
+their raw neighbours, interior frames single-imaged (no double face), pose glides gradually.
+Tests: 20/20 green including the new raw-endpoint/no-pop dissolve tests and the
+`assemble_segments` suite; ruff + mypy --strict clean.
+
+**Known:** the delivery is 11.875 s rather than 13.5 s -- assembly trims 14 frames at the
+boundaries and the four 6-frame dissolves consume 24 more (240 -> 190). The stabiliser's landmark
+auto-detect finds 0 takes on the assembled footage (the jumps are now sub-threshold), which is
+harmless *because* the chain passes explicit `--bounds`; run it without bounds and the exposure
+match would treat the clip as one take. Acceptance still rests on the user's visual verdict.

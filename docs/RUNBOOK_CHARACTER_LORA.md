@@ -130,10 +130,16 @@ is never used: D-9.22/23 forbid passing a render through a lossy intermediate.
 The joined clip is the raw timeline: 5 segments x 48 frames = 240 frames, with
 the segment boundaries at frames 48 / 96 / 144 / 192.
 
-## 4. Local lossless chain (D-9.21 / D-9.22 / D-9.23)
+## 4. Local lossless chain (D-9.21 / D-9.22 / D-9.23 / D-9.32)
 
 FFV1 `.mkv` intermediates, one single x264 CRF 16 delivery encode. A render
 never passes through a lossy intermediate.
+
+**Assembly (D-9.32).** The five takes are independent seeds with no narrative
+order, so the boundaries are placed by a permutation+trim search over the pair
+jump matrix (worst boundary jump 0.222 -> 0.119), not by seed order. The tool
+prints the new cut bounds — pass them to every later stage, because once the
+jumps are small the landmark auto-detection stops finding them.
 
 **Stabilizer settings for the D-9.30 footage** (rehearsed on the half-1 render,
 `runs/analysis/contact_sheets/stab_cmp_f024.png`): the defaults
@@ -145,52 +151,63 @@ higher high-frequency reinjection (0.5) restores blend softness; the native-res
 crop sheet shows genuine texture, not crunch. Identity stays at 0.9069 / 0.8518
 with 0 frames < 0.80.
 
+**The dissolve (D-9.32 fix).** `cut_smooth`'s blend weight now spans exactly
+0..1: each window opens on the pure outgoing frame and closes on the pure
+incoming one, with a single smoothstep driving both the landmark path and the
+alpha. The old `(i+1)/(k+1)` alpha topped out at 0.857 and snapped — a pop at
+every window exit the user heard as lag, and its partial-weight blend
+double-imaged the face ("blur when the frame comes").
+
 ```powershell
-python -m stages.generate.face_stabilize --video runs/analysis/refsnorm_raw.mp4 --output runs/analysis/refsnorm_stab.mkv --sigma 1.0 --window 1.0 --detail 0.5
-python -m stages.generate.cut_smooth --video runs/analysis/refsnorm_stab.mkv --output runs/analysis/refsnorm_dissolved.mkv --dissolve 6 --bounds 48 96 144 192
-& D:\ffmpeg\bin\ffmpeg.exe -y -v error -i runs/analysis/refsnorm_dissolved.mkv -c:v libx264 -crf 16 -pix_fmt yuv420p runs/analysis/refsnorm_dissolved.mp4
+python tools/assemble_segments.py --video runs/analysis/refsnorm_raw.mp4 --output runs/analysis/refsnorm_asm.mkv --bounds 48 96 144 192 --order 3 4 2 1 0 --trims 2:5 5:2 5:5 0:2
+python -m stages.generate.face_stabilize --video runs/analysis/refsnorm_asm.mkv --output runs/analysis/refsnorm_asm_stab.mkv --sigma 1.0 --window 1.0 --detail 0.5
+python -m stages.generate.cut_smooth --video runs/analysis/refsnorm_asm_stab.mkv --output runs/analysis/refsnorm_asm_dissolved.mkv --dissolve 6 --bounds 46 84 125 168
+& D:\ffmpeg\bin\ffmpeg.exe -y -v error -i runs/analysis/refsnorm_asm_dissolved.mkv -c:v libx264 -crf 16 -pix_fmt yuv420p runs/videos/S019_asmfix_11s875.mp4
 ```
 
-The cut bounds are the segment boundaries in the **raw** render (48/96/144/192);
-after the 6-frame dissolve they land at 42/84/126/168 in the 216-frame output
-(13.5 s at 16 fps).
+The assembly outputs 214 frames (240 minus the trims) with cuts at
+46/84/125/168; after the four 6-frame dissolves the delivery is 190 frames
+(11.875 s at 16 fps) with the windows at output 40/72/107/144.
 
 ## 5. Verification battery
 
 ```powershell
-python -m tools.v2_check runs/analysis/refsnorm_dissolved.mp4
-python -m tools.clip_consistency.py runs/analysis/refsnorm_dissolved.mp4
-python -m tools.identity_curve runs/analysis/refsnorm_dissolved.mp4 runs/kaggle/portraits_run3_merged/C01_0.png 42 84 126 168
-python -m stages.generate.video_analyzer --video runs/analysis/refsnorm_dissolved.mp4 --portrait runs/kaggle/portraits_run3_merged/C01_0.png --output runs/analysis/refsnorm_final_analyzer.json
+python -m tools.v2_check runs/videos/S019_asmfix_11s875.mp4
+python -m tools.clip_consistency.py runs/videos/S019_asmfix_11s875.mp4
+python -m tools.identity_curve runs/videos/S019_asmfix_11s875.mp4 runs/kaggle/portraits_run3_merged/C01_0.png 40 72 107 144
+python -m stages.generate.video_analyzer --video runs/videos/S019_asmfix_11s875.mp4 --portrait runs/kaggle/portraits_run3_merged/C01_0.png --output runs/analysis/s019_final_analyzer.json
 ```
 
 `tools.v2_check` is the single source of truth for motion: it prints the mean
 frame-to-frame difference and the still-frame count, so no separate probe
 script is needed.
 
-**Gates (from the D-9.25/D-9.26/D-9.28/D-9.30/D-9.31 measurements):**
+**Gates (from the D-9.25/D-9.26/D-9.28/D-9.30/D-9.31/D-9.32 measurements):**
 
-| Metric | v12 base | v4 adapter | refs6 (D-9.28, rejected) | **refsnorm (D-9.31, delivered)** |
-| --- | --- | --- | --- | --- |
-| identity mean / min | 0.8804 / 0.7860 | 0.9256 / 0.9105 | 0.8967 / 0.7637 | **0.9176 / 0.8466, 0 frames < 0.80** |
-| motion (mean frame diff) | 2.468 | 0.414 | 3.522 | **1.917, 0 still** |
-| face sharpness (Laplacian, encoded) | 66.2 | 15.3 | 58.6 | **549.5 (min 183.7)** |
-| face-scale cv (scale walk) | - | - | 0.039 (probe) | **0.032 (IOD) / 0.020 (height)** |
-| lighting L sd (per-segment jump) | - | - | 2.51 (probe) | **cut flash -4.53, gains within 1.8%** |
-| analyzer issues | 0 | 0 | 0 | **0 (flicker index 0.008)** |
-| cuts detected | 4 | 0 | 0 | 0 (geometrically continuous) |
+| Metric | v12 base | v4 adapter | refs6 (D-9.28, rejected) | refsnorm (D-9.31, rejected) | **asmfix (D-9.32, delivered)** |
+| --- | --- | --- | --- | --- | --- |
+| identity mean / min | 0.8804 / 0.7860 | 0.9256 / 0.9105 | 0.8967 / 0.7637 | 0.9176 / 0.8466 | **0.9186 / 0.8606, 0 frames < 0.80** |
+| motion (mean frame diff) | 2.468 | 0.414 | 3.522 | 1.917, 0 still | **1.903, 0 still** |
+| face sharpness (Laplacian, encoded) | 66.2 | 15.3 | 58.6 | 549.5 (min 183.7) | **568.4 (min 164.9)** |
+| window-exit frame diff | - | - | - | 6.97 / 10.98 / 9.24 / 5.24 (the "lag"/"cut") | **1.10 / 2.16 / 1.28 / 2.15** (interior ~1.6) |
+| window sharpness (face Lap) | - | - | - | 167-310 (the "blur") | **347-391** |
+| face-scale cv (scale walk) | - | - | 0.039 (probe) | 0.032 (IOD) / 0.020 (height) | **0.033 (IOD) / 0.019 (height)** |
+| lighting L sd (per-segment jump) | - | - | 2.51 (probe) | cut flash -4.53, gains within 1.8% | **gains within 1.8%, exit steps ≈ interior** |
+| analyzer issues | 0 | 0 | 0 | 0 (flicker index 0.008) | **0** |
+| PTS | - | - | - | 62.50 ms exact | **62.50 ms exact, 0 irregular** |
 
 Quantitative gates are necessary but **not sufficient**: the user's visual
 verdict is the acceptance criterion. Inspect the delivered frames directly
-(`tools/contact_sheet.py`, `tools/contact_sheet_range.py`).
+(`tools/contact_sheet.py`, `tools/contact_sheet_range.py`), especially every
+dissolve window: endpoints must be pixel-continuous with their raw
+neighbours and the interior single-imaged.
 
 ## 6. Package and deliver
 
 ```powershell
-python stages/generate/package_wreel_video.py --video runs/analysis/refsnorm_dissolved.mp4 --portrait runs/kaggle/portraits_run3_merged/C01_0.png --output runs/generated/S018_refsnorm.wreel --title "S018 Face-Consistent 13.5s (six normalised references)"
-python -m formats validate runs/generated/S018_refsnorm.wreel
-Copy-Item -Force runs\analysis\refsnorm_dissolved.mp4 runs\videos\S018_refsnorm_13s5.mp4
-python -m stages.generate.video_annotator --video runs/analysis/refsnorm_dissolved.mp4 --portrait runs/kaggle/portraits_run3_merged/C01_0.png --output runs/videos/S018_refsnorm_13s5_annotated.mp4
+python stages/generate/package_wreel_video.py --video runs/videos/S019_asmfix_11s875.mp4 --portrait runs/kaggle/portraits_run3_merged/C01_0.png --output runs/generated/S019_asmfix.wreel --title "S019 Face-Consistent 11.875s (reordered assembly, fixed dissolve)"
+python -m formats validate runs/generated/S019_asmfix.wreel
+python -m stages.generate.video_annotator --video runs/videos/S019_asmfix_11s875.mp4 --portrait runs/kaggle/portraits_run3_merged/C01_0.png --output runs/videos/S019_asmfix_11s875_annotated.mp4
 ```
 
 Then record the outcome in `DECISIONS.md` and

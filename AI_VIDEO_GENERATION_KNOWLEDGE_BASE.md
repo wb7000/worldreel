@@ -1709,3 +1709,37 @@ sharpness gain is a bundle result. The mechanism (white-bar letterboxing) is cod
 prompt words like "crisp detail" cannot plausibly produce an 8x Laplacian jump, but a one-arm
 control (old references + new prompt) would settle it for ~30 min of T4 if the question ever
 matters again.
+
+### 16.6 Three transition defects that pass every metric — and the two rules that kill them (D-9.32)
+
+S018 was green on identity, sharpness, motion and the analyzer, and the user still rejected it:
+*"cuts, lags and little bit blur when the frame comes"*. All three were real, all three were
+invisible to the gates, and all three lived in the **transition chain**, not the render:
+
+| complaint | mechanism | how it was measured |
+|---|---|---|
+| blur when the frame comes | the dissolve's partial-weight blend double-imaged two unwrapped poses | face Laplacian 0.38-0.64 inside the window vs 1.11-1.40 in the raw frames around it |
+| lags | blend alpha `(i+1)/(k+1)` tops out at `k/(k+1)` (0.857 at k=6), then the timeline snaps to the pure incoming take — a 14% pop every window exit | window-exit frame diffs 7.0-11.0 vs ~1.9 interior; PTS checked first and ruled regular (62.5 ms exact), so it is not playback |
+| cuts | genuine pose/scale/light jumps between takes (0.06-0.22 normalised landmark distance, 4-6% scale) that no blend *removes* — it only spreads them | per-boundary landmark jump matrix + side-column luminance step |
+
+**Rule 1: a dissolve's weight must span exactly 0..1, with the endpoints as pure source frames.**
+Any `k/(k+1)`-style alpha means the window closes on an 85-90% blend and then jumps the rest of
+the way — the viewer reads the settle-then-snap as lag and as a cut. Make the first window frame
+the pure outgoing frame, the last the pure incoming one, and drive the landmark path and the
+weight from *one* eased curve so the face travels and dissolves in step. Endpoint frames are then
+pixel-continuous with their neighbours (exit diff ≈ interior motion), which is also the cheapest
+possible regression test: `|exit diff − interior mean|` should be near zero, not 5x it.
+
+**Rule 2: boundary quality is chosen before the blend, not by it.** The five takes are independent
+seeds with no narrative order, so a permutation search over the pair jump matrix plus a few frames
+of trim at each boundary cut the worst jump from 0.222 to 0.119 for free (total 0.379 → 0.283).
+The dissolve then only has to absorb half the discontinuity, and a k=6 pose glide reads as motion
+rather than a transition. Two refuted alternatives: blur/defocus transitions (identity collapses —
+SFace min 0.07-0.39, 13-16 frames < 0.80, because a defocus makes the face unrecognisable to the
+encoder), and blending harder on unordered footage (the jumps survive every blend setting).
+
+**A trap that follows from the fix:** once the boundary jumps are small, *automatic* cut detection
+by landmark threshold silently stops finding them (the assembled clip read as one take). Every
+downstream stage must then be given explicit `--bounds` from the assembly step — otherwise the
+exposure match averages across takes and the dissolve windows are placed by guesswork.
+`tools/assemble_segments.py` prints the exact bounds to feed forward.
