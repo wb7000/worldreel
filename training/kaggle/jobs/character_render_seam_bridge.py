@@ -380,7 +380,7 @@ args = {
     "yunet": str(yunet_path),
     "sface": str(sface_path),
     "out": str(OUT_DIR),
-    "num_references": 6,
+    "num_references": 1,
     "cuts": [46, 84, 125, 168],
     "context_frames": 4,
     "bridge_frames": 1,
