@@ -248,11 +248,21 @@ step.write_text(
     # ---- Load tail frames from previous job, if provided ----
     tail_frames: list[Image.Image] | None = None
     if tail_source:
+        import re as _re
+
         tp = Path(tail_source)
         tail_files = sorted(tp.glob("tail_*.png"))
         if tail_files:
+            # A mounted dataset carries every previous segment's tail group
+            # (tail_seg<N>_*.png); only the HIGHEST segment continues the chain.
+            def _seg_no(p) -> int:
+                m = _re.search(r"tail_seg(\\d+)_", p.name)
+                return int(m.group(1)) if m else -1
+
+            last_seg = max(_seg_no(p) for p in tail_files)
+            tail_files = sorted(p for p in tail_files if _seg_no(p) == last_seg)
             tail_frames = [Image.open(str(p)).convert("RGB") for p in tail_files]
-            log(f"Loaded {len(tail_frames)} tail frames from {tp}")
+            log(f"Loaded {len(tail_frames)} tail frames from seg {last_seg} in {tp}")
             # Resize to output size if needed
             tail_frames = [im.resize((W, H), Image.LANCZOS) for im in tail_frames]
         else:
@@ -470,8 +480,10 @@ args = {
     "sface": str(sface_path),
     "out": str(OUT_DIR),
     "num_references": 6,
-    "segment_seeds": [43, 44, 45, 46, 47],
-    "segments": 3,  # job 1: segments 1-3; job 2: segments 4-5 with tail_source
+    # Job 2 config: continue the chain from job 1's tail (mounted data:cont-tail).
+    # Job 1 ran with segment_seeds [43,44,45] and segments 3 (git history: 533618a).
+    "segment_seeds": [46, 47],
+    "segments": 2,
     "tail_frames": 4,
     "continuation": True,
     "tail_source": str(tail_source_dir) if tail_source_dir else None,
@@ -555,7 +567,8 @@ if tail_src.exists():
             shutil.copy2(p, tail_dst / p.name)
             log(f"Recovered tail frame -> {p.name}")
 
-expected_stem = f"refs{args['num_references']}_segs{args['segment_seeds'][0]}-{args['segment_seeds'][-1]}_cont"
+_used_seeds = args["segment_seeds"][: args["segments"]]
+expected_stem = f"refs{args['num_references']}_segs{_used_seeds[0]}-{_used_seeds[-1]}_cont"
 expected = [f"{expected_stem}.mp4", f"{expected_stem}.json", "continuation_render.log"]
 for name in expected:
     p = OUT_DIR / name
