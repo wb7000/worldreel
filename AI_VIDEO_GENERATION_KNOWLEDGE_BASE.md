@@ -1233,6 +1233,20 @@ overflows, not the weights.
 Running at 832x480 (the trained 480P resolution) instead of 512x288 matters as much as the model:
 generating far below the training resolution is a large part of why earlier output looked soft.
 
+**Wan 2.2 does not change this ceiling (D-9.34, measured Nov 2026).** Every open 2.2 VACE
+checkpoint is the A14B *dual expert* (one ~14B expert active per timestep); there is no 1.3B/5B
+2.2 VACE. From the diffusers-layout repo (`linoyts/Wan2.2-VACE-Fun-14B-diffusers`): each expert
+is **34.7 GB fp16** (7 shards) — impossible on a 15.4 GB T4 even with sequential per-expert
+offload. GGUF quants (`QuantStack/Wan2.2-VACE-Fun-A14B-GGUF`) run 8.6 GB (Q3_K_M) to 18.7 GB
+(Q8_0) per expert: Q4_K_M (11.6 GB) + our measured ~3.5 GB of activations/encoder/VAE ≈ 16.5 GB
+> 15.4 GB, so only Q3 realistically fits — a bad trade for an identity-critical delivery.
+Compute is the harder wall: active 14B ≈ **10.8x** the 1.3B (4250 s for 49 frames/50 steps
+measured on 2.1 -> ~12 h/segment, past the 6 h Kaggle kernel; ~60 h for a 5-segment delivery
+against a 30 h/week quota). Our diffusers 0.42.1 *can* load it (`WanVACEPipeline` accepts
+`transformer` + `transformer_2` with `boundary_ratio`, and ships `GGUFQuantizationConfig`) —
+loading was never the problem; the GPU is. Revisit only with a >24 GB card, a small 2.2 VACE
+release, or an approved API route.
+
 ### 15.8 Chain drift: why a multi-segment video loses its face
 
 Chaining segments (segment N conditioned on segment N-1's tail) buys continuity but costs identity,

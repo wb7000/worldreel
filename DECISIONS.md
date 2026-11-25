@@ -3879,3 +3879,51 @@ priority order:
    take's tail — eliminates boundaries at the source, loses take-order freedom (~2 Kaggle jobs).
 3. If neither is pursued, S019 remains the accepted delivery (already pushed, user verdict
    pending).
+
+### D-9.34 Route C study: Wan2.2-VACE migration assessed on paper — feasible in diffusers, not feasible on a T4
+
+**Question.** Would moving the render from Wan2.1-VACE-1.3B to Wan 2.2's VACE release buy us
+anything, and could a T4 (15.4 GB) run it? Code-level study only, no GPU spent (agreed route
+order: A probe -> C study -> B re-render; note D-9.33's list used the label "route C" for the
+6-reference shape-bug fix -- both are covered here or in D-9.33).
+
+**What exists (checked against the HF model API, Nov 2026):**
+
+* Wan **2.1 and 2.2 are the only open-weight releases**; 2.5/2.6/2.7/3.0 are API-only.
+* There is **no small Wan 2.2 VACE**: every 2.2 VACE checkpoint is the **A14B dual-expert**
+  (one 14B-class expert active per timestep, high-noise and low-noise). Options found:
+  `alibaba-pai/Wan2.2-VACE-Fun-A14B` (Apache 2.0, videox_fun/ComfyUI layout),
+  diffusers conversions `linoyts/Wan2.2-VACE-Fun-14B-diffusers` and
+  `Pyros13/Wan2.2-VACE-Fun-A14B-Diffusers` (both `WanVACEPipeline` layout:
+  `transformer` + `transformer_2` + text_encoder/vae), and GGUF quants
+  `QuantStack/Wan2.2-VACE-Fun-A14B-GGUF` (per expert: Q3_K_M 8.6 GB, Q4_K_M 11.6 GB,
+  Q5_K_M 13.0 GB, Q8_0 18.7 GB).
+* **Our diffusers 0.42.1 already supports this layout natively**: `WanVACEPipeline` takes
+  `transformer` (high-noise) and `transformer_2` (low-noise) with `boundary_ratio`,
+  sequences them for CPU offload (`text_encoder->transformer->transformer_2->vae`), and
+  ships a real `GGUFQuantizationConfig`. So no library upgrade is needed to *load* a 2.2
+  VACE model.
+
+**Why a T4 cannot run it:**
+
+| constraint | number | consequence |
+|---|---|---|
+| fp16 weights per expert | **34.7 GB** (7 safetensors shards, measured from the diffusers repo) | fp16 impossible: even sequential per-expert offload exceeds 15.4 GB |
+| GGUF Q4_K_M per expert | 11.6 GB | est. peak 11.6 + ~3.5 GB activations/encoder/VAE ≈ **16.5 GB > 15.4 GB** -> OOM at our 480p/49-frame workload (1.3B peaks 7.86 GB) |
+| GGUF Q3_K_M per expert | 8.6 GB | est. ~13.5 GB: probably fits, but Q3 on an identity-critical delivery is a quality gamble |
+| compute | active 14B ≈ **10.8x** the 1.3B | measured 1.3B cost 4250 s for 49 frames/50 steps -> **~12 h per segment**, over the 6 h kernel timeout |
+| full 5-segment delivery | ~60 h+ GPU | **2x the weekly 30 h quota**, before any probe iterations |
+| model download | ~70 GB fp16 / ~27 GB GGUF | minutes-to-hours of every job's budget |
+
+**It also would not target our defect.** The cuts/lags/blur live in *assembly* of independent
+takes (D-9.32); 2.2 improves generation quality (motion, aesthetics) but boundaries are created
+after generation. And the whole identity recipe -- 6 normalized refs, prompt/negative,
+guidance 5.0, conditioning_scale 1.0, flow_shift 3.0, UniPC/50 steps -- was tuned against 2.1
+(D-9.29/D-9.30) and would need a fresh probe budget on the new base.
+
+**Decision: do not migrate now; stay on Wan2.1-VACE-1.3B for deliveries.** Revisit only if one
+of these changes: (a) Kaggle offers a >24 GB GPU or the quota grows enough for ~60 h runs;
+(b) a 1.3B/5B-class 2.2 VACE checkpoint appears; (c) the API route (D, declined earlier) is
+approved. If curiosity demands a first touch, the cheapest meaningful probe is one 13-frame
+generation at 480p from the GGUF Q4 conversion via diffusers' `GGUFQuantizationConfig`
+(~1 GPU hour incl. download) -- nothing larger until that fits.
