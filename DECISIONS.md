@@ -3927,3 +3927,59 @@ of these changes: (a) Kaggle offers a >24 GB GPU or the quota grows enough for ~
 approved. If curiosity demands a first touch, the cheapest meaningful probe is one 13-frame
 generation at 480p from the GGUF Q4 conversion via diffusers' `GGUFQuantizationConfig`
 (~1 GPU hour incl. download) -- nothing larger until that fits.
+
+### D-9.35 Route B complete: the continuation chain is pose-continuous but fails identity — refuted as a delivery route
+
+**What was run.** Two Kaggle jobs (~5.5 h T4 total: 3.6 h + 1.9 h) of
+`training/kaggle/jobs/character_render_continuation.py`: five 49-frame segments, segment 0
+conditioned on the portrait, segments 1-4 on the previous segment's **tail only** (4 black-mask
+frames), all six normalized references passed as `reference_images` every segment (the D-9.17/18
+lesson: never mix portrait+tail in the video conditioning). Halves joined bit-identical with
+`tools/join_clips.py` (stream copy, 138 + 90 = 228 frames), exposure-matched with
+`cut_smooth --dissolve 0 --bounds 48 93 138 183`, final x264 CRF 16:
+`runs/videos/routeb_full_chain_228f.mp4` (14.25 s, PTS exactly 62.50 ms, 0 irregular).
+
+**What route B bought (the goal -- no cuts at the source):**
+
+| handoff | cross diff (raw) | after exposure match | vs interior | pose step (landmark) | vs in-segment |
+|---|---|---|---|---|---|
+| 48 | 6.54 | **4.56** | 2.00x | 1.32 px | 0.8x |
+| 93 | 5.32 | **4.41** | 1.94x | 3.05 px | 1.8x |
+| 138 (cross-job) | 6.90 | **6.23** | 2.74x | 1.90 px | 1.1x |
+| 183 | - | **5.66** | 2.48x | 3.16 px | 1.9x |
+
+Pose never jumps: every handoff's landmark motion is at or below ordinary in-segment motion, so
+there is no teleport feel, and the pixel jumps (1.9-2.7x interior) are strictly smaller than the
+original raw cuts S019 started from (4.99-6.61 = 2.6-3.5x). Contact sheet
+`routeb_handoffs_c1.png` confirms continuous pose through all four handoffs.
+
+**What it cost -- the step toll compounds (KB 15.8/15.9 confirmed on tail-only chains):**
+
+| segment | 0 (seed) | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|---|
+| identity mean | 0.9234 | 0.8768 | 0.8357 | **0.7908** | **0.7095** |
+| identity min | 0.8997 | 0.8490 | 0.8057 | 0.7419 | 0.6581 |
+
+Full clip: mean **0.8277**, min **0.6545**, **80/228 frames < 0.80**, 41/228 < 0.75 (gate: mean
+>= 0.90, none < 0.80 -- hard fail). Handoff identity steps -0.043 / -0.021 / -0.055 / **-0.112**
+(accelerating). Exposure compounds alongside: per-segment match-gains 0.914 -> 0.967 -> 0.993 ->
+1.050 -> 1.097 (~20 % across the chain), and the analyzer reports **1 medium issue**
+(luminance_flicker 0.057 > 0.05) against a 0-issue gate. The drift sheet `routeb_drift_c1.png`
+shows it directly: by frame 205 the face is wider, lighter and softer than the portrait.
+Sharpness (569.5 / min 380.1), face detection (0 missing, 0 ghost), and motion stayed healthy --
+identity is the killer, exactly as D-9.17/18 foreshadowed.
+
+**Two new facts this run adds beyond v9/v10:** (a) `reference_images` anchoring on **every**
+segment does not arrest the step toll -- the video conditioning carrying the degraded tail
+dominates the reference pull; (b) the exposure walk is the same multiplicative-compounding
+failure applied to brightness, and only per-segment gain matching (which needs the bounds known
+in advance) hides it -- including one forgotten handoff (job 2's internal cut at 183) is enough
+to leave a +4.4 grey-level step in place.
+
+**Decision: route B is refuted as a full-length delivery route; S019 stands as the delivery.**
+Salvageable: the first three segments (138 frames, 8.6 s) stay entirely >= 0.80 (mean 0.879,
+min 0.805) with pose-continuous 2.0x/1.9x handoffs -- but that is shorter than S019 and still
+below the 0.90 mean gate. The identity-safe boundary fix remains **route A** (D-9.33: generated
+bridges over portrait-pinned takes, 0.9124/0.8491, analyzer 0), optionally combined with this
+run's exposure-matching step. Costs: 5.5 h GPU, jobs fixed for reuse (tail-group selection,
+artefact naming, `data:cont-tail` hand-off dataset pushed).

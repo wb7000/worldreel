@@ -1292,6 +1292,20 @@ slope fit is blind to:
    compound exactly like slopes: N segments pay N-1 of them. Slope fits measure *within*-segment
    trends and skip the boundaries, so fit the **segment starts** too — here they fell
    0.928 -> 0.851 -> 0.789 -> 0.740 -> 0.709.
+
+**Tail-only chains confirmed the same toll (route B, D-9.35, Nov 2026).** The continuation-chain
+render conditioned every segment on the previous segment's **tail only** (no portrait in the video
+conditioning) while passing all six references as `reference_images` every time. The compounding
+was unchanged: segment means 0.923 -> 0.877 -> 0.836 -> 0.791 -> 0.710, handoff steps
+-0.043 / -0.021 / -0.055 / **-0.112** (accelerating), full-clip min 0.6545 with 80/228 frames
+below 0.80. Two things this adds beyond v9/v10: (a) `reference_images` anchoring alone does **not**
+arrest the step toll — the identity pull of reference images is weaker than the video conditioning
+that carries the degraded tail; (b) exposure compounds alongside identity — per-segment match-gains
+walked 0.914 -> 0.967 -> 0.993 -> 1.050 -> 1.097 (~20 % over five segments), which is the same
+multiplicative-attribute lesson applied to brightness. What tail-only chaining *did* buy: pose-
+continuous handoffs (landmark step 0.8-1.9x the in-segment motion, vs pose jumps on independent
+takes) and smaller pixel jumps than raw cuts (2.0-2.7x interior after exposure match, vs 2.6-3.5x).
+The continuity is real; the identity price is not payable beyond ~3 segments.
 2. **A composition random walk.** corr(identity, inter-ocular distance) = **+0.874**: the framing
    drifted ~24% wider over the first segments (IOD 111.7 -> 85.6) and the identity metric fell
    with the face size. Before diagnosing "identity drift", check geometry — pose/scale often
