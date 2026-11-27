@@ -1,4 +1,4 @@
-# WorldReel
+# WorldReel (Prototype with minimal success)
 
 Turn an ordinary flat video into a world you can step into, and later generate such worlds from
 scripts.
